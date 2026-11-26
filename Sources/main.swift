@@ -25,6 +25,15 @@
 //                                                                   that the model is let go after a translation
 //   BTranslate --pack-languages                                     which of Google's languages the pack
 //                                                                   has, and under which of its codes
+//   BTranslate --detect "text"                                      what the pack's detector, the Mac's
+//                                                                   recognizer and both together make of
+//                                                                   a text's language
+//   BTranslate --detect-check FILE [DETECTOR]                       the detector's arithmetic against the
+//                                                                   Python that made its file
+//                                                                   (tests/detect-vectors.json)
+//   BTranslate --detect-eval FILE [DETECTOR] [--own en,ru]          how often a text's language is told
+//                                                                   right, over "language<tab>kind<tab>text"
+//                                                                   lines (tools/nllb/README.md)
 //   BTranslate --download-check                                     the Download button's way to macOS,
 //                                                                   without a download: for English and
 //                                                                   German, if both are there already,
@@ -596,6 +605,116 @@ if arguments.contains("--selftest") {
             return 1
         }
     }
+} else if let file = argument(after: "--detect-check") {
+    // The detector's own arithmetic against the Python that made its file.
+    struct Case: Decodable {
+        let text: String
+        let best: [Best]
+        struct Best: Decodable {
+            let label: String, chance: Double
+            init(from decoder: Decoder) throws {
+                var pair = try decoder.unkeyedContainer()
+                label = try pair.decode(String.self)
+                chance = try pair.decode(Double.self)
+            }
+        }
+    }
+    let other = Array(arguments.drop { $0 != "--detect-check" }.dropFirst(2)).first.flatMap { $0.hasPrefix("-") ? nil : $0 }
+    guard let detector = other.map({ PackDetector(file: URL(fileURLWithPath: $0)) }) ?? PackDetector.installed() else {
+        print("detector check: skipped (the language pack is not installed, or has no detector)")
+        exit(0)
+    }
+    guard let cases = (try? Data(contentsOf: URL(fileURLWithPath: file))).flatMap({ try? JSONDecoder().decode([Case].self, from: $0) }) else {
+        print("detector check: can't read \(file)")
+        exit(1)
+    }
+    var wrong = 0
+    let started = Date()
+    for item in cases {
+        let mine = detector.chances(of: item.text, count: 3)
+        let same = zip(mine, item.best).allSatisfy { abs($0.chance - $1.chance) < 0.002 && ($0.label == $1.label || abs($0.chance - $1.chance) < 0.0002 && $1.chance < 0.001) }
+        if !same {
+            wrong += 1
+            print("DIFFERENT: \(item.text.debugDescription)\n   mine \(mine)\n   file \(item.best.map { ($0.label, $0.chance) })")
+        }
+    }
+    print(String(format: "detector: %d of %d texts as the Python that made it has them (%.1f ms a text)", cases.count - wrong, cases.count,
+                 1000 * Date().timeIntervalSince(started) / Double(max(cases.count, 1))))
+    // And what the app makes of the detector's scores: shares of 1, nothing for a text
+    // without a letter, more for a language that is one of the user's own.
+    var rules = true
+    for item in cases where OnDevice.prepared(item.text).contains(where: { $0 != " " }) {
+        let plain = OnDevice.guesses(for: item.text, own: [], with: detector)
+        guard plain.count > 1, abs(plain.reduce(0) { $0 + $1.chance } - 1) < 1e-6 else { rules = false; continue }
+        let second = plain[1].code
+        let boosted = OnDevice.guesses(for: item.text, own: [second], with: detector)
+        if plain[1].chance > 1e-9, (boosted.first { $0.code == second }?.chance ?? 0) <= plain[1].chance { rules = false }
+    }
+    if !OnDevice.guesses(for: "12345 !!! 🙂", own: [], with: detector).isEmpty { rules = false }
+    print("detector's answers as shares, and the user's languages counting for more: \(rules ? "yes" : "NO")")
+    exit(wrong == 0 && rules ? 0 : 1)
+} else if let text = argument(after: "--detect") {
+    // What the language pack's detector makes of a text, and what the app would take it for.
+    guard let detector = PackDetector.installed() else {
+        print("detector: the language pack is not installed, or has no detector")
+        exit(0)
+    }
+    let own = OnDevice.ownLanguages
+    let started = Date()
+    let guesses = OnDevice.guesses(for: text, own: own, with: detector)
+    let took = 1000 * Date().timeIntervalSince(started)
+    print("the detector alone: " + detector.chances(of: OnDevice.prepared(text), count: 3).map { "\($0.label) \(String(format: "%.2f", $0.chance))" }.joined(separator: ", "))
+    print("the Mac's recognizer: " + OnDevice.macGuesses(text, count: 3).map { "\($0.code) \(String(format: "%.2f", $0.chance))" }.joined(separator: ", "))
+    print("together, with your languages (\(own.joined(separator: ", "))): "
+          + guesses.prefix(3).map { "\($0.code) \(String(format: "%.2f", $0.chance))" }.joined(separator: ", "))
+    if let best = guesses.first, best.chance >= OnDevice.sureEnough, OnDevice.packHas(best.code) {
+        print(String(format: "taken for: %@ (%.1f ms)", languageName(best.code), took))
+    } else {
+        print(String(format: "not sure enough: the popup would ask (%.1f ms)", took))
+    }
+    exit(0)
+} else if let file = argument(after: "--detect-eval") {
+    // How often the app tells a text's language right, over a file of
+    // "language<tab>kind<tab>text" lines (Google's codes; the kinds are counted apart).
+    let other = Array(arguments.drop { $0 != "--detect-eval" }.dropFirst(2)).first.flatMap { $0.hasPrefix("-") ? nil : $0 }
+    guard let detector = other.map({ PackDetector(file: URL(fileURLWithPath: $0)) }) ?? PackDetector.installed(),
+          let lines = try? String(contentsOfFile: file, encoding: .utf8) else {
+        print("can't read the file, or there is no detector")
+        exit(1)
+    }
+    let own = argument(after: "--own")?.split(separator: ",").map(String.init) ?? []
+    let macKnows = Set("ar bg bn bo ca cs da de el en es fi fr gu iw hi hr hu hy id is it ja ka kk km kn ko lo ml mr my no nl or pa pl pt ro ru si sk sv ta te th tr uk ur vi zh-CN zh-TW".split(separator: " ").map(String.init))
+    func plain(_ code: String) -> String { ["bs": "hr", "fa-AF": "fa"][code] ?? code }  // told apart by nobody, and one to the translator
+    struct Count { var texts = 0, right = 0, answered = 0, rightAnswers = 0, oldRight = 0 }
+    var counts: [String: [Count]] = [:]  // by kind: all, the Mac's languages, the others
+    var kinds: [String] = []
+    let apple = Set(macKnows.map { OnDevice.language($0).languageCode?.identifier ?? $0 })
+    for line in lines.split(separator: "\n") {
+        let fields = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+        guard fields.count == 3 else { continue }
+        if counts[fields[1]] == nil { counts[fields[1]] = [Count(), Count(), Count()]; kinds.append(fields[1]) }
+        let truth = own.contains("sr") && ["hr", "bs"].contains(fields[0]) ? "sr" : plain(fields[0])
+        let best = OnDevice.guesses(for: fields[2], own: own, with: detector).first
+        let old = OnDevice.recognize(fields[2], among: apple)
+        for group in [0, macKnows.contains(fields[0]) ? 1 : 2] {
+            counts[fields[1]]![group].texts += 1
+            if let best, plain(best.code) == truth {
+                counts[fields[1]]![group].right += 1
+                if best.chance >= OnDevice.sureEnough { counts[fields[1]]![group].rightAnswers += 1 }
+            }
+            if let best, best.chance >= OnDevice.sureEnough { counts[fields[1]]![group].answered += 1 }
+            if let old, plain(old) == truth { counts[fields[1]]![group].oldRight += 1 }
+        }
+    }
+    func share(_ a: Int, _ b: Int) -> String { String(format: "%.1f%%", 100 * Double(a) / Double(max(b, 1))) }
+    for kind in kinds {
+        for (group, name) in ["all languages", "the Mac's 52", "the others"].enumerated() {
+            let c = counts[kind]![group]
+            print("\(kind), \(name) (\(c.texts) texts): best guess right \(share(c.right, c.texts)); answered \(share(c.answered, c.texts)), "
+                  + "of the answers right \(share(c.rightAnswers, c.answered)); without the pack's detector right \(share(c.oldRight, c.texts))")
+        }
+    }
+    exit(0)
 } else if arguments.contains("--offline") {
     runHeadless {
         guard OnDevice.isAvailable else {

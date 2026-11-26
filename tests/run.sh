@@ -191,6 +191,13 @@ check "Settings, with the offline marks: every text fits" "settings window, ever
 SET_RU="$(env BTRANSLATE_LANGUAGE=ru "$BIN" --offline-uitest settings -AppleLanguages '(ru)' -googleEnabled YES -deviceEnabled YES -languages '(en, ru, fr, lv)' build/uitest-ru 2>&1 || true)"
 check "Settings in Russian, with the offline marks: every text fits" "settings window, every text fits: yes" echo "$SET_RU"
 
+# The language pack's detector of a text's language, on a made-up file of a few rows: the app
+# must read it as the Python that wrote it does (tools/nllb/lid.py toy).
+TOY_OUT="$("$BIN" --detect-check tests/detect-toy.json tests/detect-toy.bin 2>&1 || true)"
+check "Detector: words, letter groups and packed numbers, read as the Python reads them" "detector: 9 of 9 texts" echo "$TOY_OUT"
+check "Detector: its answers as shares, and the user's own languages counting for more" "counting for more: yes" echo "$TOY_OUT"
+check "Detector: none without the language pack" "the language pack is not installed, or has no detector" "$BIN" --detect "Labdien"
+
 # The language pack: downloaded from the mock server (a miniature one), checked and installed.
 pack() { env BTRANSLATE_PACK_URL="$MOCK/$1" "$BIN" "${@:2}"; }
 check "Language pack: not there to begin with" "language pack: not installed" "$BIN" --pack
@@ -225,6 +232,20 @@ if [ "${1:-}" = "--live" ]; then
         check "Language pack, live: the model is let go after the translation" "model let go after the translation: yes" echo "$PACK_OUT"
         check "Language pack, live: Serbian through the Offline method" "source: Serbian" \
             env -u BTRANSLATE_PACK_DIR -u BTRANSLATE_OFFLINE "$BIN" --print --engine device --to ru "Јуче смо били на пијаци и купили свеже воће."
+        # Its detector: the arithmetic against the Python's, and languages the Mac's own
+        # recognizer does not know (it takes Persian for Arabic and Tajik for Bulgarian).
+        # (With a list of languages of the test's own: yours would have a say in the answers.)
+        live() { env -u BTRANSLATE_PACK_DIR -u BTRANSLATE_OFFLINE "$BIN" -languages '(en, ru)' -recentSources '()' "$@"; }
+        check "Detector, live: the pack's file, read as the Python reads it" "detector: 69 of 69 texts" live --detect-check tests/detect-vectors.json
+        check "Detector, live: Persian" "taken for: Persian" live --detect "فردا از ساعت نه تا پنج در دفتر خواهم بود."
+        check "Detector, live: Tajik" "taken for: Tajik" live --detect "Пагоҳ ман аз соати нӯҳ то панҷ дар идора хоҳам буд."
+        check "Detector, live: a notice in capitals" "taken for: Latvian" live --detect "SMĒĶĒT AIZLIEGTS! LŪDZU, IZMANTOJIET CITU IEEJU."
+        check "Detector, live: two words that are Lombard to the detector alone" "taken for: English" live --detect "Sign in"
+        check "Detector, live: one word is too little to be sure, and the popup says what it may be" "it may be English" \
+            live --print --engine device --to ru "hello"
+        check "Detector, live: a text of digits is nobody's" "the popup would ask" live --detect "12345 !!!"
+        check "Detector, live: Persian through the Offline method" "source: Persian" \
+            live --print --engine device --to en "فردا از ساعت نه تا پنج در دفتر خواهم بود."
     else
         echo "skip  Language pack, live (it is not installed on this Mac)"
     fi

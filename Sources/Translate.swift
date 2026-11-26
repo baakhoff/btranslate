@@ -47,8 +47,10 @@ func describe(_ error: Error) -> String {
         return L("The NLLB-200 language pack is not installed.")
     case NLLBError.broken(let what):
         return L("The language pack could not translate this: %@", what)
-    case OfflineError.unknownLanguage:
-        return L("Can't tell which language this text is in. Set it with the pencil above.")
+    case OfflineError.unknownLanguage(let maybe):
+        if maybe.isEmpty { return L("Can't tell which language this text is in. Set it with the pencil above.") }
+        return L("Can't tell which language this text is in: it may be %@. Set it with the pencil above.",
+                 maybe.map { languageName($0, inText: true) }.joined(separator: L(" or ")))
     case OfflineError.noLanguage(let code):
         return L("The Offline method has no %@.", languageName(code, inText: true))
     case OfflineError.noPair(let from, let to):
@@ -613,6 +615,17 @@ func selfTest() -> [String] {
     expect("offline: Serbian in Latin letters, which the Mac calls Croatian", OnDevice.asTheUserMeans("hr", list: ["en", "sr-Latn"], recent: []) == "sr"
         && OnDevice.asTheUserMeans("hr", list: ["en"], recent: ["sr"]) == "sr" && OnDevice.asTheUserMeans("hr", list: ["en", "ru"], recent: []) == "hr"
         && OnDevice.asTheUserMeans("hr", list: ["hr", "sr"], recent: []) == "hr" && OnDevice.asTheUserMeans("de", list: ["sr"], recent: []) == "de")
+    expect("offline: a text as the pack's detector sees it", OnDevice.prepared("ZABRANJENO PUŠENJE!").split(separator: " ") == ["zabranjeno", "pušenje"]
+        && OnDevice.prepared("Hello, world 123 🙂").split(separator: " ") == ["Hello", "world"]
+        && OnDevice.prepared("don't re-do it").split(separator: " ") == ["don't", "re-do", "it"]
+        && OnDevice.prepared("Rīgas Dome").split(separator: " ") == ["Rīgas", "Dome"] && OnDevice.prepared("НЕ КУРИТЬ").hasPrefix("не курить"))
+    expect("offline: the pack's languages back to Google's codes", NLLBLanguage.google("lvs_Latn") == "lv" && NLLBLanguage.google("fra_Latn") == "fr"
+        && NLLBLanguage.google("srp_Cyrl") == "sr" && NLLBLanguage.google("nno_Latn") == "no" && NLLBLanguage.google("zho_Hant") == "zh-TW"
+        && NLLBLanguage.google("kab_Latn") == nil && OnDevice.googleCode("pa-Guru") == "pa")
+    let maybe = describe(OfflineError.unknownLanguage(["lv", "lt"]))
+    expect("offline: a language that can't be told, with what it may be (\(maybe))",
+           maybe.contains(languageName("lv", inText: true) + L(" or ") + languageName("lt", inText: true))
+           && !describe(OfflineError.unknownLanguage([])).contains(languageName("lv", inText: true)))
     expect("language pack: its codes for Google's languages", NLLBLanguage.code("lv") == "lvs_Latn" && NLLBLanguage.code("ru") == "rus_Cyrl"
         && NLLBLanguage.code("en") == "eng_Latn" && NLLBLanguage.code("sr") == "srp_Cyrl" && NLLBLanguage.code("sr-Latn") == "srp_Cyrl"
         && NLLBLanguage.code("zh-CN") == "zho_Hans" && NLLBLanguage.code("iw") == "heb_Hebr" && NLLBLanguage.code("uk") == "ukr_Cyrl"

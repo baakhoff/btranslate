@@ -1,0 +1,1175 @@
+[
+ {
+  "text": "Pilots tika identificēts kā aviācijas majors Dilokrits Patavejs.",
+  "best": [
+   [
+    "lvs_Latn",
+    0.9998
+   ],
+   [
+    "ltg_Latn",
+    0.0002
+   ],
+   [
+    "est_Latn",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "Vaithallā iepretim",
+  "best": [
+   [
+    "lvs_Latn",
+    0.9934
+   ],
+   [
+    "ltg_Latn",
+    0.0047
+   ],
+   [
+    "tpi_Latn",
+    0.001
+   ]
+  ]
+ },
+ {
+  "text": "NADALA REKORDS DUELĪ PRET KANĀDIETI IR 7–2.",
+  "best": [
+   [
+    "yue_Hant",
+    0.865
+   ],
+   [
+    "kor_Hang",
+    0.1345
+   ],
+   [
+    "deu_Latn",
+    0.0001
+   ]
+  ]
+ },
+ {
+  "text": "Пилот је идентификован као вођа ескадриле Дилокрит Патаве.",
+  "best": [
+   [
+    "srp_Cyrl",
+    1.0
+   ],
+   [
+    "mkd_Cyrl",
+    0.0
+   ],
+   [
+    "rus_Cyrl",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "пута улаза",
+  "best": [
+   [
+    "srp_Cyrl",
+    0.998
+   ],
+   [
+    "rus_Cyrl",
+    0.0019
+   ],
+   [
+    "bxr_Cyrl",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "НАДАЛОВ МЕЂУСОБНИ СКОР ПРОТИВ КАНАЂАНИНА ЈЕ 7-2.",
+  "best": [
+   [
+    "che_Cyrl",
+    0.0911
+   ],
+   [
+    "srp_Cyrl",
+    0.0852
+   ],
+   [
+    "ukr_Cyrl",
+    0.0503
+   ]
+  ]
+ },
+ {
+  "text": "Pilot je identificiran kao zapovjednik eskadrile Dilokrit Pattavee.",
+  "best": [
+   [
+    "hrv_Latn",
+    0.7807
+   ],
+   [
+    "bos_Latn",
+    0.2189
+   ],
+   [
+    "slv_Latn",
+    0.0001
+   ]
+  ]
+ },
+ {
+  "text": "nasuprot ulaza",
+  "best": [
+   [
+    "hrv_Latn",
+    0.8076
+   ],
+   [
+    "bos_Latn",
+    0.1917
+   ],
+   [
+    "ron_Latn",
+    0.0005
+   ]
+  ]
+ },
+ {
+  "text": "NADALOV REKORD U IZRAVNOM SUČELJAVANJU PROTIV KANAĐANINA JE 7:2.",
+  "best": [
+   [
+    "yue_Hant",
+    0.9502
+   ],
+   [
+    "kor_Hang",
+    0.0491
+   ],
+   [
+    "roh_Latn",
+    0.0001
+   ]
+  ]
+ },
+ {
+  "text": "Личность пилота была установлена. Им оказался командир эскадрильи Дилокрит Паттави.",
+  "best": [
+   [
+    "rus_Cyrl",
+    0.9944
+   ],
+   [
+    "bak_Cyrl",
+    0.0019
+   ],
+   [
+    "ukr_Cyrl",
+    0.0016
+   ]
+  ]
+ },
+ {
+  "text": "Уайтхолл напротив",
+  "best": [
+   [
+    "rus_Cyrl",
+    0.9929
+   ],
+   [
+    "bak_Cyrl",
+    0.0061
+   ],
+   [
+    "oss_Cyrl",
+    0.0005
+   ]
+  ]
+ },
+ {
+  "text": "РЕКОРД НАДАЛА В СХВАТКАХ ОДИН НА ОДИН С КАНАДЦЕМ —  7–2.",
+  "best": [
+   [
+    "che_Cyrl",
+    0.2174
+   ],
+   [
+    "ukr_Cyrl",
+    0.1032
+   ],
+   [
+    "srp_Cyrl",
+    0.0398
+   ]
+  ]
+ },
+ {
+  "text": "The pilot was identified as Squadron Leader Dilokrit Pattavee.",
+  "best": [
+   [
+    "eng_Latn",
+    0.9834
+   ],
+   [
+    "afr_Latn",
+    0.0091
+   ],
+   [
+    "swe_Latn",
+    0.0013
+   ]
+  ]
+ },
+ {
+  "text": "the police-guarded",
+  "best": [
+   [
+    "eng_Latn",
+    0.9997
+   ],
+   [
+    "por_Latn",
+    0.0001
+   ],
+   [
+    "spa_Latn",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "NADAL'S HEAD TO HEAD RECORD AGAINST THE CANADIAN IS 7–2.",
+  "best": [
+   [
+    "yue_Hant",
+    1.0
+   ],
+   [
+    "kor_Hang",
+    0.0
+   ],
+   [
+    "lmo_Latn",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "مشخص شد که خلبان رهبر اسكادران، دیلوكریت پاتاوی بوده است.",
+  "best": [
+   [
+    "pes_Arab",
+    0.9999
+   ],
+   [
+    "azb_Arab",
+    0.0
+   ],
+   [
+    "prs_Arab",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "خیابان «داونینگ»،",
+  "best": [
+   [
+    "pes_Arab",
+    0.9939
+   ],
+   [
+    "urd_Arab",
+    0.0044
+   ],
+   [
+    "azb_Arab",
+    0.0014
+   ]
+  ]
+ },
+ {
+  "text": "رکورد امتیاز نادال در مقابل حریف کانادایی 7–2 است.",
+  "best": [
+   [
+    "pes_Arab",
+    0.999
+   ],
+   [
+    "azb_Arab",
+    0.0006
+   ],
+   [
+    "urd_Arab",
+    0.0001
+   ]
+  ]
+ },
+ {
+  "text": "涉事飞行员是空军中队长迪罗里·帕塔维 (Dilokrit Pattavee)。",
+  "best": [
+   [
+    "zho_Hans",
+    0.1138
+   ],
+   [
+    "fin_Latn",
+    0.1037
+   ],
+   [
+    "est_Latn",
+    0.0758
+   ]
+  ]
+ },
+ {
+  "text": "左右在白厅 (Whitehall)",
+  "best": [
+   [
+    "mlt_Latn",
+    0.2224
+   ],
+   [
+    "deu_Latn",
+    0.1024
+   ],
+   [
+    "azj_Latn",
+    0.0912
+   ]
+  ]
+ },
+ {
+  "text": "纳达尔（NADAL）与加拿大人的交手记录是 7-2。",
+  "best": [
+   [
+    "zho_Hans",
+    0.3384
+   ],
+   [
+    "yue_Hant",
+    0.2587
+   ],
+   [
+    "zho_Hant",
+    0.0609
+   ]
+  ]
+ },
+ {
+  "text": "操縦士は中隊長のディロクリット・パタヴェー氏であることが確認されました。",
+  "best": [
+   [
+    "jpn_Jpan",
+    0.9943
+   ],
+   [
+    "mai_Deva",
+    0.0012
+   ],
+   [
+    "mar_Deva",
+    0.0003
+   ]
+  ]
+ },
+ {
+  "text": "で始まり、首相官邸が",
+  "best": [
+   [
+    "jpn_Jpan",
+    0.5817
+   ],
+   [
+    "hin_Deva",
+    0.0345
+   ],
+   [
+    "mar_Deva",
+    0.0337
+   ]
+  ]
+ },
+ {
+  "text": "ナダルの対カナダ戦の戦績は7-2です。",
+  "best": [
+   [
+    "jpn_Jpan",
+    0.2134
+   ],
+   [
+    "mar_Deva",
+    0.075
+   ],
+   [
+    "mai_Deva",
+    0.0498
+   ]
+  ]
+ },
+ {
+  "text": "นักบินคนดังกล่าวถูกระบุว่าเป็นนาวาอากาศตรีดิลกฤทธิ์ ปัถวี",
+  "best": [
+   [
+    "tha_Thai",
+    0.9995
+   ],
+   [
+    "bak_Cyrl",
+    0.0002
+   ],
+   [
+    "mya_Mymr",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "ตามเวลาท้องถิ่น (UTC+1)",
+  "best": [
+   [
+    "tha_Thai",
+    0.9812
+   ],
+   [
+    "bak_Cyrl",
+    0.0029
+   ],
+   [
+    "mar_Deva",
+    0.002
+   ]
+  ]
+ },
+ {
+  "text": "สถิติการแข่งเฮด-ทู-เฮดของนาดาลกับผู้เล่นชาวแคนาดาคือ 7-2",
+  "best": [
+   [
+    "tha_Thai",
+    0.999
+   ],
+   [
+    "bak_Cyrl",
+    0.0002
+   ],
+   [
+    "mya_Mymr",
+    0.0001
+   ]
+  ]
+ },
+ {
+  "text": "पायलट की पहचान स्क्वाड्रन लीडर दिलोकृत पटावी के रूप में की गई.",
+  "best": [
+   [
+    "hin_Deva",
+    0.8335
+   ],
+   [
+    "hne_Deva",
+    0.1147
+   ],
+   [
+    "bho_Deva",
+    0.0399
+   ]
+  ]
+ },
+ {
+  "text": "जो प्रधानमंत्री",
+  "best": [
+   [
+    "hin_Deva",
+    0.986
+   ],
+   [
+    "mar_Deva",
+    0.0096
+   ],
+   [
+    "npi_Deva",
+    0.0042
+   ]
+  ]
+ },
+ {
+  "text": "कनाडियन के खिलाफ नडाल का सीधा रिकॉर्ड 7-2 है।",
+  "best": [
+   [
+    "hin_Deva",
+    0.716
+   ],
+   [
+    "awa_Deva",
+    0.2791
+   ],
+   [
+    "hne_Deva",
+    0.0036
+   ]
+  ]
+ },
+ {
+  "text": "პილოტის გვამი იდენტიფიცირებული იყო. ეს იყო ავიაციის მაიორი დილოკრიტ პატავი.",
+  "best": [
+   [
+    "kat_Geor",
+    1.0
+   ],
+   [
+    "xmf_Geor",
+    0.0
+   ],
+   [
+    "oss_Cyrl",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "მინისტრის ოფიციალური",
+  "best": [
+   [
+    "kat_Geor",
+    0.9988
+   ],
+   [
+    "xmf_Geor",
+    0.0011
+   ],
+   [
+    "oss_Cyrl",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "ᲜᲐᲓᲐᲚᲡ ᲙᲐᲜᲐᲓᲔᲚᲗᲐᲜ ᲓᲐᲞᲘᲠᲘᲡᲞᲘᲠᲔᲑᲐᲨᲘ ᲐᲥᲕᲡ ᲣᲞᲘᲠᲐᲢᲔᲡᲝᲑᲐ 7-2.",
+  "best": [
+   [
+    "npi_Deva",
+    0.0268
+   ],
+   [
+    "hin_Deva",
+    0.0197
+   ],
+   [
+    "urd_Arab",
+    0.0179
+   ]
+  ]
+ },
+ {
+  "text": "Ο πιλότος αναγνωρίστηκε ως ο επισμηναγός Ντιλόκριτ Πάτταβι.",
+  "best": [
+   [
+    "ell_Grek",
+    0.9997
+   ],
+   [
+    "kaz_Cyrl",
+    0.0001
+   ],
+   [
+    "npi_Deva",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "από τη",
+  "best": [
+   [
+    "ell_Grek",
+    1.0
+   ],
+   [
+    "npi_Deva",
+    0.0
+   ],
+   [
+    "mar_Deva",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "ΤΟ ΡΕΚΌΡ ΤΟΥ ΝΑΔΆΛ ΑΠΈΝΑΝΤΙ ΣΤΟΝ ΚΑΝΑΔΌ ΕΊΝΑΙ 7-2.",
+  "best": [
+   [
+    "ell_Grek",
+    0.0384
+   ],
+   [
+    "oss_Cyrl",
+    0.0265
+   ],
+   [
+    "rus_Cyrl",
+    0.023
+   ]
+  ]
+ },
+ {
+  "text": "הטייס זוהה כמפקד הטייסת דילוקריט פאטאבי.",
+  "best": [
+   [
+    "heb_Hebr",
+    0.9992
+   ],
+   [
+    "ydd_Hebr",
+    0.0007
+   ],
+   [
+    "kaz_Cyrl",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "לרחוב דאונינג",
+  "best": [
+   [
+    "heb_Hebr",
+    0.9908
+   ],
+   [
+    "ydd_Hebr",
+    0.0091
+   ],
+   [
+    "kaz_Cyrl",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "השיא של נדאל בראש בראש מול הקנדי הוא 7-2.",
+  "best": [
+   [
+    "heb_Hebr",
+    1.0
+   ],
+   [
+    "ydd_Hebr",
+    0.0
+   ],
+   [
+    "kaz_Cyrl",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "그 조종사는 비행 중대장 딜로크리트 패타비로 확인되었다.",
+  "best": [
+   [
+    "kor_Hang",
+    1.0
+   ],
+   [
+    "san_Deva",
+    0.0
+   ],
+   [
+    "uig_Arab",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "입구 맞은편",
+  "best": [
+   [
+    "kor_Hang",
+    1.0
+   ],
+   [
+    "rus_Cyrl",
+    0.0
+   ],
+   [
+    "vie_Latn",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "나달과 이 캐나다 선수와의 정면 대결 기록은 7 대 2입니다.",
+  "best": [
+   [
+    "kor_Hang",
+    1.0
+   ],
+   [
+    "san_Deva",
+    0.0
+   ],
+   [
+    "uig_Arab",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "Халабон ба Дилокрит Паттави ‑ фармондеҳи эскадриля ҳаммонанд карда шуд.",
+  "best": [
+   [
+    "tgk_Cyrl",
+    1.0
+   ],
+   [
+    "rus_Cyrl",
+    0.0
+   ],
+   [
+    "prs_Arab",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "ба рӯи",
+  "best": [
+   [
+    "tgk_Cyrl",
+    1.0
+   ],
+   [
+    "bxr_Cyrl",
+    0.0
+   ],
+   [
+    "kas_Deva",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "РЕКОРДИ ҚАБЛИИ НАДАЛ БАР ЗИДДИ КАНАДИҲО 7-2‑РО ТАШКИЛ МЕДИҲАД.",
+  "best": [
+   [
+    "che_Cyrl",
+    0.0751
+   ],
+   [
+    "ukr_Cyrl",
+    0.0562
+   ],
+   [
+    "srp_Cyrl",
+    0.0186
+   ]
+  ]
+ },
+ {
+  "text": "Die vlieenier was identifiseer as Eskader Leier Dilokrit Pattavee.",
+  "best": [
+   [
+    "afr_Latn",
+    0.9996
+   ],
+   [
+    "nob_Latn",
+    0.0002
+   ],
+   [
+    "nld_Latn",
+    0.0001
+   ]
+  ]
+ },
+ {
+  "text": "polisie-bewaakte ingang",
+  "best": [
+   [
+    "afr_Latn",
+    0.839
+   ],
+   [
+    "ban_Latn",
+    0.0951
+   ],
+   [
+    "nld_Latn",
+    0.0366
+   ]
+  ]
+ },
+ {
+  "text": "NADAL SE KOP-TEEN-KOP REKORD TEEN DIE KANADEES IS 7-2.",
+  "best": [
+   [
+    "yue_Hant",
+    0.9986
+   ],
+   [
+    "kor_Hang",
+    0.0014
+   ],
+   [
+    "deu_Latn",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "Viên phi công được xác định là Chỉ huy đội bay Dilokrit Pattavee.",
+  "best": [
+   [
+    "vie_Latn",
+    1.0
+   ],
+   [
+    "hun_Latn",
+    0.0
+   ],
+   [
+    "war_Latn",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "đối diện",
+  "best": [
+   [
+    "vie_Latn",
+    1.0
+   ],
+   [
+    "min_Latn",
+    0.0
+   ],
+   [
+    "ind_Latn",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "THÀNH TÍCH ĐỐI ĐẦU CỦA NADAL TRƯỚC ĐỐI THỦ NGƯỜI CANADA NÀY LÀ 7-2.",
+  "best": [
+   [
+    "kor_Hang",
+    0.4815
+   ],
+   [
+    "yue_Hant",
+    0.4502
+   ],
+   [
+    "vie_Latn",
+    0.0458
+   ]
+  ]
+ },
+ {
+  "text": "Pilot, Filo Lideri Dilokrit Pattavee olarak belirlendi.",
+  "best": [
+   [
+    "tur_Latn",
+    0.9988
+   ],
+   [
+    "hun_Latn",
+    0.0004
+   ],
+   [
+    "epo_Latn",
+    0.0001
+   ]
+  ]
+ },
+ {
+  "text": "korunan girişinin",
+  "best": [
+   [
+    "tur_Latn",
+    0.9806
+   ],
+   [
+    "azj_Latn",
+    0.0194
+   ],
+   [
+    "hau_Latn",
+    0.0001
+   ]
+  ]
+ },
+ {
+  "text": "NADAL'IN KANADALI SPORCU KARŞISINDAKI REKORU 7-2.",
+  "best": [
+   [
+    "yue_Hant",
+    0.942
+   ],
+   [
+    "kor_Hang",
+    0.0571
+   ],
+   [
+    "deu_Latn",
+    0.0001
+   ]
+  ]
+ },
+ {
+  "text": "የአውሮፕላን አብራሪው የአየር ሀይል መሪ ዲሎክሪት ፓታቪ ሆኖ ተለይቷል።",
+  "best": [
+   [
+    "amh_Ethi",
+    0.9999
+   ],
+   [
+    "tir_Ethi",
+    0.0
+   ],
+   [
+    "chv_Cyrl",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "መንገድ፣ የጠቅላይ",
+  "best": [
+   [
+    "amh_Ethi",
+    0.9992
+   ],
+   [
+    "tir_Ethi",
+    0.0008
+   ],
+   [
+    "chv_Cyrl",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "ናዳል ከካናዳዊው ጋር ያለው የፍጥጫ ክብረ ወሰን 7-2 ነው።",
+  "best": [
+   [
+    "amh_Ethi",
+    1.0
+   ],
+   [
+    "tir_Ethi",
+    0.0
+   ],
+   [
+    "chv_Cyrl",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "Der Pilot wurde als Staffelführer Dilokrit Pattavee identifiziert.",
+  "best": [
+   [
+    "deu_Latn",
+    0.9985
+   ],
+   [
+    "ltz_Latn",
+    0.0014
+   ],
+   [
+    "roh_Latn",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "von der",
+  "best": [
+   [
+    "deu_Latn",
+    1.0
+   ],
+   [
+    "ast_Latn",
+    0.0
+   ],
+   [
+    "spa_Latn",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "NADALS REKORD IM DIREKTEN VERGLEICH GEGEN DEN KANADIER LIEGT BEI 7:2.",
+  "best": [
+   [
+    "yue_Hant",
+    0.9901
+   ],
+   [
+    "kor_Hang",
+    0.0098
+   ],
+   [
+    "deu_Latn",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "Paldies, labi.",
+  "best": [
+   [
+    "lvs_Latn",
+    0.4008
+   ],
+   [
+    "eus_Latn",
+    0.1527
+   ],
+   [
+    "ceb_Latn",
+    0.1294
+   ]
+  ]
+ },
+ {
+  "text": "Hvala, dobro.",
+  "best": [
+   [
+    "hrv_Latn",
+    0.7525
+   ],
+   [
+    "slv_Latn",
+    0.1892
+   ],
+   [
+    "dan_Latn",
+    0.0435
+   ]
+  ]
+ },
+ {
+  "text": "ok",
+  "best": [
+   [
+    "luo_Latn",
+    1.0
+   ],
+   [
+    "pol_Latn",
+    0.0
+   ],
+   [
+    "nld_Latn",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": "12345 !!!",
+  "best": [
+   [
+    "eng_Latn",
+    0.0987
+   ],
+   [
+    "deu_Latn",
+    0.0951
+   ],
+   [
+    "npi_Deva",
+    0.0835
+   ]
+  ]
+ },
+ {
+  "text": "naïve café\tword\nnew line",
+  "best": [
+   [
+    "kor_Hang",
+    0.579
+   ],
+   [
+    "eng_Latn",
+    0.337
+   ],
+   [
+    "afr_Latn",
+    0.017
+   ]
+  ]
+ },
+ {
+  "text": "ǅ ﬁ Å ｆｕｌｌ",
+  "best": [
+   [
+    "nob_Latn",
+    0.9982
+   ],
+   [
+    "nno_Latn",
+    0.0009
+   ],
+   [
+    "swe_Latn",
+    0.0003
+   ]
+  ]
+ },
+ {
+  "text": "🙂 emoji 👍🏽",
+  "best": [
+   [
+    "lit_Latn",
+    0.9997
+   ],
+   [
+    "hrv_Latn",
+    0.0002
+   ],
+   [
+    "slv_Latn",
+    0.0
+   ]
+  ]
+ },
+ {
+  "text": " ",
+  "best": [
+   [
+    "eng_Latn",
+    0.8314
+   ],
+   [
+    "gle_Latn",
+    0.1534
+   ],
+   [
+    "bod_Tibt",
+    0.0131
+   ]
+  ]
+ },
+ {
+  "text": "",
+  "best": [
+   [
+    "eng_Latn",
+    0.8314
+   ],
+   [
+    "gle_Latn",
+    0.1534
+   ],
+   [
+    "bod_Tibt",
+    0.0131
+   ]
+  ]
+ }
+]

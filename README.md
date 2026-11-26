@@ -51,12 +51,16 @@ An optional download for the Offline method: **NLLB-200** ("No Language Left Beh
 Meta AI, converted for Apple's Neural Engine.
 
 - **What it adds:** it has 166 of Google's languages, about 140 of which macOS can't translate offline: Latvian, Lithuanian, Estonian, Serbian, Croatian and Bosnian among them. Where macOS has both languages, its own translation is used.
-- **How to get it:** setup window → Translation → **Download** under "Offline, on this Mac" (886 MB). The download can be stopped and goes on from where it was; every file is checked against its checksum. **Remove** takes it off the Mac again.
+- **How to get it:** setup window → Translation → **Download** under "Offline, on this Mac" (906 MB). The download can be stopped and goes on from where it was; every file is checked against its checksum. **Remove** takes it off the Mac again.
 - **Where it runs:** on the Neural Engine, never on the GPU. Of the model's 840 operations, 825 run there; a vocabulary lookup and the search for the best words run on the CPU. That is on a Mac with Apple silicon. An Intel Mac has no Neural Engine: there Core ML has only the CPU left (not tested).
 - **Memory:** the model is loaded for a translation and let go right after it. Loading takes a tenth of a second.
 - **Speed:** about a second per sentence on an M5 Pro. The translation shows sentence by sentence.
 - **Quality:** good for understanding a text; below an AI model. It gets names of institutions wrong at times, and writes less well into the small languages than out of them.
-- **It has to know the language of the text.** Told a wrong one it writes nonsense, so offline BTranslate goes by clear signs (letters and words only one language has) and the Mac's recognizer, and asks for the pencil when it is not sure.
+- **It has to know the language of the text:** told a wrong one it writes nonsense. So the pack brings its own detector, Meta's language-identification model for the same languages, made small (20 MB of the download).
+  - It is a table of letter groups, read on the CPU in a tenth of a millisecond: nothing here for the Neural Engine, and nothing stays in memory.
+  - Over the pack's languages it tells 97 of 100 sentences right. The Mac's own recognizer knows 53 languages and tells 35 of 100 (Persian is Arabic to it, Tajik is Bulgarian).
+  - A word or two is harder: about half of single words are told right, 80 of 100 in the big languages. There the Mac's recognizer and your own languages (your list, and what you picked with the pencil lately) have a say too.
+  - When BTranslate is not sure, it asks for the pencil and says what the text may be; the pencil's list starts with those languages.
 - **Licence:** the model is [CC-BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): non-commercial use only. BTranslate's own code is MIT; the pack is not part of this repository, only the recipe for making it ([tools/nllb](tools/nllb/README.md)).
 
 ## Requirements
@@ -172,9 +176,10 @@ There is no Xcode project and there are no dependencies: `swiftc` compiles the f
   - translates through `tests/mock_server.py`, which stands in for Anthropic, the OpenAI-style providers and Google;
   - draws the popup, the settings window and the language pickers off screen, into `build/uitest/` and, in Russian, `build/uitest-ru/`, and checks that no label or button is cut short;
   - downloads a miniature language pack from the mock server: checksums, a damaged file, a download that goes on from where it stopped;
+  - reads a made-up detector file of a few rows and compares every answer with the Python that wrote it;
   - takes the connection away (Google's address stops answering) and checks that the popup goes over to the Offline method, waits where it must, and translates when the connection is back. A stand-in answers for Apple's translation, so this runs on any Mac;
   - makes speech with a Mac voice without playing it.
-- **The app's command line,** for trying things: `BTranslate --print --engine google --from lv --to Russian "Labdien"` prints a translation, and `BTranslate --speech-check lv "Labdien"` says which voice would read a text and plays it at volume zero. `Sources/main.swift` lists the rest.
+- **The app's command line,** for trying things: `BTranslate --print --engine google --from lv --to Russian "Labdien"` prints a translation, and `BTranslate --speech-check lv "Labdien"` says which voice would read a text and plays it at volume zero, and `BTranslate --detect "Labdien"` shows what the language pack's detector, the Mac's recognizer and both together take a text for. `Sources/main.swift` lists the rest.
 - **The icon:** `swift tools/make-icon.swift` draws `Resources/AppIcon.icns`.
 - **The language list:** `python3 tools/update-languages.py` rewrites `Sources/Languages.swift` from Google's own list, in English and in Russian (one request each), for when Google adds languages.
 - **Another language for BTranslate itself:**

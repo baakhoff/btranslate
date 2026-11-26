@@ -107,6 +107,9 @@
 "No internet connection. BTranslate will translate as soon as it is back." = "Нет подключения к интернету. BTranslate переведет, как только оно появится.";
 "Offline translation needs macOS 26 or later, or the NLLB-200 language pack (Settings, Translation page)." = "Для офлайн-перевода нужна macOS 26 или новее либо языковой пакет NLLB-200 (настройки, страница «Перевод»).";
 "Can't tell which language this text is in. Set it with the pencil above." = "Не удалось определить язык этого текста. Укажите его кнопкой с карандашом вверху.";
+/* %@: one to three languages as a sentence has them, joined by " or ": "латышский или литовский" */
+"Can't tell which language this text is in: it may be %@. Set it with the pencil above." = "Не удалось определить язык этого текста: возможно, это %@. Укажите его кнопкой с карандашом вверху.";
+" or " = " или ";
 /* %@: a language as a sentence has it, "латышский" */
 "The Offline method has no %@." = "В способе «Офлайн» нет этого языка (%@).";
 "The Offline method does not go between these two languages (%@ → %@)." = "Способ «Офлайн» не переводит между этими двумя языками (%@ → %@).";

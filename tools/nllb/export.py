@@ -1,5 +1,6 @@
 """Puts together the language pack BTranslate downloads: the two Core ML models with 8-bit
-weights, the vocabulary, and a manifest with every file's size and checksum.
+weights, the vocabulary, the detector of a text's language, and a manifest with every
+file's size and checksum.
 
   venv/bin/python export.py [LENGTH]   →  pack/   (upload its files as they are: flat names)
 
@@ -58,10 +59,15 @@ with open("tokens.tsv", "w", encoding="utf-8") as f:
 add("tokens.tsv", "tokens.tsv", "tokens.tsv")
 os.remove("tokens.tsv")
 
+# The detector of a text's language (lid.py makes it): a plain file, read on the CPU.
+add("lid/detect.bin", "detect.bin", "detect.bin")
+
 manifest = {
     "id": "nllb-200", "version": VERSION, "length": length,
     "model": "NLLB-200 (distilled, 600M) by Meta AI, converted to Core ML with 8-bit weights",
     "license": "CC-BY-NC-4.0", "source": "https://huggingface.co/facebook/nllb-200-distilled-600M",
+    "detector": "Meta AI's language identification model for NLLB-200 (fastText), made small; CC-BY-NC-4.0; "
+                "https://huggingface.co/facebook/fasttext-language-identification",
     "pad": tokenizer.pad_token_id, "end": tokenizer.eos_token_id, "unknown": tokenizer.unk_token_id,
     "languages": languages, "files": files,
 }

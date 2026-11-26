@@ -12,6 +12,10 @@ import NaturalLanguage
 // Neural Engine, never on the GPU; a vocabulary lookup and the search for the best words run
 // on the CPU. Its licence is CC-BY-NC 4.0: non-commercial use only.
 //
+// With it comes a detector of a text's language (Detect.swift), 20 MB: the pack translates a
+// text read as the wrong language into nonsense, and the Mac's recognizer knows a quarter
+// of its languages.
+//
 // The model is loaded for a translation and let go right after it. Loading takes a tenth of
 // a second, because macOS keeps the form of the model it prepared for the Neural Engine: that
 // preparation, about a quarter of a minute, is done once, when the pack is installed.
@@ -29,7 +33,7 @@ enum LanguagePack {
         ProcessInfo.processInfo.environment["BTRANSLATE_PACK_URL"] ?? "https://github.com/baakhoff/btranslate/releases/download/nllb-200-v1"
     }
     /// The size of the download, for the text in Settings before the manifest is fetched.
-    static let megabytes = 886
+    static let megabytes = 906
 
     static var folder: URL {
         if let override = ProcessInfo.processInfo.environment["BTRANSLATE_PACK_DIR"], !override.isEmpty { return URL(fileURLWithPath: override) }
@@ -139,6 +143,20 @@ enum NLLBLanguage {
 
     /// NLLB's code for a language by Google's code; nil if the pack has not got the language.
     static func code(_ google: String) -> String? { byGoogleCode[google] }
+
+    /// The other way round, for the pack's detector: of Google's codes that lead to one of
+    /// NLLB's, the shortest ("fr", not "fr-CA"). Nynorsk, which the detector tells from
+    /// Bokmål, is Norwegian here.
+    private static let byNLLBCode: [String: String] = {
+        var table = ["nno_Latn": "no"]
+        for (google, code) in byGoogleCode.sorted(by: { ($0.key.count, $0.key) < ($1.key.count, $1.key) }) where table[code] == nil {
+            table[code] = google
+        }
+        return table
+    }()
+
+    /// Google's code for one of NLLB's; nil for a language BTranslate has not got.
+    static func google(_ code: String) -> String? { byNLLBCode[code] }
 
     /// The code to read a text as. Serbian in Latin letters is read as Croatian: the model
     /// knows Serbian in Cyrillic only, and Croatian is the same language to it in Latin letters.

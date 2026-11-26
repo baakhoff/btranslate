@@ -12,11 +12,13 @@ import Network
 //     about 200 languages, for what Apple has not got.
 // Apple's is used wherever it can translate; the pack does the rest.
 //
-// The language of a text has to be told on the Mac. The Mac's own recognizer is less sure
-// of itself than Google on a short text and does not know Latvian, Lithuanian, Estonian or
-// Serbian at all: those are told by their letters and commonest words first. When nothing
-// is sure, the popup asks for the pencil, because the pack translates a text read as the
-// wrong language into nonsense.
+// The language of a text has to be told on the Mac. With the language pack that is the work
+// of its own detector (Detect.swift), which knows the pack's languages; the Mac's recognizer
+// and the signs below have a vote on short texts (`guesses`). Without the pack there is the
+// Mac's recognizer only: it knows 53 languages, and of Latvian, Lithuanian, Estonian or
+// Serbian nothing at all, so those are told by their letters and commonest words first.
+// When nothing is sure, the popup asks for the pencil, because the pack translates a text
+// read as the wrong language into nonsense.
 //
 // The installer builds the app on the user's Mac, with whatever Command Line Tools are
 // there. Tools from before macOS 26 (Swift older than 6.2) do not know these parts of the
@@ -34,7 +36,7 @@ enum OfflineStatus: String {
 
 enum OfflineError: Error {
     case needsNewerMac
-    case unknownLanguage                // the recognizer can't tell what language the text is in
+    case unknownLanguage([String])      // the text's language can't be told; what it may be, if the pack's detector has an idea
     case noLanguage(String)             // Google's code of a language Apple has not got
     case noPair(String, String)         // two languages Apple does not translate between
     case notDownloaded(String, String)  // a pair that needs a download first
@@ -65,7 +67,7 @@ enum OnDevice {
 
     /// A language as the Mac's recognizer names it → Google's code.
     static func googleCode(_ recognized: String) -> String {
-        ["he": "iw", "nb": "no", "nn": "no", "zh-Hans": "zh-CN", "zh-Hant": "zh-TW"][recognized] ?? recognized
+        ["he": "iw", "nb": "no", "nn": "no", "zh-Hans": "zh-CN", "zh-Hant": "zh-TW", "pa-Guru": "pa"][recognized] ?? recognized
     }
 
     private static func base(_ code: String) -> String {
@@ -174,6 +176,35 @@ enum OnDevice {
         return ranked[0].value >= 1 && ranked[0].value > ranked[1].value ? ranked[0].key : nil
     }
 
+    /// A text as the pack's detector should see it. Its letters only (with ' and - inside
+    /// words): digits, punctuation and emoji are noise to it. And in small letters if it is
+    /// written in capitals: the detector has hardly seen those, and takes "ZABRANJENO PUŠENJE"
+    /// for Cantonese.
+    static func prepared(_ text: String) -> String {
+        let scalars = text.unicodeScalars.prefix(4000)
+        var capitals = 0, small = 0
+        for scalar in scalars {
+            if scalar.properties.isUppercase { capitals += 1 } else if scalar.properties.isLowercase { small += 1 }
+        }
+        var out = String.UnicodeScalarView()
+        for scalar in (capitals > small ? String(scalars).lowercased().unicodeScalars[...] : scalars) {
+            switch scalar.properties.generalCategory {
+            case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter, .nonspacingMark, .spacingMark, .enclosingMark:
+                out.append(scalar)
+            default:
+                out.append("'’ʻʼ-".unicodeScalars.contains(scalar) ? scalar : " ")
+            }
+        }
+        return String(out)
+    }
+
+    /// What the Mac's own recognizer makes of a text: its likeliest languages (Google's codes).
+    static func macGuesses(_ text: String, count: Int = 5) -> [(code: String, chance: Double)] {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        return recognizer.languageHypotheses(withMaximum: count).map { (googleCode($0.key.rawValue), $0.value) }.sorted { $0.chance > $1.chance }
+    }
+
     /// The language of `text`, as Google's code; nil when it can't be told. First by the
     /// signs above; then by the Mac's own recognizer: a language it is sure of is returned
     /// whether it can be translated or not, and when it is not sure, only a clear winner
@@ -195,6 +226,65 @@ enum OnDevice {
         return nil
     }
 
+    /// How sure the answer of `guesses` has to be to be taken; below it, the popup asks.
+    static let sureEnough = 0.5
+
+    /// The likeliest languages of `text` by the language pack's detector, the best first,
+    /// each with its share of 1. A language is named by Google's code; one that BTranslate
+    /// has not got, by NLLB's ("kab_Latn").
+    ///
+    /// The detector is right about a sentence in 97 of 100 cases over the pack's languages,
+    /// but a word or two can fool it ("hello" looks like Sesotho to it). So its scores count
+    /// for less on a short text, and three more voices are heard there:
+    ///   - the Mac's own recognizer, which is better on a word or two in the languages it
+    ///     knows and blind to all others (Persian is Arabic to it). Its vote fades as the
+    ///     text grows, and never outvotes a detector that is sure;
+    ///   - the signs above (letters and words of Latvian, Serbian…);
+    ///   - `own`, the languages of the user's list and the ones they picked lately: a short
+    ///     text is likelier to be in one of those. For someone with Serbian among them and
+    ///     neither Croatian nor Bosnian, those two count as Serbian: in Latin letters the
+    ///     three are one language to the detector.
+    /// The numbers were set on FLORES-200's sentences cut down to one, two and five words
+    /// (tools/nllb/README.md).
+    static func guesses(for text: String, own: [String], with detector: PackDetector) -> [(code: String, chance: Double)] {
+        let (scores, rows) = detector.rawScores(of: prepared(text))
+        guard rows > 1, let top = scores.max() else { return [] }  // not a letter in it
+        let soften = min(1, Double(rows) / 80)
+        var shares: [String: Double] = [:]
+        for (label, score) in zip(detector.labels, scores) {
+            shares[NLLBLanguage.google(label) ?? label, default: 0] += exp(soften * (score - top))
+        }
+        let fade = max(0, 1 - Double(rows) / 400)
+        for guess in macGuesses(text) where shares[guess.code] != nil {
+            shares[guess.code]! *= 1 + 10 * guess.chance * fade
+        }
+        if let sign = bySigns(text), shares[sign] != nil { shares[sign]! *= 10 }
+        let mine = Set(own.map { $0 == "sr-Latn" ? "sr" : $0 })
+        if mine.contains("sr"), !mine.contains("hr"), !mine.contains("bs") {
+            shares["sr", default: 0] += (shares.removeValue(forKey: "hr") ?? 0) + (shares.removeValue(forKey: "bs") ?? 0)
+        }
+        for code in mine where shares[code] != nil { shares[code]! *= 4 }
+        let sum = shares.values.reduce(0, +)
+        return shares.map { (code: $0.key, chance: $0.value / sum) }.sorted { ($1.chance, $0.code) < ($0.chance, $1.code) }
+    }
+
+    /// The user's own languages: their list in Settings, and what they set with the pencil lately.
+    static var ownLanguages: [String] {
+        Config.load().languageIDs + (UserDefaults.standard.stringArray(forKey: "recentSources") ?? [])
+    }
+
+    /// What a text may be in, for when the app is not sure or got it wrong: up to three of
+    /// BTranslate's languages that have a tenth of the shares or more, the likeliest first.
+    static func likely(_ guesses: [(code: String, chance: Double)]) -> [String] {
+        guesses.filter { $0.chance >= 0.1 && packHas($0.code) }.prefix(3).map(\.code)
+    }
+
+    /// The same for a text, for the pencil's list. Empty without the pack's detector.
+    static func candidates(for text: String) -> [String] {
+        guard let detector = PackDetector.installed() else { return [] }
+        return likely(guesses(for: text, own: ownLanguages, with: detector))
+    }
+
     /// The Mac's recognizer knows Serbian in Latin letters as Croatian. For someone who has
     /// Serbian among their languages (in the list, or picked with the pencil) and not
     /// Croatian, such a text is Serbian.
@@ -214,10 +304,20 @@ enum OnDevice {
         let apple = await supportedLanguages()
         let appleHasTarget = apple.contains(base(target.google)) && target.id != "sr-Latn"
         guard appleHasTarget || packHas(target.id) else { throw OfflineError.noLanguage(target.google) }
-        let recognized = source == nil ? recognize(text, among: apple.union(LanguagePack.isInstalled ? packLanguages : [])) : nil
-        guard let from = source?.google ?? recognized.map({
-            asTheUserMeans($0, list: Config.load().languageIDs, recent: UserDefaults.standard.stringArray(forKey: "recentSources") ?? [])
-        }) else { throw OfflineError.unknownLanguage }
+        var recognized: String?, maybe: [String] = []
+        if source == nil, let detector = PackDetector.installed() {
+            let guesses = guesses(for: text, own: ownLanguages, with: detector)
+            if let best = guesses.first, best.chance >= sureEnough, packHas(best.code) {
+                recognized = best.code
+            } else {
+                maybe = likely(guesses)
+            }
+        } else if source == nil {
+            recognized = recognize(text, among: apple.union(LanguagePack.isInstalled ? packLanguages : [])).map {
+                asTheUserMeans($0, list: Config.load().languageIDs, recent: UserDefaults.standard.stringArray(forKey: "recentSources") ?? [])
+            }
+        }
+        guard let from = source?.google ?? recognized else { throw OfflineError.unknownLanguage(maybe) }
         guard apple.contains(base(from)) || packHas(from) else { throw OfflineError.noLanguage(from) }
         if same(from, target.google) {
             // Already in that language. Serbian may still need its other alphabet.

@@ -4,3 +4,4 @@ build/
 
 # Model experiments: downloaded weights, converted models and a Python environment
 lab/
+__pycache__/

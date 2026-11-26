@@ -1,0 +1,155 @@
+[
+ {
+  "text": "hello world",
+  "best": [
+   [
+    "srp_Cyrl",
+    0.2969
+   ],
+   [
+    "lvs_Latn",
+    0.2604
+   ],
+   [
+    "eng_Latn",
+    0.2508
+   ]
+  ]
+ },
+ {
+  "text": "Привет, мир",
+  "best": [
+   [
+    "srp_Cyrl",
+    0.3396
+   ],
+   [
+    "eng_Latn",
+    0.264
+   ],
+   [
+    "lvs_Latn",
+    0.213
+   ]
+  ]
+ },
+ {
+  "text": "Rīgas dome ir skaista",
+  "best": [
+   [
+    "srp_Cyrl",
+    0.4272
+   ],
+   [
+    "lvs_Latn",
+    0.2251
+   ],
+   [
+    "rus_Cyrl",
+    0.1783
+   ]
+  ]
+ },
+ {
+  "text": "ћирилица и latinica",
+  "best": [
+   [
+    "rus_Cyrl",
+    0.2648
+   ],
+   [
+    "lvs_Latn",
+    0.2628
+   ],
+   [
+    "srp_Cyrl",
+    0.2448
+   ]
+  ]
+ },
+ {
+  "text": "a",
+  "best": [
+   [
+    "srp_Cyrl",
+    0.3673
+   ],
+   [
+    "lvs_Latn",
+    0.26
+   ],
+   [
+    "eng_Latn",
+    0.223
+   ]
+  ]
+ },
+ {
+  "text": "naïve café\tword\nnew line",
+  "best": [
+   [
+    "lvs_Latn",
+    0.3119
+   ],
+   [
+    "eng_Latn",
+    0.2799
+   ],
+   [
+    "rus_Cyrl",
+    0.225
+   ]
+  ]
+ },
+ {
+  "text": "日本語のテキスト",
+  "best": [
+   [
+    "rus_Cyrl",
+    0.2931
+   ],
+   [
+    "eng_Latn",
+    0.2456
+   ],
+   [
+    "lvs_Latn",
+    0.2378
+   ]
+  ]
+ },
+ {
+  "text": "the same the same the same",
+  "best": [
+   [
+    "srp_Cyrl",
+    0.2844
+   ],
+   [
+    "lvs_Latn",
+    0.2758
+   ],
+   [
+    "eng_Latn",
+    0.2287
+   ]
+  ]
+ },
+ {
+  "text": "",
+  "best": [
+   [
+    "srp_Cyrl",
+    0.788
+   ],
+   [
+    "lvs_Latn",
+    0.1497
+   ],
+   [
+    "eng_Latn",
+    0.0436
+   ]
+  ]
+ }
+]

@@ -515,13 +515,18 @@ final class Popup: NSObject, NSWindowDelegate {
         start()
     }
 
-    /// A picker of every language, the ones picked lately first, under "Detect automatically".
+    /// A picker of every language under "Detect automatically": first what the text may be
+    /// in besides the language shown (by the language pack's detector, if it is installed),
+    /// then the ones picked lately.
     func makeSourcePicker() -> LanguagePicker {
         let picker = LanguagePicker()
+        let shown = sourceCode
+        let likely = OnDevice.candidates(for: source).filter { $0 != shown }.compactMap { code in sourceLanguages.first { $0.id == code } }
         picker.available = {
             let recent = (UserDefaults.standard.stringArray(forKey: "recentSources") ?? [])
                 .compactMap { id in sourceLanguages.first { $0.id == id } }
-            return [detectAutomatically] + recent + sourceLanguages.filter { !recent.contains($0) }
+            let first = likely + recent.filter { !likely.contains($0) }
+            return [detectAutomatically] + first + sourceLanguages.filter { !first.contains($0) }
         }
         picker.onAdd = { [weak self] choice in
             self?.closeSourcePicker()
