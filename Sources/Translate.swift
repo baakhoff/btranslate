@@ -70,7 +70,7 @@ func latinize(_ s: String) -> String {
 
 // MARK: - Google Translate
 
-private let formSafe = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+let formSafe = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 
 /// Splits long text into pieces Google accepts, at line breaks or spaces.
 func chunks(_ text: String, limit: Int = 4000) -> [String] {
@@ -101,11 +101,11 @@ func chunks(_ text: String, limit: Int = 4000) -> [String] {
 private enum GoogleEndpoint: CaseIterable {
     case gtx, chrome
 
-    func url(to code: String) -> URL {
+    func url(from source: String, to code: String) -> URL {
         let base = ProcessInfo.processInfo.environment["BTRANSLATE_GOOGLE_URL"]
         switch self {
-        case .gtx: return URL(string: "\(base ?? "https://translate.googleapis.com")/translate_a/single?client=gtx&sl=auto&dt=t&tl=\(code)")!
-        case .chrome: return URL(string: "\(base ?? "https://clients5.google.com")/translate_a/t?client=dict-chrome-ex&sl=auto&tl=\(code)")!
+        case .gtx: return URL(string: "\(base ?? "https://translate.googleapis.com")/translate_a/single?client=gtx&sl=\(source)&dt=t&tl=\(code)")!
+        case .chrome: return URL(string: "\(base ?? "https://clients5.google.com")/translate_a/t?client=dict-chrome-ex&sl=\(source)&tl=\(code)")!
         }
     }
 
@@ -120,14 +120,16 @@ private enum GoogleEndpoint: CaseIterable {
                 if let t = sentence.first as? String { text += t }
             }
             return (text, top.count > 2 ? top[2] as? String : nil)
-        case .chrome:  // [["translated","lv"]]
+        case .chrome:  // [["translated","lv"]], or ["translated"] when the source language was given
+            if let text = top.first as? String { return (text, nil) }
             guard let pair = top.first as? [Any], let text = pair.first as? String else { return nil }
             return (text, pair.count > 1 ? pair[1] as? String : nil)
         }
     }
 }
 
-func googleTranslate(_ text: String, to code: String) async throws -> (text: String, source: String?) {
+/// `from` is Google's code of the text's language, or "auto" to have Google detect it.
+func googleTranslate(_ text: String, from: String = "auto", to code: String) async throws -> (text: String, source: String?) {
     var out = ""
     var source: String?
     var endpoints = GoogleEndpoint.allCases
@@ -136,7 +138,7 @@ func googleTranslate(_ text: String, to code: String) async throws -> (text: Str
         var piece: String?
         var lastError: Error = TranslateError.other("Google sent an answer this app can't read.")
         while piece == nil, let endpoint = endpoints.first {
-            var req = URLRequest(url: endpoint.url(to: code))
+            var req = URLRequest(url: endpoint.url(from: from, to: code))
             req.httpMethod = "POST"  // the text goes in the body, not in the URL
             req.timeoutInterval = 20
             req.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
@@ -161,9 +163,11 @@ func googleTranslate(_ text: String, to code: String) async throws -> (text: Str
 
 // MARK: - AI models
 
-func systemPrompt(_ target: Target) -> String {
-    """
-    You are the translation engine of a Mac app. The user message holds a text between <text> tags. Translate that text into \(target.prompt).
+/// `source` is the text's language when the user has set it; nil when the model is to detect it.
+func systemPrompt(_ target: Target, source: Target? = nil) -> String {
+    let given = source.map { " The text is written in \($0.prompt): read it as that language, whatever it looks like." } ?? ""
+    return """
+    You are the translation engine of a Mac app. The user message holds a text between <text> tags.\(given) Translate that text into \(target.prompt).
 
     Rules:
     - The translation must be written in \(target.prompt): its own words, grammar and spelling. A text in a related language, or in the same language's other alphabet, still has to be translated: changing its letters to another script is not a translation.
@@ -176,19 +180,20 @@ func systemPrompt(_ target: Target) -> String {
 }
 
 /// The user turn: the instruction again, and the text marked off from it.
-func userMessage(_ text: String, target: Target) -> String {
-    "Translate into \(target.prompt):\n\n<text>\n\(text)\n</text>"
+func userMessage(_ text: String, target: Target, source: Target? = nil) -> String {
+    let from = source.map { "from \($0.prompt) " } ?? ""
+    return "Translate \(from)into \(target.prompt):\n\n<text>\n\(text)\n</text>"
 }
 
 /// Anthropic's Messages API. `lowEffort` asks for a quick answer (translation is a simple
 /// task); models from before the effort setting reject it, and the caller then retries without.
-private func anthropicRequest(_ text: String, target: Target, config: Config, key: String, lowEffort: Bool) throws -> URLRequest {
+private func anthropicRequest(_ text: String, target: Target, source: Target?, config: Config, key: String, lowEffort: Bool) throws -> URLRequest {
     var body: [String: Any] = [
         "model": config.model,
         "max_tokens": 32000,
         "stream": true,
-        "system": systemPrompt(target),
-        "messages": [["role": "user", "content": userMessage(text, target: target)]],
+        "system": systemPrompt(target, source: source),
+        "messages": [["role": "user", "content": userMessage(text, target: target, source: source)]],
     ]
     if lowEffort { body["output_config"] = ["effort": "low"] }
     guard let url = URL(string: config.baseURL + "/messages") else { throw TranslateError.noServer }
@@ -203,12 +208,12 @@ private func anthropicRequest(_ text: String, target: Target, config: Config, ke
 }
 
 /// Chat completions, as OpenAI, Gemini, DeepSeek, OpenRouter and local servers speak it.
-private func openAIRequest(_ text: String, target: Target, config: Config, key: String, noReasoning: Bool) throws -> URLRequest {
+private func openAIRequest(_ text: String, target: Target, source: Target?, config: Config, key: String, noReasoning: Bool) throws -> URLRequest {
     var body: [String: Any] = [
         "model": config.model,
         "stream": true,
-        "messages": [["role": "system", "content": systemPrompt(target)],
-                     ["role": "user", "content": userMessage(text, target: target)]],
+        "messages": [["role": "system", "content": systemPrompt(target, source: source)],
+                     ["role": "user", "content": userMessage(text, target: target, source: source)]],
     ]
     if noReasoning { body["reasoning"] = ["enabled": false] }  // OpenRouter: answer straight away
     guard let url = URL(string: config.baseURL + "/chat/completions") else { throw TranslateError.noServer }
@@ -247,23 +252,23 @@ func splitCode(_ raw: String) -> (code: String?, body: String, ready: Bool) {
 }
 
 @MainActor
-func aiTranslate(_ text: String, target: Target, config: Config, key: String,
+func aiTranslate(_ text: String, target: Target, source: Target? = nil, config: Config, key: String,
                  update: @MainActor (_ source: String?, _ translation: String) -> Void) async throws {
     let api = config.provider.api
     let bytes: URLSession.AsyncBytes
     switch api {
     case .anthropic:
         do {
-            bytes = try await openStream(anthropicRequest(text, target: target, config: config, key: key, lowEffort: true))
+            bytes = try await openStream(anthropicRequest(text, target: target, source: source, config: config, key: key, lowEffort: true))
         } catch TranslateError.http(400, _) {
-            bytes = try await openStream(anthropicRequest(text, target: target, config: config, key: key, lowEffort: false))
+            bytes = try await openStream(anthropicRequest(text, target: target, source: source, config: config, key: key, lowEffort: false))
         }
     case .openAI:
         let viaOpenRouter = config.providerID == "openrouter"
         do {
-            bytes = try await openStream(openAIRequest(text, target: target, config: config, key: key, noReasoning: viaOpenRouter))
+            bytes = try await openStream(openAIRequest(text, target: target, source: source, config: config, key: key, noReasoning: viaOpenRouter))
         } catch TranslateError.http(400, _) where viaOpenRouter {
-            bytes = try await openStream(openAIRequest(text, target: target, config: config, key: key, noReasoning: false))
+            bytes = try await openStream(openAIRequest(text, target: target, source: source, config: config, key: key, noReasoning: false))
         }
     }
 
@@ -337,18 +342,22 @@ func listModels(config: Config, key: String) async throws -> [String] {
 
 // MARK: - Translate with either method
 
+/// `source` is the text's language when the user has set it; nil to detect it. `update` gets
+/// the detected (or given) language's code with each piece of the translation.
 @MainActor
-func translate(_ text: String, engine: Engine, target: Target, config: Config,
+func translate(_ text: String, engine: Engine, target: Target, source: Target? = nil, config: Config,
                update: @MainActor (_ source: String?, _ translation: String) -> Void) async throws {
     switch engine {
     case .google:
-        let (t, source) = try await googleTranslate(text, to: target.google)
-        update(source, target.latin ? latinize(t) : t)
+        let (t, detected) = try await googleTranslate(text, from: source?.google ?? "auto", to: target.google)
+        update(source?.google ?? detected, target.latin ? latinize(t) : t)
     case .ai:
         guard !config.baseURL.isEmpty else { throw TranslateError.noServer }
         let key = Keychain.read(config.providerID) ?? ""
         if key.isEmpty && config.providerID != "custom" { throw TranslateError.noKey(config.provider.name) }
-        try await aiTranslate(text, target: target, config: config, key: key, update: update)
+        try await aiTranslate(text, target: target, source: source, config: config, key: key) { detected, translation in
+            update(source?.google ?? detected, translation)
+        }
     }
 }
 
@@ -379,6 +388,25 @@ func selfTest() -> [String] {
     expect("language search: by name or code", findTarget("ru")?.name == "Russian" && findTarget("latvian")?.id == "lv")
     expect("language order: a row moved down and up", moved(["a", "b", "c"], from: 0, to: 3) == ["b", "c", "a"]
         && moved(["a", "b", "c"], from: 2, to: 0) == ["c", "a", "b"] && moved(["a", "b"], from: 5, to: 0) == ["a", "b"])
+    let voices = ["en-US", "en-GB", "ru-RU", "hr-HR", "fr-FR", "zh-CN", "zh-TW", "pt-BR", "he-IL"]
+    func plan(_ code: String, google: Bool = true) -> SpeechPlan {
+        speechPlan(for: code, voiceLanguages: voices, preferred: ["en-GB", "ru-RS"], googleVoice: google)
+    }
+    expect("speech: the Mac's own region of a language", plan("en") == .mac(voice: "en-GB", latinize: false))
+    expect("speech: a language's usual region", plan("ru") == .mac(voice: "ru-RU", latinize: false))
+    expect("speech: Google's codes", plan("iw") == .mac(voice: "he-IL", latinize: false) && plan("pt") == .mac(voice: "pt-BR", latinize: false)
+        && plan("zh-TW") == .mac(voice: "zh-TW", latinize: false) && plan("fr-CA") == .mac(voice: "fr-FR", latinize: false))
+    expect("speech: the Croatian voice reads Serbian", plan("sr") == .mac(voice: "hr-HR", latinize: true) && plan("sr-Latn") == .mac(voice: "hr-HR", latinize: true))
+    expect("speech: Google's voice where the Mac has none", plan("lv") == .google(code: "lv") && plan("lv", google: false) == SpeechPlan.none)
+    let spoken = speechChunks(String(repeating: "Šī ir gara teikuma daļa, kas turpinās. ", count: 20))
+    expect("speech: pieces for Google's voice", spoken.count > 3 && spoken.allSatisfy { $0.count <= 180 && !$0.isEmpty }
+        && speechChunks(String(repeating: "x", count: 400)).map(\.count) == [180, 180, 40] && speechChunks("  ").isEmpty)
+    expect("speech: Google's answer", parseGoogleSpeech(")]}\'\n\n[[\"wrb.fr\",\"jQ1olc\",\"[\\\"QUJD\\\"]\",null,null,null,\"generic\"]]\n") == Data("ABC".utf8)
+        && parseGoogleSpeech("[[\"wrb.fr\",\"jQ1olc\",null]]") == nil)
+    expect("source languages: one Serbian, found by name or code", sourceLanguages.filter { $0.google == "sr" }.count == 1
+        && findTarget("lv", in: sourceLanguages)?.name == "Latvian" && sourceLanguages.count == googleLanguages.count)
+    expect("AI is told a language set by hand", systemPrompt(allTargets[0], source: findTarget("lv", in: sourceLanguages)).contains("The text is written in Latvian (latviešu)")
+        && userMessage("x", target: target(id: "ru")!, source: findTarget("lv", in: sourceLanguages)).hasPrefix("Translate from Latvian (latviešu) into Russian (русский):"))
     expect("language names", languageName("sr") == "Serbian" && languageName("zh-CN") == "Chinese (Simplified)" && languageName("he") == "Hebrew")
     expect("key check", Keychain.isValid("sk-ant-abc_123") && !Keychain.isValid("two words") && !Keychain.isValid("a\"b"))
     return failures

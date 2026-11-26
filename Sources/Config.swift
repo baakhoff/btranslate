@@ -51,6 +51,7 @@ struct Config {
     var customURL = ""
     var defaultEngine: Engine = .google
     var languageIDs: [String] = []  // the languages in the popup's menu, in order
+    var googleVoice = true          // read aloud with Google's voice where the Mac has none
 
     var provider: Provider { providers.first { $0.id == providerID } ?? providers[0] }
 
@@ -89,7 +90,7 @@ struct Config {
 
     static func load() -> Config {
         let d = UserDefaults.standard
-        d.register(defaults: ["googleEnabled": true])
+        d.register(defaults: ["googleEnabled": true, "googleVoice": true])
         var c = Config()
         c.googleEnabled = d.bool(forKey: "googleEnabled")
         c.aiEnabled = d.bool(forKey: "aiEnabled")
@@ -98,6 +99,7 @@ struct Config {
         c.customURL = d.string(forKey: "aiBaseURL") ?? ""
         c.defaultEngine = Engine(rawValue: d.string(forKey: "defaultEngine") ?? "") ?? .google
         c.languageIDs = d.stringArray(forKey: "languages") ?? defaultLanguageIDs()
+        c.googleVoice = d.bool(forKey: "googleVoice")
         // For tests: BTRANSLATE_PROVIDER / BTRANSLATE_MODEL override the saved settings.
         let env = ProcessInfo.processInfo.environment
         if let p = env["BTRANSLATE_PROVIDER"], providers.contains(where: { $0.id == p }) {
@@ -118,6 +120,7 @@ struct Config {
         d.set(customURL, forKey: "aiBaseURL")
         d.set(defaultEngine.rawValue, forKey: "defaultEngine")
         d.set(languageIDs, forKey: "languages")
+        d.set(googleVoice, forKey: "googleVoice")
         d.set(true, forKey: "setupDone")
     }
 }
@@ -227,10 +230,21 @@ let allTargets: [Target] = googleLanguages.flatMap { code, name -> [Target] in
 
 func target(id: String) -> Target? { allTargets.first { $0.id == id } }
 
+/// The languages a text can be written in, for correcting a wrong detection: Google's list as
+/// it is (one Serbian: the alphabet shows in the text itself).
+let sourceLanguages: [Target] = googleLanguages.map { code, name in
+    let own = code == "sr" ? "srpski / српски" : ownName(code, english: name)
+    let prompt = own.map { name.contains("(") ? "\(name): \($0)" : "\(name) (\($0))" } ?? name
+    return Target(id: code, name: name, google: code, prompt: prompt, ownName: own)
+}
+
+/// The picker's first row: go back to detecting the language.
+let detectAutomatically = Target(id: "auto", name: "Detect automatically", google: "auto", prompt: "", ownName: nil)
+
 /// A language by its name or code, as typed on the command line.
-func findTarget(_ text: String) -> Target? {
+func findTarget(_ text: String, in list: [Target] = allTargets) -> Target? {
     let wanted = text.lowercased()
-    return allTargets.first { $0.name.lowercased() == wanted || $0.id.lowercased() == wanted }
+    return list.first { $0.name.lowercased() == wanted || $0.id.lowercased() == wanted }
 }
 
 /// What a search finds in `list`: names that start with the text first, then names, own

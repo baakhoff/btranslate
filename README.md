@@ -20,7 +20,10 @@ translator doesn't have, such as Latvian and Serbian.
   - **Google Translate:** free and instant, no account.
   - **An AI model:** often better with context, names and tone. The answer streams in as it is written.
   - You choose which one a popup opens with; the other is a click away in the popup.
-- **The source language is detected** and shown ("Latvian → English").
+- **The source language is detected** and shown ("Latvian → English"). If the guess is wrong, click the **pencil** next to it and pick the right language (there's a search): the popup translates again.
+- **Listen:** one speaker button reads the original aloud, another the translation.
+  - Your Mac's own voices do it, offline. The Croatian voice also reads Serbian and Bosnian.
+  - macOS has no voice for some languages (Latvian, for one). For those, Google Translate's voice can read the text; you can turn that off in the setup window.
 - **Your own list of languages:** add any of the 249 languages Google Translate knows, as many or as few as you like. The list starts with your Mac's own languages, and the popup remembers the one you used last. Serbian comes in both Latin and Cyrillic script.
 - **Copy:** the copy button or ⌘C copies the translation (or the part you selected).
 - **Small:** one native app of under 1 MB, no Dock icon, no menu bar icon, under 30 MB of memory while it waits.
@@ -52,7 +55,8 @@ The setup window asks:
    - The model menu fills with the provider's own list once the key is in.
    - **Test** sends one short sentence, so you know the key and model work before you save.
 3. **Which languages to translate into:** press **+**, search the list (by English name or the language's own name) and click the ones you want. **−** removes the selected ones; drag rows to reorder. The popup's menu shows exactly this list.
-4. **Which method BTranslate opens with**, when both are on.
+4. **Whether Google's voice may read aloud** the languages your Mac has no voice for.
+5. **Which method BTranslate opens with**, when both are on.
 
 ![Adding a language](docs/languages.png)
 
@@ -83,6 +87,7 @@ fraction of a cent. You can type any other model name the provider offers.
 ## Privacy
 
 - **The text you translate** goes to the method you use for that popup: Google, or the AI provider you picked. Nothing else leaves your Mac, and BTranslate has no server, account or analytics of its own.
+- **Reading aloud** uses your Mac's voices and sends nothing anywhere. Only when you press a speaker button for a language your Mac has no voice for, and Google's voice is turned on in the setup window, is that text sent to Google.
 - **Your API key** is stored in your Mac's login Keychain and is sent only to its provider.
 - **Google Translate** is reached through the public endpoints Google's own pages and Chrome use. They are not an official API:
   - Google may limit how fast one address can ask. BTranslate then switches to the second endpoint by itself, and tells you if both refuse.
@@ -104,7 +109,8 @@ Add `-s -- --keep-keys` after `bash` to leave the API keys in the Keychain.
 
 ```bash
 ./build.sh        # build/BTranslate.app for this Mac (--universal: Apple silicon + Intel)
-tests/run.sh      # no network or key needed; --live also uses the real Google and Keychain
+tests/run.sh      # no network or key needed; --live also uses the real Google and Keychain;
+                  # --screen also shows a popup for three seconds and checks focus and typing
 ```
 
 There is no Xcode project and there are no dependencies: `swiftc` compiles the files in
@@ -113,8 +119,9 @@ There is no Xcode project and there are no dependencies: `swiftc` compiles the f
 - **`tests/run.sh`:**
   - runs the app's own checks (`BTranslate --selftest`);
   - translates through `tests/mock_server.py`, which stands in for Anthropic, the OpenAI-style providers and Google;
-  - draws the popup, the settings window and the language picker off screen, into `build/uitest/`.
-- **The app's command line,** for trying things: `BTranslate --print --engine google --to Russian "Labdien"` prints a translation. `Sources/main.swift` lists the rest.
+  - draws the popup, the settings window and the language pickers off screen, into `build/uitest/`;
+  - makes speech with a Mac voice without playing it.
+- **The app's command line,** for trying things: `BTranslate --print --engine google --from lv --to Russian "Labdien"` prints a translation, and `BTranslate --speech-check lv "Labdien"` says which voice would read a text and plays it at volume zero. `Sources/main.swift` lists the rest.
 - **The icon:** `swift tools/make-icon.swift` draws `Resources/AppIcon.icns`.
 - **The language list:** `python3 tools/update-languages.py` rewrites `Sources/Languages.swift` from Google's own list (one request), for when Google adds languages.
 

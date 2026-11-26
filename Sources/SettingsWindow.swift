@@ -24,6 +24,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private var aiLabels: [NSTextField] = []
     private var urlRow: NSGridRow?  // shown for the Custom provider only
     private let languageEditor = LanguageListEditor(width: 436)
+    private let googleVoiceBox = NSButton(checkboxWithTitle: "Read aloud with Google's voice where this Mac has none", target: nil, action: nil)
 
     private var modelTask: Task<Void, Never>?
     private var testTask: Task<Void, Never>?
@@ -146,9 +147,11 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         let line1 = NSBox(), line2 = NSBox(), line3 = NSBox()
         for line in [line1, line2, line3] { line.boxType = .separator }
         let languagesLabel = NSTextField(labelWithString: "Languages to translate into:")
+        let voiceNote = caption("The speaker buttons use your Mac's voices. It has none for some languages, such as Latvian: with this on, a text you play in one of those is sent to Google.")
 
         let stack = NSStackView(views: [title, intro, googleBox, googleNote, aiBox, aiNote, grid, line1,
-                                        languagesLabel, languageEditor.view, line3, defaultRow, line2, buttons])
+                                        languagesLabel, languageEditor.view, googleVoiceBox, voiceNote,
+                                        line3, defaultRow, line2, buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
@@ -160,6 +163,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         stack.setCustomSpacing(14, after: grid)
         stack.setCustomSpacing(12, after: line1)
         stack.setCustomSpacing(14, after: languageEditor.view)
+        stack.setCustomSpacing(2, after: googleVoiceBox)
+        stack.setCustomSpacing(14, after: voiceNote)
         stack.setCustomSpacing(12, after: line3)
         stack.setCustomSpacing(14, after: defaultRow)
         stack.edgeInsets = NSEdgeInsets(top: 20, left: 22, bottom: 18, right: 22)
@@ -175,7 +180,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             content.widthAnchor.constraint(equalToConstant: width),
         ])
-        for view in [intro, googleNote, aiNote, grid, line1, line2, line3, buttons] as [NSView] {
+        for view in [intro, googleNote, aiNote, voiceNote, grid, line1, line2, line3, buttons] as [NSView] {
             view.widthAnchor.constraint(equalToConstant: width - 44).isActive = true
         }
         grid.column(at: 0).width = 72
@@ -199,6 +204,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         urlField.stringValue = config.customURL
         defaultControl.selectedSegment = config.defaultEngine == .google ? 0 : 1
         languageEditor.languages = config.targets
+        googleVoiceBox.state = config.googleVoice ? .on : .off
         setStatus("", color: .secondaryLabelColor)
         showProvider(keepModel: config.model)
         refreshEnabled()
@@ -241,6 +247,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         c.customURL = urlField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         c.defaultEngine = defaultControl.selectedSegment == 1 ? .ai : .google
         c.languageIDs = languageEditor.languages.map(\.id)
+        c.googleVoice = googleVoiceBox.state == .on
         return c
     }
 

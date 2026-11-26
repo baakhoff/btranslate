@@ -10,7 +10,15 @@
 // AI provider, model and API key, and the method a popup opens with.
 //
 // Command line, for tests:
-//   BTranslate --print [--engine google|ai] [--to Russian|ru] "text"   print a translation
+//   BTranslate --print [--engine google|ai] [--from lv] [--to Russian|ru] "text"
+//                                                                   print a translation
+//   BTranslate --speech-check CODE "text"                           say which voice would read a
+//                                                                   text in that language, make the
+//                                                                   audio, and play it at volume zero
+//   BTranslate --screen-check                                       show a popup for three seconds and
+//                                                                   report what a still picture can't:
+//                                                                   which app stays in front, and that
+//                                                                   typing reaches the pencil's search
 //   BTranslate --models                                             print the provider's models
 //   BTranslate --selftest                                           checks that need no network
 //   BTranslate --keychain-test                                      save, read and delete a dummy key
@@ -182,11 +190,20 @@ func runUITest(into dir: String) {
     if !addedOK { exit(1) }
     let popup = Popup(text: argument(after: "--text") ?? "Labdien! Kā jums klājas? Rīt es būšu birojā no deviņiem līdz pieciem.")
     Popup.current = popup
+    popup.prepare()
+
+    // The pencil's picker, as it looks after typing "lat".
+    let picker = popup.makeSourcePicker()
+    picker.setSearch("lat")
+    snapshot(picker.view, to: dir + "/source-picker.png")
+    print("source picker finds: \(picker.foundIDs.prefix(4).joined(separator: ", "))")
+
     var round = 0
     var movedTo = NSPoint.zero
     popup.onSettled = {
         round += 1
-        if round == 1 {
+        switch round {
+        case 1:
             if let view = popup.panel.contentView { snapshot(view, to: dir + "/popup.png") }
             print("popup text: \(popup.shownText)")
             // Move the panel as a drag would, then translate again, as a language switch does.
@@ -194,14 +211,94 @@ func runUITest(into dir: String) {
             movedTo = NSPoint(x: f.minX + 180, y: f.maxY + 90)
             popup.panel.setFrameTopLeftPoint(movedTo)
             popup.start()
-        } else {
+        case 2:
             let f = popup.panel.frame
             let kept = abs(f.minX - movedTo.x) < 1 && abs(f.maxY - movedTo.y) < 1
             print("popup stays where it was moved: \(kept ? "yes" : "NO (moved to \(f.origin))")")
-            exit(kept ? 0 : 1)
+            if !kept { exit(1) }
+            // Set the original's language by hand, as picking it with the pencil does.
+            popup.setSource(sourceLanguages.first { $0.id == "lt" }, remember: false)
+        default:
+            if let view = popup.panel.contentView { snapshot(view, to: dir + "/popup-source-set.png") }
+            let set = popup.shownSource == "Lithuanian"
+            print("the original's language can be set by hand: \(set ? "yes" : "NO (bar says \(popup.shownSource))")")
+            exit(set ? 0 : 1)
         }
     }
     popup.start()
+}
+
+/// Shows a real popup by the pointer for about two seconds, opens the pencil's picker, types
+/// into it and closes it with Esc. Prints what it saw. Nothing is clicked in other apps.
+@MainActor
+func runScreenCheck() {
+    func front() -> String { NSWorkspace.shared.frontmostApplication?.localizedName ?? "?" }
+    func after(_ seconds: Double, _ work: @escaping @MainActor () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { MainActor.assumeIsolated(work) }
+    }
+    let before = front()
+    let popup = Popup(text: argument(after: "--text") ?? "Labdien! Kā jums klājas?")
+    Popup.current = popup
+    popup.show()
+    var activeAt: [String] = []
+    var becameActive = false
+    func note(_ step: String) {
+        // The system's view of who is active. (NSApp.isActive is AppKit's own flag and is
+        // set whenever a panel of the app has the keyboard, in front or not.)
+        let active = NSRunningApplication.current.isActive || front() != before
+        if active { becameActive = true }
+        activeAt.append("\(step): \(active ? "ACTIVE" : "no")")
+    }
+    after(0.7) {
+        print("popup: on screen \(popup.panel.isVisible ? "yes" : "NO"), takes the keyboard \(popup.panel.isKeyWindow ? "yes" : "NO")")
+        note("popup shown")
+        popup.toggleSourcePicker()  // what a click on the pencil does
+        after(0.4) {
+            note("picker open")
+            let opened = popup.sourcePickerState
+            popup.pressInSourcePicker("l")
+            popup.pressInSourcePicker("a")
+            popup.pressInSourcePicker("t")
+            after(0.3) {
+                let typed = popup.sourcePickerState
+                note("typed")
+                print("pencil's picker: open \(opened.open ? "yes" : "NO"), takes the keyboard \(opened.key ? "yes" : "NO"), "
+                    + "search field focused \(opened.searchFocused ? "yes" : "NO")")
+                print("typing \"lat\" finds: \(typed.found.prefix(3).joined(separator: ", "))")
+                popup.pressInSourcePicker("\u{1b}", keyCode: 53)  // Esc closes the picker, not the popup
+                after(0.3) {
+                    let closed = popup.sourcePickerState
+                    print("Esc: picker closed \(closed.open ? "NO" : "yes"), popup still open \(popup.panel.isVisible ? "yes" : "NO"), "
+                        + "popup has the keyboard again \(popup.panel.isKeyWindow ? "yes" : "NO")")
+                    note("picker closed")
+                    print("app in front: \(before) before, \(front()) after")
+                    let first = opened.open && opened.key && opened.searchFocused && typed.found.prefix(3) == ["ltg", "la", "lv"]
+                        && !closed.open && popup.panel.isVisible && popup.panel.isKeyWindow
+                    // Open it again, type a language and press Return: the popup translates anew.
+                    let recent = UserDefaults.standard.stringArray(forKey: "recentSources")
+                    popup.toggleSourcePicker()
+                    after(0.3) {
+                        for ch in "lithu" { popup.pressInSourcePicker(String(ch)) }
+                        after(0.2) {
+                            popup.pressInSourcePicker("\r", keyCode: 36)
+                            after(0.3) {
+                                note("language picked")
+                                UserDefaults.standard.set(recent, forKey: "recentSources")  // leave your list of recent ones alone
+                                let picked = !popup.sourcePickerState.open && popup.shownSource == "Lithuanian" && popup.panel.isKeyWindow
+                                print("Return on \"lithu\": picker closed \(popup.sourcePickerState.open ? "NO" : "yes"), "
+                                    + "the bar now says \(popup.shownSource)")
+                                print("BTranslate the active app? \(activeAt.joined(separator: ", "))")
+                                let ok = first && picked && !becameActive
+                                popup.close()
+                                print(ok ? "screen check: ok" : "screen check: FAILED")
+                                exit(ok ? 0 : 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 let arguments = CommandLine.arguments
@@ -229,6 +326,16 @@ if arguments.contains("--selftest") {
             return 1
         }
     }
+} else if let code = argument(after: "--speech-check") {
+    runHeadless {
+        let googleVoice = Config.load().googleVoice
+        let made = await speechCheck(arguments.last ?? "", code: code, googleVoice: googleVoice)
+        print(made)
+        if made.contains("ERROR") || made.hasPrefix("no voice") { return made.contains("ERROR") ? 1 : 0 }
+        let played = await playSilently(arguments.last ?? "", code: code, googleVoice: googleVoice)
+        print(played)
+        return played.contains("ERROR") ? 1 : 0
+    }
 } else if arguments.contains("--print") {
     runHeadless {
         let config = Config.load()
@@ -237,10 +344,18 @@ if arguments.contains("--selftest") {
             print("ERROR: no such language. Give its name or code, such as Russian or ru.")
             return 1
         }
+        var from: Target?
+        if let wanted = argument(after: "--from") {
+            guard let found = findTarget(wanted, in: sourceLanguages) else {
+                print("ERROR: no such language to translate from. Give its name or code, such as Latvian or lv.")
+                return 1
+            }
+            from = found
+        }
         var updates = 0
         var last: (String?, String) = (nil, "")
         do {
-            try await translate(arguments.last ?? "", engine: engine, target: target, config: config) { code, text in
+            try await translate(arguments.last ?? "", engine: engine, target: target, source: from, config: config) { code, text in
                 updates += 1
                 last = (code, text)
             }
@@ -251,6 +366,13 @@ if arguments.contains("--selftest") {
             print("ERROR: \(describe(error))")
             return 1
         }
+    }
+} else if arguments.contains("--screen-check") {
+    MainActor.assumeIsolated {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        runScreenCheck()
+        app.run()
     }
 } else if let dir = argument(after: "--uitest") {
     MainActor.assumeIsolated {

@@ -5,6 +5,9 @@
 #   tests/run.sh          build if needed, then test
 #   tests/run.sh --live   also use the real Google Translate (one sentence) and the real
 #                         Keychain (a dummy key is saved, read and deleted)
+#   tests/run.sh --screen also show a popup on screen for three seconds, to check what a
+#                         picture can't: your app stays in front, typing reaches the pencil's
+#                         search field (needs a working translation method in Settings)
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
@@ -71,17 +74,38 @@ check "Google: falls back when rate-limited" $'source: Latvian | updates: 1\nEN2
     env BTRANSLATE_GOOGLE_URL="$MOCK/google429" "$BIN" --print --engine google "Labdien"
 check "Google: Serbian in Latin script" "EN:Dobar dan" \
     env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --print --engine google --to "Serbian (Latin)" "Добар дан"
+check "Google: the original's language given" $'source: Lithuanian | updates: 1\nEN:Labas' \
+    env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --print --engine google --from lt "Labas"
+logged "Google: it is asked for that language" 'translate_a/single?client=gtx&sl=lt&'
+check "Google: the same through the second endpoint" $'source: Lithuanian | updates: 1\nEN2:Labas' \
+    env BTRANSLATE_GOOGLE_URL="$MOCK/google429" "$BIN" --print --engine google --from lt "Labas"
+check "AI: the original's language given" "source: Lithuanian" ai anthropic anthropic --from Lithuanian --to ru "Labas"
+logged "AI: told to read the text as that language" 'The text is written in Lithuanian (lietuvių)'
+logged "AI: the user turn names both languages" 'Translate from Lithuanian (lietuvių) into Russian (русский):'
+
+LONG="This is the first sentence, and it is here to fill one piece. $(printf 'Another sentence that makes the text longer than one piece. %.0s' 1 2 3 4)"
+check "Speech: Google's voice, in pieces" "google voice xx: 2 piece(s)" \
+    env BTRANSLATE_GOOGLE_SPEECH_URL="$MOCK/speech" "$BIN" -googleVoice YES --speech-check xx "$LONG"
+logged "Speech: the text goes in the request body" '"rpc": "jQ1olc", "text": "This is the first sentence'
+check "Speech: no voice when Google's is turned off" "no voice for" "$BIN" -googleVoice NO --speech-check xx "Hello"
+check "Speech: a voice of this Mac, without sound" "mac voice en-" "$BIN" --speech-check en "Hello there."
 
 # -key value arguments override the saved settings for this run only.
 UI_OUT="$(env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --uitest build/uitest \
     -googleEnabled YES -defaultEngine google -languages '(en, ru)' -target en 2>&1 || true)"
 check "UI, off screen: the popup stays where it was moved" "popup stays where it was moved: yes" echo "$UI_OUT"
 check "UI, off screen: the picker adds a language" "picker adds a language to the list: yes" echo "$UI_OUT"
-check "UI, off screen: pictures written" "languages.png" ls build/uitest
+check "UI, off screen: the pencil's picker searches" "source picker finds: ltg, la, lv" echo "$UI_OUT"
+check "UI, off screen: the original's language set by hand" "the original's language can be set by hand: yes" echo "$UI_OUT"
+check "UI, off screen: pictures written" "source-picker.png" ls build/uitest
 
 if [ "${1:-}" = "--live" ]; then
     check "Google, live" "source: Latvian" "$BIN" --print --engine google "Labdien! Kā jums klājas?"
     check "Keychain, live" "keychain: ok" "$BIN" --keychain-test
+fi
+
+if [ "${1:-}" = "--screen" ]; then
+    check "On screen: focus, typing, picking a language" "screen check: ok" "$BIN" --screen-check
 fi
 
 [ "$failed" = 0 ] && echo "All tests passed." || { echo "Some tests failed."; exit 1; }

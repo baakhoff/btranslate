@@ -16,9 +16,11 @@ The first release.
 - **Setup window:** which methods to use, the AI provider, model and API key (with a Test button and the provider's live model list), the languages to translate into, and which method a popup opens with. It opens after the install, from Spotlight or Finder, and from the gear in the popup.
 - **Your own list of languages to translate into:** any of the 249 languages Google Translate knows, added with a searchable picker, removable and reorderable. It starts with the Mac's own languages. Serbian comes in Latin and Cyrillic script. The source language is detected and shown.
 - **AI translations that really translate:** the model is told the language in English and in the language itself, and that changing the alphabet is not a translation, so Serbian → Russian comes out in Russian and not in Serbian Cyrillic.
+- **A pencil next to the detected language:** when the guess is wrong, pick the language of the original from a searchable list (the ones picked lately come first), and the popup translates again. Both Google and the AI model are told the language.
+- **Reading aloud:** a speaker button for the original and one for the translation. The Mac's own voices read, offline; the Croatian voice also reads Serbian and Bosnian. For a language macOS has no voice for, such as Latvian, Google Translate's voice reads the text, unless that is turned off in the setup window.
 - **The popup:** copy button and ⌘C; Esc, ⌘W or a click anywhere else closes it; it can be dragged and stays where you put it.
 - **API keys in the login Keychain,** one per provider.
 - **One-line installer** that builds the app on your Mac (no sudo), and an uninstaller.
-- **Tests without network or keys:** a mock server for both AI protocols and Google, and an off-screen drawing of the popup, the settings window and the language picker.
+- **Tests without network or keys:** a mock server for both AI protocols and Google, an off-screen drawing of the popup, the settings window and the language pickers, and speech made without sound. An optional on-screen check shows a popup for three seconds and confirms that the app in front stays in front and that typing reaches the pencil's search field.
 
 [1.0.0]: https://github.com/baakhoff/btranslate/releases/tag/v1.0.0

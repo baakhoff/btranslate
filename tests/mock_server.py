@@ -7,12 +7,14 @@
   /openrouter-strict/.. chat completions that reject the "reasoning" field
   /google/...           Google's first endpoint
   /google429/...        the first endpoint says 429; the second one answers
+  /speech/...           Google Translate's voice (the page's own batchexecute call)
 Every request is logged as one JSON line on stdout.
 """
 import json
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs
+import base64
+from urllib.parse import parse_qs, urlparse
 
 PIECES = ["[", "lv", "]\n", "Hello! ", "How are ", "you?\nSecond line."]
 
@@ -61,12 +63,23 @@ class Handler(BaseHTTPRequestHandler):
         if "/translate_a/" in self.path:
             text = parse_qs(raw.decode()).get("q", [""])[0]
             self.record({"q": text})
+            given = parse_qs(urlparse(self.path).query).get("sl", ["auto"])[0]
             if self.path.startswith("/google429/translate_a/single"):
                 self.reply(429, b"<html><title>Sorry...</title></html>", "text/html")
             elif "/translate_a/single" in self.path:
-                self.reply(200, [[["EN:" + text, text]], None, "lv"])
-            else:
+                self.reply(200, [[["EN:" + text, text]], None, "lv" if given == "auto" else given])
+            elif given == "auto":
                 self.reply(200, [["EN2:" + text, "lv"]])
+            else:  # with the source language given, the second endpoint answers with the text alone
+                self.reply(200, ["EN2:" + text])
+            return
+        if self.path.endswith("/batchexecute"):
+            call = json.loads(parse_qs(raw.decode()).get("f.req", ["[]"])[0])
+            text, code = json.loads(call[0][0][1])[:2]
+            self.record({"rpc": call[0][0][0], "text": text, "code": code})
+            audio = base64.b64encode(b"not really an mp3: " + text.encode()).decode()
+            answer = json.dumps([["wrb.fr", "jQ1olc", json.dumps([audio]), None, None, None, "generic"]])
+            self.reply(200, (")]}'\n\n" + answer + "\n").encode(), "application/json")
             return
 
         body = json.loads(raw)

@@ -40,14 +40,25 @@ func moved<T>(_ list: [T], from: Int, to: Int) -> [T] {
 
 // MARK: - The "+" picker
 
-/// A popover with a search field over every language that is not in the list yet. A click on a
-/// language (or Return, for the first one found) adds it; the popover stays open for more.
+/// A search field over a list of languages. A click on a language (or Return, for the first
+/// one found) picks it. Settings shows it in a popover, to add languages to the list: it
+/// stays open for more. The translation popup shows `view` in a panel of its own, to set the
+/// original's language.
 @MainActor
 final class LanguagePicker: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
-    let popover = NSPopover()
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 290, height: 330))
-    var available: () -> [Target] = { [] }
-    var onAdd: (Target) -> Void = { _ in }
+    var available: () -> [Target] = { [] }    // the languages to offer
+    var onAdd: (Target) -> Void = { _ in }    // one was picked
+
+    private(set) lazy var popover: NSPopover = {
+        let controller = NSViewController()
+        controller.view = view
+        let popover = NSPopover()
+        popover.contentViewController = controller
+        popover.contentSize = view.frame.size
+        popover.behavior = .transient  // a click outside closes it
+        return popover
+    }()
 
     private let search = NSSearchField()
     private let table = NSTableView()
@@ -79,19 +90,20 @@ final class LanguagePicker: NSObject, NSTableViewDataSource, NSTableViewDelegate
         scroll.drawsBackground = false
         view.addSubview(search)
         view.addSubview(scroll)
-
-        let controller = NSViewController()
-        controller.view = view
-        popover.contentViewController = controller
-        popover.contentSize = size
-        popover.behavior = .transient  // a click outside closes it
     }
 
     func show(relativeTo rect: NSRect, of anchor: NSView) {
         setSearch("")
         popover.show(relativeTo: rect, of: anchor, preferredEdge: .maxY)
+        focusSearch()
+    }
+
+    /// Typing goes to the search field.
+    func focusSearch() {
         view.window?.makeFirstResponder(search)
     }
+
+    var searchHasFocus: Bool { view.window?.firstResponder === search.currentEditor() && search.currentEditor() != nil }
 
     func setSearch(_ text: String) {
         search.stringValue = text
