@@ -4,7 +4,8 @@
 #
 #   ./build.sh               for this Mac's processor
 #   ./build.sh --universal   for Apple silicon and Intel in one app
-# Env: BTRANSLATE_SIGN_IDENTITY: a code signing identity (default: ad hoc).
+# Env: BTRANSLATE_SIGN_IDENTITY: a code signing identity (default: ad hoc). The installer
+#      gives this Mac's own, if tools/local-signing.sh has made one.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
@@ -45,5 +46,15 @@ for lproj in Resources/*.lproj; do
         plutil -convert binary1 -o "$APP/Contents/Resources/$(basename "$lproj")/$(basename "$strings")" "$strings"
     done
 done
-codesign --force --sign "${BTRANSLATE_SIGN_IDENTITY:--}" "$APP" 2>/dev/null
-echo "Built $APP ($VERSION, ${archs[*]})"
+# Signed ad hoc, or with BTRANSLATE_SIGN_IDENTITY. If that identity can't be used (its key's
+# use was not allowed, say), the app is signed ad hoc and the reason is said.
+signed="ad hoc"
+if [ -n "${BTRANSLATE_SIGN_IDENTITY:-}" ]; then
+    if why="$(codesign --force --sign "$BTRANSLATE_SIGN_IDENTITY" "$APP" 2>&1)"; then
+        signed="as $BTRANSLATE_SIGN_IDENTITY"
+    else
+        echo "Could not sign as \"$BTRANSLATE_SIGN_IDENTITY\" (${why##*: }). Signing ad hoc instead." >&2
+    fi
+fi
+[ "$signed" = "ad hoc" ] && codesign --force --sign - "$APP" 2>/dev/null
+echo "Built $APP ($VERSION, ${archs[*]}, signed $signed)"

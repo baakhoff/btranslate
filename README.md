@@ -140,7 +140,7 @@ The same page in Russian. A language is found by its Russian name, its English n
 
 1. **Which shortcut:** click the field and press the keys. ⌫ takes the shortcut away.
 2. **For your permission,** once: the shortcut reads what is selected in the app in front, and writes into its text fields, through macOS's Accessibility. **Open System Settings…** takes you to the switch.
-3. **Whether BTranslate opens when you log in.** The shortcut works only while BTranslate runs.
+3. **Whether BTranslate opens when you log in.** The shortcut works only while BTranslate runs, so this is ticked when you first set BTranslate up; macOS tells you when the login item is added.
 
 ![The setup window, Shortcut page](docs/settings-shortcut.png)
 
@@ -153,7 +153,8 @@ the popup.
 same key in the Russian layout.
 
 - **What it needs:** your permission under System Settings → Privacy & Security → Accessibility, and BTranslate running (tick **Open BTranslate when I log in**). Until the permission is there, the shortcut opens the Shortcut page instead.
-- **After an update the permission has to be given again:** take BTranslate off the Accessibility list with **–** and add it again. macOS ties the permission to the exact build of an app that has no developer signature, and the installer builds a new one each time. With a signing identity of your own (`BTRANSLATE_SIGN_IDENTITY`) it stays.
+- **After an update the permission has to be given again:** take BTranslate off the Accessibility list with **–** and add it again. macOS ties the permission to the exact build of an app that has no developer signature, and the installer builds a new one each time.
+- **Unless this Mac signs BTranslate itself:** from a checkout, `tools/local-signing.sh` makes a signing certificate named "BTranslate (this Mac)" in your login keychain, and the installer signs with it from then on. Every build is then the same app to macOS, and the permission stays. macOS asks for your password when the certificate's key is first used. Whoever can use that certificate can make a program macOS takes for BTranslate, so it is a choice, not the default; `tools/local-signing.sh --remove` takes it out again.
 - **Typing in another language:**
   - The panel remembers the language you chose. The method is the one BTranslate opens with.
   - A finished sentence is translated once and stays as it is; only the one you are typing changes.
@@ -268,7 +269,7 @@ There is no Xcode project and there are no dependencies: `swiftc` compiles the f
 - **Serbian in two alphabets:** Google writes Serbian in Cyrillic only, and hands a Serbian text back unchanged. So BTranslate changes the alphabet itself, in both directions.
   - Going to Cyrillic, it leaves in Latin what looks foreign: words with q, w, x or y, abbreviations such as STL, names like GitHub, and English in brackets or with a hyphen ("open-source").
   - A foreign name that nothing marks as foreign is converted letter by letter. The AI method does better with those.
-- **The app is signed ad hoc** (no Apple developer account), which is why the installer builds it on your Mac instead of downloading a binary that Gatekeeper would block. Set `BTRANSLATE_SIGN_IDENTITY` to sign with an identity of your own.
+- **The app is signed ad hoc** (no Apple developer account), which is why the installer builds it on your Mac instead of downloading a binary that Gatekeeper would block. Set `BTRANSLATE_SIGN_IDENTITY` to sign with an identity of your own, or have `tools/local-signing.sh` make one for this Mac.
 - **API keys** are read and written through `/usr/bin/security`, so an update (a new ad hoc signature) does not bring up a Keychain prompt.
 
 ## License

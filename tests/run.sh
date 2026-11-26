@@ -290,7 +290,7 @@ check "Language pack: removed" "language pack: removed" "$BIN" --pack-remove
 check "Language pack: gone again" "language pack: not installed" "$BIN" --pack
 
 # The shortcut: as the settings keep it, and its page of the settings.
-T=(-googleEnabled YES -defaultEngine google -languages '(en, ru, lv)' -defaultLanguage ru -typingLanguage none)
+T=(-googleEnabled YES -defaultEngine google -languages '(en, ru, lv)' -defaultLanguage ru -typingLanguage none -setupDone YES)
 check "Shortcut: ⌃⌥T unless another is set" 'shortcut: ⌃⌥T (kept as "control+option+17")' "$BIN" --shortcut-check
 check "Shortcut: macOS takes one and lets it go" $'macOS takes a shortcut: yes (⌃⌥⇧⌘F19)\nand lets it go: yes' "$BIN" --shortcut-check
 check "Shortcut: another one from the settings" "shortcut: ⌃⌥⇧K" "$BIN" -shortcut "control+option+shift+40" --shortcut-check
@@ -302,6 +302,8 @@ check "Shortcut's page: a letter alone is not taken, and ⌫ takes the shortcut 
 check "Shortcut's page: every text fits" "every text of the page fits: yes" echo "$PAGE"
 check "Shortcut's page: with the permission, and opening at login" $'permission: given\nopens at login: ticked' \
     env BTRANSLATE_ACCESSIBILITY=on BTRANSLATE_LOGIN=on "$BIN" "${T[@]}" --shortcut-page
+check "Shortcut's page: on a first setup, opening at login is ticked" "opens at login: ticked" "$BIN" "${T[@]}" -setupDone NO --shortcut-page
+check "Login item: read and set (a stand-in for macOS's list)" "opens at login: yes" "$BIN" --login on
 check "Shortcut's page, in Russian: every text fits" "every text of the page fits: yes" \
     env BTRANSLATE_LANGUAGE=ru "$BIN" "${T[@]}" --shortcut-page --picture build/uitest-ru
 

@@ -380,7 +380,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         shortcutField.shortcut = config.shortcut
         shortcutStatus.stringValue = ""
         shortcutStatus.isHidden = true
-        loginBox.state = LoginItem.isOn ? .on : .off
+        // Ticked from the first setup on: without it the shortcut is gone after a restart of the Mac.
+        loginBox.state = LoginItem.isOn || !Config.isSetUp ? .on : .off
         accessButton.isHidden = !Accessibility.isAllowed  // (refreshAccess goes by a change of it)
         refreshAccess()
         AISetup.forget()  // a key may have come or gone since the window was last open

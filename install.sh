@@ -14,7 +14,8 @@
 #        silicon and there is a terminal to ask in.
 #      BTRANSLATE_REF=main installs the main branch instead of the release tag.
 #      BTRANSLATE_ARCHIVE=<url> installs from another source archive (.tar.gz).
-#      BTRANSLATE_SIGN_IDENTITY: a code signing identity for the app (default: ad hoc).
+#      BTRANSLATE_SIGN_IDENTITY: a code signing identity for the app (default: this Mac's
+#        own certificate if tools/local-signing.sh has made one, else ad hoc).
 #
 # Needs the Command Line Tools for the Swift compiler: xcode-select --install
 # Speaks Russian on a Mac whose first language (of English and Russian) is Russian.
@@ -167,6 +168,13 @@ TEXT
         src="$tmp"
     fi
 
+    # With a certificate of this Mac's own (tools/local-signing.sh makes one), every build is
+    # the same app to macOS, and the permission the shortcut needs outlasts an update.
+    if [ -z "${BTRANSLATE_SIGN_IDENTITY:-}" ] \
+        && security find-identity -p codesigning 2>/dev/null | grep -q '"BTranslate (this Mac)"'; then
+        export BTRANSLATE_SIGN_IDENTITY="BTranslate (this Mac)"
+    fi
+
     say "$(t "Building" "Сборка") BTranslate $(cat "$src/VERSION")"
     bash "$src/build.sh"
 
@@ -209,7 +217,10 @@ TEXT
 поле — панель, чтобы писать на другом языке; иначе — перевод окна целиком.
 Ему нужно ваше разрешение: «Системные настройки» → «Конфиденциальность и
 безопасность» → «Универсальный доступ» → BTranslate. После обновления BTranslate
-уберите его из этого списка кнопкой «–» и добавьте снова.
+уберите его из этого списка кнопкой «–» и добавьте снова (это не нужно, если
+tools/local-signing.sh создал для этого Mac сертификат).
+Сочетание работает, пока BTranslate запущен: в его настройках включено
+открытие при входе в систему.
 
 Настройки (способы перевода, провайдер ИИ, модель, ключ API, языки, сочетание
 клавиш): откройте BTranslate через Spotlight или Finder либо нажмите на
@@ -224,7 +235,8 @@ The shortcut ⌃⌥T in any app: selected text is translated; in a text field it
 a panel to type in another language; otherwise it translates a whole window.
 It needs your permission: System Settings → Privacy & Security → Accessibility →
 BTranslate. After an update of BTranslate, take it off that list with "–" and add
-it again.
+it again (not needed once tools/local-signing.sh has made this Mac a certificate).
+It works while BTranslate runs: its settings have it open when you log in.
 
 Settings (methods, AI provider, model, API key, languages, the shortcut): open
 BTranslate from Spotlight or Finder, or click the gear in the popup.

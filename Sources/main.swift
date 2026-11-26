@@ -59,6 +59,7 @@
 //                                                                   report what a still picture can't:
 //                                                                   which app stays in front, and that
 //                                                                   typing reaches the pencil's search
+//   BTranslate --login on|off|status                                BTranslate among the login items
 //   BTranslate --shortcut-check                                     the shortcut as the settings keep
 //                                                                   it, and whether macOS takes one
 //   BTranslate --shortcut-page [--picture DIR]                      the settings' page for it, off
@@ -973,6 +974,16 @@ if arguments.contains("--selftest") {
         let lines = (try? PictureReader.lines(in: image, languages: [])) ?? []
         print(String(format: "reading is ready: %d lines in %.1f s", lines.count, Date().timeIntervalSince(start)))
         exit(lines.isEmpty ? 1 : 0)
+    }
+} else if let wanted = argument(after: "--login") {
+    // on | off | status: BTranslate among the login items, as its settings' checkbox sets it.
+    MainActor.assumeIsolated {
+        if wanted == "on" || wanted == "off", let why = LoginItem.set(wanted == "on") {
+            print("ERROR: \(why)")
+            exit(1)
+        }
+        print("opens at login: \(LoginItem.isOn ? "yes" : "no")")
+        exit(0)
     }
 } else if arguments.contains("--shortcut-check") {
     runHeadless { runShortcutCheck() }
