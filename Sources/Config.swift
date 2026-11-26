@@ -50,7 +50,8 @@ struct Config {
     var model = "claude-haiku-5-5"
     var customURL = ""
     var defaultEngine: Engine = .google
-    var languageIDs: [String] = []  // the languages in the popup's menu, in order
+    var languageIDs: [String] = []  // the languages in the popup's menus, in order
+    var defaultLanguageID = ""      // the language a popup opens with; "" or gone from the list: the first one
     var googleVoice = true          // read aloud with Google's voice where the Mac has none
 
     var provider: Provider { providers.first { $0.id == providerID } ?? providers[0] }
@@ -78,13 +79,8 @@ struct Config {
         return list.isEmpty ? defaultLanguageIDs().compactMap(target(id:)) : list
     }
 
-    /// The language a new popup translates into: the one used last, if it is still in the list.
-    var startTarget: Target {
-        let saved = UserDefaults.standard.string(forKey: "target")  // an id; a name in settings from 1.0 drafts
-        return targets.first { $0.id == saved || $0.name == saved } ?? targets[0]
-    }
-
-    static func remember(_ target: Target) { UserDefaults.standard.set(target.id, forKey: "target") }
+    /// The language a new popup translates into: the default chosen in Settings.
+    var startTarget: Target { targets.first { $0.id == defaultLanguageID } ?? targets[0] }
 
     static var isSetUp: Bool { UserDefaults.standard.bool(forKey: "setupDone") }
 
@@ -99,6 +95,12 @@ struct Config {
         c.customURL = d.string(forKey: "aiBaseURL") ?? ""
         c.defaultEngine = Engine(rawValue: d.string(forKey: "defaultEngine") ?? "") ?? .google
         c.languageIDs = d.stringArray(forKey: "languages") ?? defaultLanguageIDs()
+        if let chosen = d.string(forKey: "defaultLanguage") {
+            c.defaultLanguageID = chosen
+        } else if let last = d.string(forKey: "target") {
+            // Settings from before the default could be chosen: the language that was used last.
+            c.defaultLanguageID = c.targets.first { $0.id == last || $0.name == last }?.id ?? ""
+        }
         c.googleVoice = d.bool(forKey: "googleVoice")
         // For tests: BTRANSLATE_PROVIDER / BTRANSLATE_MODEL override the saved settings.
         let env = ProcessInfo.processInfo.environment
@@ -120,6 +122,7 @@ struct Config {
         d.set(customURL, forKey: "aiBaseURL")
         d.set(defaultEngine.rawValue, forKey: "defaultEngine")
         d.set(languageIDs, forKey: "languages")
+        d.set(startTarget.id, forKey: "defaultLanguage")
         d.set(googleVoice, forKey: "googleVoice")
         d.set(true, forKey: "setupDone")
     }

@@ -25,6 +25,9 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private var urlRow: NSGridRow?  // shown for the Custom provider only
     private let languageEditor = LanguageListEditor(width: 436)
     private let googleVoiceBox = NSButton(checkboxWithTitle: "Read aloud with Google's voice where this Mac has none", target: nil, action: nil)
+    // Two pages, so the window fits a small screen: how to translate, and into which languages.
+    private let pageControl = NSSegmentedControl(labels: ["Translation", "Languages"], trackingMode: .selectOne, target: nil, action: nil)
+    private var pages: [NSView] = []
 
     private var modelTask: Task<Void, Never>?
     private var testTask: Task<Void, Never>?
@@ -44,12 +47,41 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         window?.makeKeyAndOrderFront(nil)
     }
 
+    /// Shows one of the two pages; the window keeps its top edge and takes the page's height.
+    func showPage(_ index: Int) {
+        guard pages.indices.contains(index) else { return }
+        pageControl.selectedSegment = index
+        let top = window.map { NSPoint(x: $0.frame.minX, y: $0.frame.maxY) }
+        for (i, page) in pages.enumerated() { page.isHidden = i != index }
+        window?.layoutIfNeeded()
+        if let window, let content = window.contentView {
+            window.setContentSize(content.fittingSize)
+            if let top { window.setFrameTopLeftPoint(top) }
+        }
+    }
+
+    @objc private func pageChanged() {
+        languageEditor.picker.popover.close()
+        showPage(pageControl.selectedSegment)
+    }
+
     /// The window's content with the saved settings filled in, without showing it (UI test).
-    func preparedContent() -> NSView? {
+    func preparedContent(page: Int = 0) -> NSView? {
         if window == nil { build() }
         config = Config.load()
         fill()
+        showPage(page)
         return window?.contentView
+    }
+
+    var currentContent: NSView? { window?.contentView }
+
+    /// The window's content height on each page (UI test). Leaves the second page showing.
+    var pageHeights: (CGFloat, CGFloat) {
+        showPage(0)
+        let first = window?.contentView?.fittingSize.height ?? 0
+        showPage(1)
+        return (first, window?.contentView?.fittingSize.height ?? 0)
     }
 
     /// The "+" picker's content as it looks after typing `search` (UI test).
@@ -65,6 +97,23 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         return (draft().languageIDs, languageEditor.picker.foundIDs)
     }
 
+    /// Works the list's buttons on its last row: up, make default, then remove the row that was
+    /// first (UI test). Returns the order and the default after each step. Nothing is saved.
+    func reorderForTest() -> [String] {
+        func state() -> String { "\(draft().languageIDs.joined(separator: ",")) default=\(draft().defaultLanguageID)" }
+        var steps = [state()]
+        let last = languageEditor.languages.count - 1
+        languageEditor.select(row: last)
+        languageEditor.moveSelected(by: -1)
+        steps.append(state())
+        languageEditor.makeSelectedDefault()
+        steps.append(state())
+        languageEditor.select(row: 0)
+        languageEditor.moveSelected(by: 1)
+        steps.append(state())
+        return steps
+    }
+
     // MARK: Building the window
 
     private func caption(_ text: String) -> NSTextField {
@@ -78,7 +127,9 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         let title = NSTextField(labelWithString: "BTranslate")
         title.font = .systemFont(ofSize: 20, weight: .bold)
         let intro = NSTextField(wrappingLabelWithString:
-            "Select text in any app, right-click it and choose Services → BTranslate. Choose how it translates:")
+            "Select text in any app, right-click it and choose Services → BTranslate.")
+        pageControl.target = self
+        pageControl.action = #selector(pageChanged)
 
         for box in [googleBox, aiBox] {
             box.target = self
@@ -144,35 +195,47 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         let buttons = NSStackView(views: [spacer, cancel, save])
         buttons.spacing = 8
 
-        let line1 = NSBox(), line2 = NSBox(), line3 = NSBox()
-        for line in [line1, line2, line3] { line.boxType = .separator }
+        let line1 = NSBox(), line2 = NSBox()
+        for line in [line1, line2] { line.boxType = .separator }
         let languagesLabel = NSTextField(labelWithString: "Languages to translate into:")
         let voiceNote = caption("The speaker buttons use your Mac's voices. It has none for some languages, such as Latvian: with this on, a text you play in one of those is sent to Google.")
 
-        let stack = NSStackView(views: [title, intro, googleBox, googleNote, aiBox, aiNote, grid, line1,
-                                        languagesLabel, languageEditor.view, googleVoiceBox, voiceNote,
-                                        line3, defaultRow, line2, buttons])
+        let width: CGFloat = 480, inner = width - 44
+        func page(_ views: [NSView]) -> NSStackView {
+            let page = NSStackView(views: views)
+            page.orientation = .vertical
+            page.alignment = .leading
+            page.spacing = 8
+            return page
+        }
+        // Page 1: how to translate.
+        let translation = page([googleBox, googleNote, aiBox, aiNote, grid, line1, defaultRow])
+        translation.setCustomSpacing(2, after: googleBox)
+        translation.setCustomSpacing(12, after: googleNote)
+        translation.setCustomSpacing(2, after: aiBox)
+        translation.setCustomSpacing(12, after: aiNote)
+        translation.setCustomSpacing(14, after: grid)
+        translation.setCustomSpacing(12, after: line1)
+        // Page 2: into which languages, and reading aloud.
+        let languages = page([languagesLabel, languageEditor.view, googleVoiceBox, voiceNote])
+        languages.setCustomSpacing(16, after: languageEditor.view)
+        languages.setCustomSpacing(2, after: googleVoiceBox)
+        pages = [translation, languages]
+
+        let stack = NSStackView(views: [title, intro, pageControl, translation, languages, line2, buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
-        stack.setCustomSpacing(14, after: intro)
-        stack.setCustomSpacing(2, after: googleBox)
-        stack.setCustomSpacing(12, after: googleNote)
-        stack.setCustomSpacing(2, after: aiBox)
-        stack.setCustomSpacing(12, after: aiNote)
-        stack.setCustomSpacing(14, after: grid)
-        stack.setCustomSpacing(12, after: line1)
-        stack.setCustomSpacing(14, after: languageEditor.view)
-        stack.setCustomSpacing(2, after: googleVoiceBox)
-        stack.setCustomSpacing(14, after: voiceNote)
-        stack.setCustomSpacing(12, after: line3)
-        stack.setCustomSpacing(14, after: defaultRow)
+        stack.setCustomSpacing(12, after: intro)
+        stack.setCustomSpacing(16, after: pageControl)
+        stack.setCustomSpacing(16, after: translation)
+        stack.setCustomSpacing(16, after: languages)
+        stack.setCustomSpacing(14, after: line2)
         stack.edgeInsets = NSEdgeInsets(top: 20, left: 22, bottom: 18, right: 22)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         let content = NSView()
         content.addSubview(stack)
-        let width: CGFloat = 480
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: content.topAnchor),
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
@@ -180,8 +243,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             content.widthAnchor.constraint(equalToConstant: width),
         ])
-        for view in [intro, googleNote, aiNote, voiceNote, grid, line1, line2, line3, buttons] as [NSView] {
-            view.widthAnchor.constraint(equalToConstant: width - 44).isActive = true
+        for view in [intro, googleNote, aiNote, voiceNote, grid, line1, line2, buttons, translation, languages] as [NSView] {
+            view.widthAnchor.constraint(equalToConstant: inner).isActive = true
         }
         grid.column(at: 0).width = 72
 
@@ -193,6 +256,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         w.isRestorable = false
         w.delegate = self
         window = w
+        showPage(0)
     }
 
     // MARK: Showing the saved settings
@@ -204,6 +268,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         urlField.stringValue = config.customURL
         defaultControl.selectedSegment = config.defaultEngine == .google ? 0 : 1
         languageEditor.languages = config.targets
+        languageEditor.defaultID = config.startTarget.id
         googleVoiceBox.state = config.googleVoice ? .on : .off
         setStatus("", color: .secondaryLabelColor)
         showProvider(keepModel: config.model)
@@ -247,6 +312,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         c.customURL = urlField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         c.defaultEngine = defaultControl.selectedSegment == 1 ? .ai : .google
         c.languageIDs = languageEditor.languages.map(\.id)
+        c.defaultLanguageID = languageEditor.defaultLanguage?.id ?? ""
         c.googleVoice = googleVoiceBox.state == .on
         return c
     }
@@ -328,8 +394,13 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     @objc private func saveSettings() {
         let c = draft()
         let typed = keyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let p = problem(c, key: currentKey()) { setStatus(p, color: .systemRed); return }
+        if let p = problem(c, key: currentKey()) {
+            showPage(0)  // where the message shows
+            setStatus(p, color: .systemRed)
+            return
+        }
         if c.aiEnabled && !typed.isEmpty && !Keychain.save(typed, account: c.providerID) {
+            showPage(0)
             setStatus("The key could not be saved to the Keychain.", color: .systemRed)
             return
         }

@@ -15,7 +15,7 @@
 //   BTranslate --speech-check CODE "text"                           say which voice would read a
 //                                                                   text in that language, make the
 //                                                                   audio, and play it at volume zero
-//   BTranslate --screen-check                                       show a popup for three seconds and
+//   BTranslate --screen-check                                       show a popup for a few seconds and
 //                                                                   report what a still picture can't:
 //                                                                   which app stays in front, and that
 //                                                                   typing reaches the pencil's search
@@ -177,8 +177,11 @@ func snapshot(_ view: NSView, to path: String) {
 @MainActor
 func runUITest(into dir: String) {
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-    if let content = SettingsController.shared.preparedContent() {
+    if let content = SettingsController.shared.preparedContent(page: 0) {
         snapshot(content, to: dir + "/settings.png")
+    }
+    if let content = SettingsController.shared.preparedContent(page: 1) {
+        snapshot(content, to: dir + "/settings-languages.png")
     }
     snapshot(SettingsController.shared.preparedPicker(search: "ser"), to: dir + "/languages.png")
     // Add a language through the picker: it joins the list and leaves the picker.
@@ -188,6 +191,13 @@ func runUITest(into dir: String) {
         && !added.stillOffered.contains(added.list.last ?? "")
     print("picker adds a language to the list: \(addedOK ? "yes" : "NO (\(before) → \(added.list))")")
     if !addedOK { exit(1) }
+    // The list's buttons: the last language up one place, made the default, the first one down.
+    let steps = SettingsController.shared.reorderForTest()
+    print("list buttons: \(steps.joined(separator: " → "))")
+    if let content = SettingsController.shared.currentContent {
+        snapshot(content, to: dir + "/settings-reordered.png")
+        print("settings pages are \(Int(SettingsController.shared.pageHeights.0)) and \(Int(SettingsController.shared.pageHeights.1)) points tall")
+    }
     let popup = Popup(text: argument(after: "--text") ?? "Labdien! Kā jums klājas? Rīt es būšu birojā no deviņiem līdz pieciem.")
     Popup.current = popup
     popup.prepare()
@@ -206,9 +216,10 @@ func runUITest(into dir: String) {
         case 1:
             if let view = popup.panel.contentView { snapshot(view, to: dir + "/popup.png") }
             print("popup text: \(popup.shownText)")
-            // Move the panel as a drag would, then translate again, as a language switch does.
-            let f = popup.panel.frame
-            movedTo = NSPoint(x: f.minX + 180, y: f.maxY + 90)
+            // Move the panel as a drag would, to a place well inside the screen (wherever the
+            // pointer is), then translate again, as a language switch does.
+            let screen = (popup.panel.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+            movedTo = NSPoint(x: screen.midX - 137, y: screen.midY + 61)
             popup.panel.setFrameTopLeftPoint(movedTo)
             popup.start()
         case 2:
@@ -216,6 +227,19 @@ func runUITest(into dir: String) {
             let kept = abs(f.minX - movedTo.x) < 1 && abs(f.maxY - movedTo.y) < 1
             print("popup stays where it was moved: \(kept ? "yes" : "NO (moved to \(f.origin))")")
             if !kept { exit(1) }
+            // Add two more languages of the list, as + does one at a time.
+            let others = popup.config.targets.filter { other in !popup.sections.contains { $0.target == other } }
+            if others.isEmpty {
+                print("several languages at once: skipped (the list has one language)")
+                popup.setSource(sourceLanguages.first { $0.id == "lt" }, remember: false)
+            }
+            for other in others.prefix(2) { popup.addLanguage(other) }
+        case 3 where popup.sections.count > 1 && popup.shownSource != "Lithuanian":
+            if let view = popup.panel.contentView { snapshot(view, to: dir + "/popup-several.png") }
+            let texts = popup.shownTexts
+            let several = texts.allSatisfy { !$0.isEmpty && $0 != "Translating…" } && Set(texts).count == texts.count
+            print("several languages at once: \(several ? "yes" : "NO") (\(popup.sections.map(\.target.id).joined(separator: ", ")))")
+            if !several { exit(1) }
             // Set the original's language by hand, as picking it with the pencil does.
             popup.setSource(sourceLanguages.first { $0.id == "lt" }, remember: false)
         default:
@@ -287,11 +311,36 @@ func runScreenCheck() {
                                 let picked = !popup.sourcePickerState.open && popup.shownSource == "Lithuanian" && popup.panel.isKeyWindow
                                 print("Return on \"lithu\": picker closed \(popup.sourcePickerState.open ? "NO" : "yes"), "
                                     + "the bar now says \(popup.shownSource)")
-                                print("BTranslate the active app? \(activeAt.joined(separator: ", "))")
-                                let ok = first && picked && !becameActive
-                                popup.close()
-                                print(ok ? "screen check: ok" : "screen check: FAILED")
-                                exit(ok ? 0 : 1)
+                                // Add another language of your list, as + does, and wait for both translations.
+                                let others = popup.config.targets.filter { other in !popup.sections.contains { $0.target == other } }
+                                @MainActor func finish(_ several: Bool) {
+                                    note("language added")
+                                    print("BTranslate the active app? \(activeAt.joined(separator: ", "))")
+                                    let ok = first && picked && several && !becameActive
+                                    popup.close()
+                                    print(ok ? "screen check: ok" : "screen check: FAILED")
+                                    exit(ok ? 0 : 1)
+                                }
+                                guard let other = others.first else {
+                                    print("a second language: skipped (your list has one language)")
+                                    finish(true)
+                                    return
+                                }
+                                let heightBefore = popup.panel.frame.height, topBefore = popup.panel.frame.maxY
+                                var done = false
+                                popup.onSettled = {
+                                    guard !done else { return }
+                                    done = true
+                                    let texts = popup.shownTexts
+                                    let grew = popup.panel.frame.height > heightBefore + 20
+                                    let several = texts.count == 2 && texts.allSatisfy { !$0.isEmpty && $0 != "Translating…" } && grew
+                                        && popup.panel.isKeyWindow
+                                    print("+ \(other.name): \(texts.count) translations showing, popup \(Int(heightBefore)) → \(Int(popup.panel.frame.height)) points tall, "
+                                        + "top edge \(abs(popup.panel.frame.maxY - topBefore) < 1 || popup.panel.frame.maxY < topBefore ? "in place" : "MOVED UP")")
+                                    finish(several)
+                                }
+                                popup.addLanguage(other)
+                                after(12) { if !done { done = true; print("+ \(other.name): no translation after 12 s"); finish(false) } }
                             }
                         }
                     }

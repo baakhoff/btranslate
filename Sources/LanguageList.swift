@@ -1,8 +1,9 @@
 import Cocoa
 
-/// A table row that names a language: "Russian" and, in grey, its own name "русский".
+/// A table row that names a language: "Russian" and, in grey, its own name "русский"; the
+/// default language of the list is marked as that.
 @MainActor
-private func languageCell(in table: NSTableView, for target: Target) -> NSView {
+private func languageCell(in table: NSTableView, for target: Target, isDefault: Bool = false) -> NSView {
     let id = NSUserInterfaceItemIdentifier("language")
     let cell: NSTableCellView
     if let reused = table.makeView(withIdentifier: id, owner: nil) as? NSTableCellView {
@@ -24,6 +25,9 @@ private func languageCell(in table: NSTableView, for target: Target) -> NSView {
     let text = NSMutableAttributedString(string: target.name, attributes: [.foregroundColor: NSColor.labelColor])
     if let own = target.ownName {
         text.append(NSAttributedString(string: "  " + own, attributes: [.foregroundColor: NSColor.secondaryLabelColor]))
+    }
+    if isDefault {
+        text.append(NSAttributedString(string: "   ★ default", attributes: [.foregroundColor: NSColor.controlAccentColor]))
     }
     cell.textField?.attributedStringValue = text
     return cell
@@ -148,8 +152,9 @@ final class LanguagePicker: NSObject, NSTableViewDataSource, NSTableViewDelegate
 
 // MARK: - The list in Settings
 
-/// The languages the popup's menu offers: a table with + and − under it. Rows can be dragged
-/// into another order. At least one language stays.
+/// The languages the popup offers: a table with + − ↑ ↓ and "Make Default" under it. Rows can
+/// also be dragged into another order. One language is the default, the one a popup opens
+/// with. At least one language stays.
 @MainActor
 final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var languages: [Target] = [] {
@@ -158,11 +163,21 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
             refreshButtons()
         }
     }
+    /// The default as it was chosen; `defaultLanguage` is what holds if it left the list.
+    var defaultID = "" {
+        didSet {
+            table.reloadData()
+            refreshButtons()
+        }
+    }
+    var defaultLanguage: Target? { languages.first { $0.id == defaultID } ?? languages.first }
+
     let view = NSStackView()
     let picker = LanguagePicker()
 
     private let table = NSTableView()
     private let buttons = NSSegmentedControl()
+    private let defaultButton = NSButton(title: "Make Default", target: nil, action: nil)
     private let rowType = NSPasteboard.PasteboardType("io.github.baakhoff.btranslate.language-row")
 
     init(width: CGFloat) {
@@ -176,6 +191,7 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         table.dataSource = self
         table.delegate = self
         table.registerForDraggedTypes([rowType])
+        table.setDraggingSourceOperationMask(.move, forLocal: true)
 
         let scroll = NSScrollView()
         scroll.documentView = table
@@ -185,29 +201,43 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         scroll.widthAnchor.constraint(equalToConstant: width).isActive = true
         scroll.heightAnchor.constraint(equalToConstant: 22 * 5 + 6).isActive = true  // five rows, then it scrolls
 
-        buttons.segmentCount = 2
+        let images = [NSImage(named: NSImage.addTemplateName), NSImage(named: NSImage.removeTemplateName),
+                      NSImage(systemSymbolName: "chevron.up", accessibilityDescription: "Move up"),
+                      NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Move down")]
+        let tips = ["Add a language", "Remove the selected languages", "Move the selected language up", "Move the selected language down"]
+        buttons.segmentCount = images.count
         buttons.trackingMode = .momentary
         buttons.segmentStyle = .smallSquare
-        buttons.setImage(NSImage(named: NSImage.addTemplateName), forSegment: 0)
-        buttons.setImage(NSImage(named: NSImage.removeTemplateName), forSegment: 1)
-        buttons.setWidth(28, forSegment: 0)
-        buttons.setWidth(28, forSegment: 1)
-        buttons.setToolTip("Add a language", forSegment: 0)
-        buttons.setToolTip("Remove the selected languages", forSegment: 1)
+        for (i, image) in images.enumerated() {
+            buttons.setImage(image, forSegment: i)
+            buttons.setWidth(28, forSegment: i)
+            buttons.setToolTip(tips[i], forSegment: i)
+        }
         buttons.target = self
         buttons.action = #selector(buttonClicked)
 
-        let note = NSTextField(labelWithString: "The popup's menu lists these. Drag to reorder.")
+        defaultButton.bezelStyle = .rounded
+        defaultButton.controlSize = .small
+        defaultButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        defaultButton.toolTip = "A popup opens with the default language"
+        defaultButton.target = self
+        defaultButton.action = #selector(makeSelectedDefault)
+        let row = NSStackView(views: [buttons, defaultButton])
+        row.spacing = 10
+
+        let note = NSTextField(wrappingLabelWithString:
+            "A popup opens with the default language; + in the popup adds others from this list. Use the arrows, or drag rows, to put them in your order.")
         note.font = .systemFont(ofSize: 11)
         note.textColor = .secondaryLabelColor
-        let row = NSStackView(views: [buttons, note])
-        row.spacing = 10
+        note.translatesAutoresizingMaskIntoConstraints = false
+        note.widthAnchor.constraint(equalToConstant: width).isActive = true
 
         view.orientation = .vertical
         view.alignment = .leading
         view.spacing = 6
         view.addArrangedSubview(scroll)
         view.addArrangedSubview(row)
+        view.addArrangedSubview(note)
 
         picker.available = { [weak self] in
             let chosen = self?.languages ?? []
@@ -220,26 +250,62 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         }
     }
 
+    /// The one selected row, if exactly one is.
+    private var selectedRow: Int? {
+        let rows = table.selectedRowIndexes
+        return rows.count == 1 ? rows.first : nil
+    }
+
+    func select(row: Int) {
+        table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        refreshButtons()
+    }
+
     private func refreshButtons() {
         let selected = table.selectedRowIndexes.count
         buttons.setEnabled(selected > 0 && selected < languages.count, forSegment: 1)
+        buttons.setEnabled(selectedRow.map { $0 > 0 } ?? false, forSegment: 2)
+        buttons.setEnabled(selectedRow.map { $0 < languages.count - 1 } ?? false, forSegment: 3)
+        defaultButton.isEnabled = selectedRow.map { languages[$0] != defaultLanguage } ?? false
     }
 
     @objc private func buttonClicked() {
-        if buttons.selectedSegment == 0 {
-            let plus = NSRect(x: 0, y: 0, width: buttons.bounds.width / 2, height: buttons.bounds.height)
+        switch buttons.selectedSegment {
+        case 0:
+            let plus = NSRect(x: 0, y: 0, width: buttons.bounds.width / 4, height: buttons.bounds.height)
             picker.show(relativeTo: plus, of: buttons)
-        } else {
-            let rows = table.selectedRowIndexes
-            guard !rows.isEmpty, rows.count < languages.count else { return }
-            languages = languages.enumerated().filter { !rows.contains($0.offset) }.map(\.element)
+        case 1: removeSelected()
+        case 2: moveSelected(by: -1)
+        default: moveSelected(by: 1)
         }
+    }
+
+    func removeSelected() {
+        let rows = table.selectedRowIndexes
+        guard !rows.isEmpty, rows.count < languages.count else { return }
+        languages = languages.enumerated().filter { !rows.contains($0.offset) }.map(\.element)
+    }
+
+    /// Moves the selected language one place up (-1) or down (1); it stays selected.
+    func moveSelected(by step: Int) {
+        guard let row = selectedRow, languages.indices.contains(row + step) else { return }
+        var list = languages
+        list.swapAt(row, row + step)
+        languages = list
+        select(row: row + step)
+        table.scrollRowToVisible(row + step)
+    }
+
+    @objc func makeSelectedDefault() {
+        guard let row = selectedRow else { return }
+        defaultID = languages[row].id
+        select(row: row)
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int { languages.count }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        languageCell(in: tableView, for: languages[row])
+        languageCell(in: tableView, for: languages[row], isDefault: languages[row] == defaultLanguage)
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) { refreshButtons() }
@@ -254,7 +320,10 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
 
     func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int,
                    proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
-        dropOperation == .above ? .move : []
+        // Over a row the table proposes dropping "on" it: make that "before it", so a drop
+        // anywhere in the list moves the row. (Without this only the thin gaps between rows took it.)
+        if dropOperation == .on { tableView.setDropRow(row, dropOperation: .above) }
+        return .move
     }
 
     func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int,
@@ -262,6 +331,7 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         guard let from = info.draggingPasteboard.string(forType: rowType).flatMap(Int.init),
               languages.indices.contains(from) else { return false }
         languages = moved(languages, from: from, to: row)
+        select(row: from < row ? row - 1 : row)
         return true
     }
 }

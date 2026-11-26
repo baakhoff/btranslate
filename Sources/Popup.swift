@@ -49,60 +49,82 @@ final class PopupPanel: NSPanel {
     }
 }
 
+/// A view whose y runs downward, so that the translations stack from the top.
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
+}
+
+/// One language the popup translates into: a row with its menu and buttons, and its text.
+@MainActor
+final class TranslationSection {
+    let name = UUID().uuidString  // what the speaker knows it by
+    var target: Target
+    var translation = ""
+    var settled = false           // a translation or an error message is showing
+    var task: Task<Void, Never>?
+
+    let arrow = NSTextField(labelWithString: "→")
+    let menu = NSPopUpButton(frame: .zero, pullsDown: false)
+    let speakButton = NSButton()
+    let copyButton = NSButton()
+    let removeButton = NSButton()
+    let textView = NSTextView()
+    var views: [NSView] { [arrow, menu, speakButton, copyButton, removeButton, textView] }
+
+    init(target: Target) {
+        self.target = target
+    }
+}
+
 @MainActor
 final class Popup: NSObject, NSWindowDelegate {
     static var current: Popup?
 
-    static let width: CGFloat = 500
+    static let width: CGFloat = 460
     static let pad: CGFloat = 14
     static let barHeight: CGFloat = 24
-    static let gap: CGFloat = 8
+    static let rowHeight: CGFloat = 22
+    static let gap: CGFloat = 6
     static let minTextHeight: CGFloat = 20
-    static let maxTextHeight: CGFloat = 420
+    static let maxTextHeight: CGFloat = 440  // of all translations together; beyond it they scroll
 
     let source: String
     let config = Config.load()
     var engine: Engine
-    var target: Target
 
     let panel = PopupPanel(contentRect: NSRect(x: 0, y: 0, width: Popup.width, height: 100),
                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-    // The bar, left to right: the original's language, its speaker and pencil, an arrow, the
-    // language to translate into; then at the right the method, the translation's speaker,
-    // copy and settings.
+    // The top bar is about the original: its language, speaker and pencil; at the right the
+    // method and settings. Under it, one section per language to translate into: a row with
+    // "→ language", + (first row only), speaker, copy and × (added rows only), then the text.
     private let sourceLabel = NSTextField(labelWithString: "")
     private let speakSourceButton = NSButton()
     private let sourceButton = NSButton()  // the pencil
-    private let arrow = NSTextField(labelWithString: "→")
-    private let targetButton = NSPopUpButton(frame: .zero, pullsDown: false)
     private let engineControl = NSSegmentedControl(labels: ["Google", "AI"], trackingMode: .selectOne, target: nil, action: nil)
-    private let speakButton = NSButton()
-    private let copyButton = NSButton()
     private let settingsButton = NSButton()
+    private let addButton = NSButton()     // +
     private let scroll = NSScrollView()
-    private let textView = NSTextView()
+    private let container = FlippedView()
+    private(set) var sections: [TranslationSection] = []
 
     private let anchor = NSEvent.mouseLocation
     private var placed = false    // false until the first layout puts the panel by the pointer
     private var growsUp = false   // near the screen's bottom the panel sits above the pointer and grows upward
-    private var translation = ""
-    private var translating = false
     private var detectedSource: String?  // the code of the language the translation found the original to be in
     private var chosenSource: Target?    // the original's language set with the pencil; nil: detect it
     private var sourcePicker: LanguagePicker?
     private var sourcePanel: PopupPanel?
-    var onSettled: (() -> Void)?  // called when a translation or an error message is showing (UI test)
-    private var task: Task<Void, Never>?
+    var onSettled: (() -> Void)?  // called when every translation (or its error message) is showing (UI test)
     private var clickMonitor: Any?
-    private var menuOpen = false  // the language menu is showing
+    private var menuOpen = false  // one of the popup's menus is showing
     private var closed = false
 
     init(text: String) {
         source = text
         engine = config.startEngine
-        target = config.startTarget
         super.init()
         build()
+        addSection(config.startTarget)
     }
 
     private func build() {
@@ -110,26 +132,12 @@ final class Popup: NSObject, NSWindowDelegate {
         panel.isMovableByWindowBackground = true
         panel.delegate = self
         panel.onClose = { [weak self] in self?.close() }
-        panel.onCopy = { [weak self] in self?.copySelectionOrAll() }
+        panel.onCopy = { [weak self] in self?.copySelectionOrFirst() }
 
-        for label in [sourceLabel, arrow] {
-            label.font = .systemFont(ofSize: 12, weight: .medium)
-            label.textColor = .secondaryLabelColor
-        }
+        sourceLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        sourceLabel.textColor = .secondaryLabelColor
         sourceLabel.lineBreakMode = .byTruncatingTail
         sourceLabel.toolTip = String(source.prefix(600))
-
-        targetButton.controlSize = .small
-        targetButton.font = .systemFont(ofSize: 12)
-        targetButton.addItems(withTitles: config.targets.map(\.name))  // the list from Settings
-        targetButton.selectItem(withTitle: target.name)
-        targetButton.target = self
-        targetButton.action = #selector(targetChanged)
-        if let menu = targetButton.menu {
-            let center = NotificationCenter.default
-            center.addObserver(self, selector: #selector(menuDidOpen), name: NSMenu.didBeginTrackingNotification, object: menu)
-            center.addObserver(self, selector: #selector(menuDidClose), name: NSMenu.didEndTrackingNotification, object: menu)
-        }
 
         engineControl.controlSize = .small
         engineControl.font = .systemFont(ofSize: 11)
@@ -142,34 +150,29 @@ final class Popup: NSObject, NSWindowDelegate {
 
         configure(speakSourceButton, symbol: "speaker.wave.2", size: 12, tip: "", action: #selector(speakSource))
         configure(sourceButton, symbol: "pencil", size: 12, tip: "", action: #selector(toggleSourcePicker))
-        configure(speakButton, symbol: "speaker.wave.2", size: 13, tip: "", action: #selector(speakTranslation))
-        configure(copyButton, symbol: "doc.on.doc", size: 13, tip: "Copy the translation (⌘C)", action: #selector(copyAll))
         configure(settingsButton, symbol: "gearshape", size: 13, tip: "BTranslate settings", action: #selector(openSettings))
+        configure(addButton, symbol: "plus", size: 12, tip: "", action: #selector(showAddMenu))
 
-        let textWidth = Popup.width - Popup.pad * 2
-        scroll.frame = NSRect(x: 0, y: 0, width: textWidth, height: 100)
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay  // never takes width from the text
         scroll.borderType = .noBorder
-        textView.frame = NSRect(x: 0, y: 0, width: textWidth, height: 100)
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: 0, height: 1)
-        textView.textContainer?.lineFragmentPadding = 0
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.minSize = .zero
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
-        textView.textContainer?.widthTracksTextView = true
-        scroll.documentView = textView
+        scroll.documentView = container
+        container.addSubview(addButton)
 
-        // Keys go to the text only (Esc, ⌘C, ⌘A): no Tab onto a control, where typing could change it.
-        let controls: [NSControl] = [speakSourceButton, sourceButton, targetButton, engineControl, speakButton, copyButton, settingsButton]
-        for control in controls { control.refusesFirstResponder = true }
-        for view in [sourceLabel, arrow, scroll] as [NSView] + controls { background.addSubview(view) }
+        // Any menu of the popup (a language menu, the + menu) is not "a click outside".
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(menuDidOpen), name: NSMenu.didBeginTrackingNotification, object: nil)
+        center.addObserver(self, selector: #selector(menuDidClose), name: NSMenu.didEndTrackingNotification, object: nil)
+
+        for view in [sourceLabel, speakSourceButton, sourceButton, engineControl, settingsButton, scroll] as [NSView] {
+            background.addSubview(view)
+        }
+        // Keys go to the texts only (Esc, ⌘C, ⌘A): no Tab onto a control, where typing could change it.
+        for control in [speakSourceButton, sourceButton, engineControl, settingsButton, addButton] as [NSControl] {
+            control.refusesFirstResponder = true
+        }
     }
 
     private func configure(_ button: NSButton, symbol: String, size: CGFloat, tip: String, action: Selector) {
@@ -181,13 +184,14 @@ final class Popup: NSObject, NSWindowDelegate {
         button.toolTip = tip
         button.target = self
         button.action = action
+        button.refusesFirstResponder = true
     }
 
     func show() {
         prepare()
         panel.orderFrontRegardless()
         panel.makeKey()
-        panel.makeFirstResponder(textView)
+        panel.makeFirstResponder(sections.first?.textView)
         // A click anywhere outside the panel closes it. Clicks in other apps arrive here;
         // a click in another window of this app makes the panel lose key (windowDidResignKey).
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
@@ -205,12 +209,12 @@ final class Popup: NSObject, NSWindowDelegate {
     func close() {
         guard !closed else { return }
         closed = true
-        task?.cancel()
-        task = nil
+        for section in sections { section.task?.cancel() }
         Speaker.shared.stop()
         Speaker.shared.onChange = nil
         Speaker.shared.onError = nil
         closeSourcePicker()
+        NotificationCenter.default.removeObserver(self)
         if let m = clickMonitor { NSEvent.removeMonitor(m); clickMonitor = nil }
         panel.orderOut(nil)
         if Popup.current === self { Popup.current = nil }
@@ -222,7 +226,7 @@ final class Popup: NSObject, NSWindowDelegate {
             if window === sourcePanel { closeSourcePicker() }  // a click outside it; else it is closing itself
             return
         }
-        // Not a click outside: the language menu, the picker taking the keyboard, and the
+        // Not a click outside: a menu of the popup, the picker taking the keyboard, and the
         // moment right after the app starts, when it hands the front back to your app.
         if menuOpen || sourcePanel != nil { return }
         if let delegate = NSApp.delegate as? AppDelegate, Date() < delegate.handBackUntil { return }
@@ -233,53 +237,163 @@ final class Popup: NSObject, NSWindowDelegate {
 
     @objc private func menuDidClose() {
         menuOpen = false
-        if !closed && !panel.isKeyWindow { panel.makeKey() }
+        if !closed && sourcePanel == nil && panel.isVisible && !panel.isKeyWindow { panel.makeKey() }
+    }
+
+    // MARK: The languages to translate into
+
+    /// Adds a language's row and text under the ones there are. (Its translation is started by the caller.)
+    @discardableResult
+    private func addSection(_ target: Target) -> TranslationSection {
+        let section = TranslationSection(target: target)
+        section.arrow.font = .systemFont(ofSize: 12, weight: .medium)
+        section.arrow.textColor = .secondaryLabelColor
+        section.menu.controlSize = .small
+        section.menu.font = .systemFont(ofSize: 12)
+        section.menu.target = self
+        section.menu.action = #selector(targetChanged(_:))
+        section.menu.refusesFirstResponder = true
+        configure(section.speakButton, symbol: "speaker.wave.2", size: 13, tip: "", action: #selector(speakTranslation(_:)))
+        configure(section.copyButton, symbol: "doc.on.doc", size: 13, tip: "Copy this translation", action: #selector(copyTranslation(_:)))
+        configure(section.removeButton, symbol: "xmark", size: 11, tip: "Take this language out of the popup", action: #selector(removeLanguage(_:)))
+
+        let text = section.textView
+        text.isEditable = false
+        text.isSelectable = true
+        text.drawsBackground = false
+        text.textContainerInset = NSSize(width: 0, height: 1)
+        text.textContainer?.lineFragmentPadding = 0
+        text.isVerticallyResizable = false
+        text.isHorizontallyResizable = false
+        text.textContainer?.widthTracksTextView = true
+        text.textContainer?.heightTracksTextView = false
+        text.textContainer?.containerSize = NSSize(width: Popup.width - Popup.pad * 2, height: .greatestFiniteMagnitude)
+
+        for view in section.views { container.addSubview(view) }
+        sections.append(section)
+        refreshMenus()
+        return section
+    }
+
+    /// Also translates into `target`, in a section of its own under the others.
+    func addLanguage(_ target: Target) {
+        guard !sections.contains(where: { $0.target == target }) else { return }
+        let section = addSection(target)
+        start(section)
+        refreshBar()
+    }
+
+    private func remove(_ section: TranslationSection) {
+        guard sections.count > 1, let index = sections.firstIndex(where: { $0 === section }) else { return }
+        section.task?.cancel()
+        if Speaker.shared.playing == section.name { Speaker.shared.stop() }
+        if panel.firstResponder === section.textView { panel.makeFirstResponder(sections[index == 0 ? 1 : 0].textView) }
+        for view in section.views { view.removeFromSuperview() }
+        sections.remove(at: index)
+        refreshMenus()
+        refreshBar()
+    }
+
+    /// Each row's menu lists your languages; the ones other rows show are greyed out. + offers the rest.
+    private func refreshMenus() {
+        let names = config.targets.map(\.name)
+        for section in sections {
+            section.menu.removeAllItems()
+            section.menu.addItems(withTitles: names)
+            section.menu.selectItem(withTitle: section.target.name)
+            section.menu.menu?.autoenablesItems = false
+            for item in section.menu.itemArray {
+                item.isEnabled = !sections.contains { $0 !== section && $0.target.name == item.title }
+            }
+            section.removeButton.toolTip = "Take \(section.target.name) out of this popup"
+        }
+        addButton.toolTip = "Also translate into another language of your list"
+    }
+
+    @objc private func targetChanged(_ sender: NSPopUpButton) {
+        guard let section = sections.first(where: { $0.menu === sender }), let name = sender.titleOfSelectedItem,
+              let target = config.targets.first(where: { $0.name == name }) else { return }
+        section.target = target  // for this popup only; Settings has the default language
+        refreshMenus()
+        start(section)
+        refreshBar()
+    }
+
+    @objc private func removeLanguage(_ sender: NSButton) {
+        if let section = sections.first(where: { $0.removeButton === sender }) { remove(section) }
+    }
+
+    /// The + menu: the languages of your list that the popup does not show yet.
+    @objc private func showAddMenu() {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        for target in config.targets where !sections.contains(where: { $0.target == target }) {
+            let item = NSMenuItem(title: target.name, action: #selector(addFromMenu(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = target.id
+            menu.addItem(item)
+        }
+        if menu.items.isEmpty {
+            let none = NSMenuItem(title: "Every language of your list is here", action: nil, keyEquivalent: "")
+            none.isEnabled = false
+            menu.addItem(none)
+        }
+        menu.addItem(.separator())
+        let edit = NSMenuItem(title: "Edit the List…", action: #selector(openSettings), keyEquivalent: "")
+        edit.target = self
+        menu.addItem(edit)
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: addButton.bounds.height + 4), in: addButton)
+    }
+
+    @objc private func addFromMenu(_ sender: NSMenuItem) {
+        if let id = sender.representedObject as? String, let target = config.targets.first(where: { $0.id == id }) {
+            addLanguage(target)
+        }
     }
 
     // MARK: Translating
 
+    /// Translates into every language of the popup anew.
     func start() {
-        task?.cancel()
         Speaker.shared.stop()
-        translation = ""
-        translating = true
         detectedSource = nil
-        let engine = engine, target = target, config = config, chosenSource = chosenSource
-        setText("Translating…", color: .secondaryLabelColor)
+        for section in sections { start(section) }
         refreshBar()
-        task = Task { [weak self] in
-            guard let self else { return }
+    }
+
+    private func start(_ section: TranslationSection) {
+        section.task?.cancel()
+        if Speaker.shared.playing == section.name { Speaker.shared.stop() }
+        section.translation = ""
+        section.settled = false
+        setText("Translating…", in: section, color: .secondaryLabelColor)
+        let engine = engine, target = section.target, config = config, chosenSource = chosenSource
+        section.task = Task { [weak self, weak section] in
+            guard let self, let section else { return }
             do {
-                try await translate(self.source, engine: engine, target: target, source: chosenSource, config: config) { [weak self] code, text in
-                    guard let self, !Task.isCancelled else { return }
-                    let firstPiece = self.translation.isEmpty
-                    if let code { self.detectedSource = code }
-                    self.translation = text
-                    self.setText(text, color: .labelColor)
+                try await translate(self.source, engine: engine, target: target, source: chosenSource, config: config) { [weak self, weak section] code, text in
+                    guard let self, let section, !Task.isCancelled else { return }
+                    let firstPiece = section.translation.isEmpty
+                    if let code, self.detectedSource == nil || section === self.sections.first { self.detectedSource = code }
+                    section.translation = text
+                    self.setText(text, in: section, color: .labelColor)
                     if firstPiece { self.refreshBar() } else { self.layout() }
                 }
             } catch {
                 if Task.isCancelled || (error as? URLError)?.code == .cancelled || error is CancellationError { return }
-                self.translation = ""
-                self.setText(describe(error), color: .systemRed)
+                section.translation = ""
+                self.setText(describe(error), in: section, color: .systemRed)
             }
             if Task.isCancelled { return }
-            self.translating = false
+            section.settled = true
             self.refreshBar()
-            self.onSettled?()
+            if self.sections.allSatisfy(\.settled) { self.onSettled?() }
         }
     }
 
-    var shownText: String { textView.string }
+    var shownText: String { sections.first?.textView.string ?? "" }
+    var shownTexts: [String] { sections.map(\.textView.string) }
     var shownSource: String { sourceLabel.stringValue }
-
-    @objc private func targetChanged() {
-        if let name = targetButton.titleOfSelectedItem, let t = config.targets.first(where: { $0.name == name }) {
-            target = t
-            Config.remember(t)
-        }
-        start()
-    }
 
     @objc private func engineChanged() {
         engine = engineControl.selectedSegment == 0 ? .google : .ai  // for this popup only; Settings has the default
@@ -378,7 +492,7 @@ final class Popup: NSObject, NSWindowDelegate {
         pickerPanel.orderOut(nil)
         if !closed {
             panel.makeKey()
-            panel.makeFirstResponder(textView)
+            panel.makeFirstResponder(sections.first?.textView)
         }
     }
 
@@ -389,20 +503,21 @@ final class Popup: NSObject, NSWindowDelegate {
         Speaker.shared.toggle("original", text: source, code: code, googleVoice: config.googleVoice)
     }
 
-    @objc private func speakTranslation() {
-        Speaker.shared.toggle("translation", text: translation, code: target.google, googleVoice: config.googleVoice)
+    @objc private func speakTranslation(_ sender: NSButton) {
+        guard let section = sections.first(where: { $0.speakButton === sender }) else { return }
+        Speaker.shared.toggle(section.name, text: section.translation, code: section.target.google, googleVoice: config.googleVoice)
     }
 
     private func speechFailed(_ name: String, _ message: String) {
-        let button = name == "original" ? speakSourceButton : speakButton
+        let button = sections.first { $0.name == name }?.speakButton ?? speakSourceButton
         NSSound.beep()
         button.contentTintColor = .systemRed
         button.toolTip = message
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.refreshSpeech() }
     }
 
-    /// The two speaker buttons: a stop sign while their text is read, greyed out when there
-    /// is nothing to read or no voice to read it.
+    /// The speaker buttons: a stop sign while their text is read, greyed out when there is
+    /// nothing to read or no voice to read it.
     private func refreshSpeech() {
         func set(_ button: NSButton, name: String, code: String?, hasText: Bool, what: String) {
             let plan = code.map { Speaker.shared.plan(for: $0, googleVoice: config.googleVoice) } ?? .none
@@ -420,36 +535,43 @@ final class Popup: NSObject, NSWindowDelegate {
             }
         }
         set(speakSourceButton, name: "original", code: sourceCode, hasText: true, what: "the original")
-        set(speakButton, name: "translation", code: target.google, hasText: !translation.isEmpty, what: "the translation")
+        for section in sections {
+            set(section.speakButton, name: section.name, code: section.target.google, hasText: !section.translation.isEmpty,
+                what: sections.count > 1 ? "the \(section.target.name) translation" : "the translation")
+        }
     }
 
     // MARK: Copying
 
-    @objc private func copyAll() {
-        copy(translation)
+    @objc private func copyTranslation(_ sender: NSButton) {
+        guard let section = sections.first(where: { $0.copyButton === sender }) else { return }
+        copy(section.translation, from: section)
     }
 
-    private func copySelectionOrAll() {
-        let range = textView.selectedRange()
-        copy(range.length > 0 ? (textView.string as NSString).substring(with: range) : translation)
+    /// ⌘C: what is selected in a translation; with nothing selected, the translation the
+    /// cursor is in, or else the first one.
+    private func copySelectionOrFirst() {
+        guard let section = sections.first(where: { $0.textView === panel.firstResponder }) ?? sections.first else { return }
+        let range = section.textView.selectedRange()
+        copy(range.length > 0 ? (section.textView.string as NSString).substring(with: range) : section.translation, from: section)
     }
 
-    private func copy(_ s: String) {
+    private func copy(_ s: String, from section: TranslationSection) {
         guard !s.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(s, forType: .string)
-        copyButton.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Copied")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-            self?.copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy")
+        section.copyButton.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Copied")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak section] in
+            section?.copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy")
         }
     }
 
     // MARK: Drawing
 
-    private func setText(_ s: String, color: NSColor) {
+    private func setText(_ s: String, in section: TranslationSection, color: NSColor) {
         let style = NSMutableParagraphStyle()
         style.lineSpacing = 2
-        textView.textStorage?.setAttributedString(NSAttributedString(string: s, attributes: [
+        section.textView.textStorage?.setAttributedString(NSAttributedString(string: s, attributes: [
             .font: NSFont.systemFont(ofSize: 14), .foregroundColor: color, .paragraphStyle: style,
         ]))
     }
@@ -461,7 +583,7 @@ final class Popup: NSObject, NSWindowDelegate {
         } else if let detectedSource {
             sourceLabel.stringValue = languageName(detectedSource)
         } else {
-            sourceLabel.stringValue = translating ? "Detecting…" : "Unknown language"
+            sourceLabel.stringValue = sections.contains { !$0.settled } ? "Detecting…" : "Unknown language"
         }
         sourceButton.contentTintColor = chosenSource == nil ? .secondaryLabelColor : .controlAccentColor
         sourceButton.toolTip = chosenSource == nil
@@ -471,19 +593,54 @@ final class Popup: NSObject, NSWindowDelegate {
         layout()
     }
 
-    private func textHeight() -> CGFloat {
-        guard let lm = textView.layoutManager, let tc = textView.textContainer else { return Popup.minTextHeight }
+    private func textHeight(_ text: NSTextView, width: CGFloat) -> CGFloat {
+        text.frame.size.width = width
+        guard let lm = text.layoutManager, let tc = text.textContainer else { return Popup.minTextHeight }
         lm.ensureLayout(for: tc)
-        let h = ceil(lm.usedRect(for: tc).height + textView.textContainerInset.height * 2)
-        return min(max(h, Popup.minTextHeight), Popup.maxTextHeight)
+        return max(ceil(lm.usedRect(for: tc).height + text.textContainerInset.height * 2), Popup.minTextHeight)
     }
 
-    /// Sizes the panel to its text. The first time, it goes next to the mouse pointer. After
-    /// that it stays wherever it is (you may have dragged it): only its height changes.
+    /// Lays the sections out and sizes the panel to them. The first time, the panel goes next
+    /// to the mouse pointer. After that it stays wherever it is (you may have dragged it):
+    /// only its height changes.
     private func layout() {
-        let W = Popup.width, pad = Popup.pad, bar = Popup.barHeight
-        let textH = textHeight()
-        let H = pad + bar + Popup.gap + textH + pad
+        let W = Popup.width, pad = Popup.pad, bar = Popup.barHeight, row = Popup.rowHeight
+        let contentWidth = W - pad * 2
+
+        // The sections, top down, in the part that scrolls when they get long.
+        var y: CGFloat = 0
+        for (i, section) in sections.enumerated() {
+            if i > 0 { y += 10 }
+            func middle(_ view: NSView) -> CGFloat { y + (row - view.frame.height) / 2 }
+            var right = contentWidth
+            section.removeButton.isHidden = i == 0
+            if i > 0 {
+                right -= 20
+                section.removeButton.frame = NSRect(x: right, y: y, width: 20, height: row)
+                right -= 4
+            }
+            right -= 22
+            section.copyButton.frame = NSRect(x: right, y: y, width: 22, height: row)
+            right -= 26
+            section.speakButton.frame = NSRect(x: right, y: y, width: 22, height: row)
+
+            section.arrow.sizeToFit()
+            section.arrow.frame.origin = NSPoint(x: 0, y: middle(section.arrow))
+            section.menu.sizeToFit()
+            let menuX = section.arrow.frame.maxX + 4
+            let menuWidth = min(section.menu.frame.width, right - 10 - menuX - (i == 0 ? 26 : 0))
+            section.menu.frame = NSRect(x: menuX, y: middle(section.menu), width: menuWidth, height: section.menu.frame.height)
+            if i == 0 { addButton.frame = NSRect(x: section.menu.frame.maxX + 4, y: y, width: 22, height: row) }
+            y += row + 4
+
+            let h = textHeight(section.textView, width: contentWidth)
+            section.textView.frame = NSRect(x: 0, y: y, width: contentWidth, height: h)
+            y += h
+        }
+        let contentHeight = y
+        let visibleHeight = min(contentHeight, Popup.maxTextHeight)
+        container.frame = NSRect(x: 0, y: 0, width: contentWidth, height: contentHeight)
+        let H = pad + bar + Popup.gap + visibleHeight + pad
 
         var frame: NSRect
         if !placed {
@@ -505,36 +662,21 @@ final class Popup: NSObject, NSWindowDelegate {
         }
         panel.setFrame(frame, display: true)
 
+        // The top bar: the original's language (cut short if it has to be), its speaker and
+        // pencil; at the right end the method and settings.
         let barY = H - pad - bar
         func centred(_ view: NSView) -> CGFloat { barY + (bar - view.frame.height) / 2 }
-
-        // The right end: method, the translation's speaker, copy, settings.
         settingsButton.frame = NSRect(x: W - pad - 20, y: barY + 1, width: 22, height: 22)
-        copyButton.frame = NSRect(x: settingsButton.frame.minX - 26, y: barY + 1, width: 22, height: 22)
-        speakButton.frame = NSRect(x: copyButton.frame.minX - 26, y: barY + 1, width: 22, height: 22)
         engineControl.sizeToFit()
-        engineControl.frame.origin = NSPoint(x: speakButton.frame.minX - 8 - engineControl.frame.width, y: centred(engineControl))
-        let rightEdge = (engineControl.isHidden ? speakButton.frame.minX : engineControl.frame.minX) - 10
-
-        // The left end: the original's language (cut short if it has to be), its speaker and
-        // pencil, the arrow, the language to translate into.
+        engineControl.frame.origin = NSPoint(x: settingsButton.frame.minX - 8 - engineControl.frame.width, y: centred(engineControl))
+        let rightEdge = (engineControl.isHidden ? settingsButton.frame.minX : engineControl.frame.minX) - 10
         sourceLabel.sizeToFit()
-        arrow.sizeToFit()
-        targetButton.sizeToFit()
-        let afterLabel = 4 + 20 + 2 + 18 + 4 + arrow.frame.width + 4
-        let targetWidth = min(targetButton.frame.width, rightEdge - pad - afterLabel - 44)
-        let labelWidth = min(sourceLabel.frame.width, rightEdge - pad - afterLabel - targetWidth)
+        let labelWidth = min(sourceLabel.frame.width, rightEdge - pad - (4 + 20 + 2 + 18))
         sourceLabel.frame = NSRect(x: pad, y: centred(sourceLabel), width: labelWidth, height: sourceLabel.frame.height)
-        var x = sourceLabel.frame.maxX + 4
-        speakSourceButton.frame = NSRect(x: x, y: barY + 1, width: 20, height: 22)
-        x += 20 + 2
-        sourceButton.frame = NSRect(x: x, y: barY + 1, width: 18, height: 22)
-        x += 18 + 4
-        arrow.frame.origin = NSPoint(x: x, y: centred(arrow))
-        x = arrow.frame.maxX + 4
-        targetButton.frame = NSRect(x: x, y: centred(targetButton), width: targetWidth, height: targetButton.frame.height)
+        speakSourceButton.frame = NSRect(x: sourceLabel.frame.maxX + 4, y: barY + 1, width: 20, height: 22)
+        sourceButton.frame = NSRect(x: speakSourceButton.frame.maxX + 2, y: barY + 1, width: 18, height: 22)
 
-        scroll.frame = NSRect(x: pad, y: pad, width: W - pad * 2, height: textH)
+        scroll.frame = NSRect(x: pad, y: pad, width: contentWidth, height: visibleHeight)
         panel.invalidateShadow()
     }
 }

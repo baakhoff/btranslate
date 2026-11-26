@@ -12,6 +12,8 @@ translator doesn't have, such as Latvian and Serbian.
 
 ![The BTranslate popup](docs/popup.png)
 
+![Several languages at once](docs/popup-several.png)
+
 ## What you get
 
 - **A right-click menu item:** select text, right-click it and choose **Services → BTranslate**. You can also give it a keyboard shortcut.
@@ -20,12 +22,16 @@ translator doesn't have, such as Latvian and Serbian.
   - **Google Translate:** free and instant, no account.
   - **An AI model:** often better with context, names and tone. The answer streams in as it is written.
   - You choose which one a popup opens with; the other is a click away in the popup.
-- **The source language is detected** and shown ("Latvian → English"). If the guess is wrong, click the **pencil** next to it and pick the right language (there's a search): the popup translates again.
+- **Several languages at once:** **+** next to the language adds another one from your list. Each gets its own translation, speaker and copy button; **×** takes it out again.
+- **The source language is detected** and shown. If the guess is wrong, click the **pencil** next to it and pick the right language (there's a search): the popup translates again.
 - **Listen:** one speaker button reads the original aloud, another the translation.
   - Your Mac's own voices do it, offline. The Croatian voice also reads Serbian and Bosnian.
   - macOS has no voice for some languages (Latvian, for one). For those, Google Translate's voice can read the text; you can turn that off in the setup window.
-- **Your own list of languages:** add any of the 249 languages Google Translate knows, as many or as few as you like. The list starts with your Mac's own languages, and the popup remembers the one you used last. Serbian comes in both Latin and Cyrillic script.
-- **Copy:** the copy button or ⌘C copies the translation (or the part you selected).
+- **Your own list of languages:**
+  - Add any of the 249 languages Google Translate knows, as many or as few as you like. Serbian comes in both Latin and Cyrillic script.
+  - Put them in your order and choose the default one: a popup opens with it.
+  - The list starts with your Mac's own languages.
+- **Copy:** the copy button or ⌘C copies a translation (or the part you selected).
 - **Small:** one native app of under 1 MB, no Dock icon, no menu bar icon, under 30 MB of memory while it waits.
 
 ## Requirements
@@ -46,17 +52,27 @@ From a checkout, run `./install.sh`.
 
 ### Setup
 
-![The setup window](docs/settings.png)
+![The setup window, Translation page](docs/settings.png)
 
-The setup window asks:
+The setup window has two pages.
+
+**Translation** asks:
 
 1. **Which methods to use:** Google Translate, an AI model, or both.
 2. **For the AI model:** the provider, the model and your API key.
    - The model menu fills with the provider's own list once the key is in.
    - **Test** sends one short sentence, so you know the key and model work before you save.
-3. **Which languages to translate into:** press **+**, search the list (by English name or the language's own name) and click the ones you want. **−** removes the selected ones; drag rows to reorder. The popup's menu shows exactly this list.
-4. **Whether Google's voice may read aloud** the languages your Mac has no voice for.
-5. **Which method BTranslate opens with**, when both are on.
+3. **Which method BTranslate opens with**, when both are on.
+
+**Languages** asks:
+
+1. **Which languages to translate into:**
+   - **+** opens a searchable list (by English name or the language's own name); click the ones you want. **−** removes the selected ones.
+   - The arrows move the selected language up or down; you can also drag rows.
+   - **Make Default** marks the language a popup opens with. In the popup, **+** adds any of the others.
+2. **Whether Google's voice may read aloud** the languages your Mac has no voice for.
+
+![The setup window, Languages page](docs/settings-languages.png)
 
 ![Adding a language](docs/languages.png)
 

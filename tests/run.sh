@@ -5,9 +5,10 @@
 #   tests/run.sh          build if needed, then test
 #   tests/run.sh --live   also use the real Google Translate (one sentence) and the real
 #                         Keychain (a dummy key is saved, read and deleted)
-#   tests/run.sh --screen also show a popup on screen for three seconds, to check what a
+#   tests/run.sh --screen also show a popup on screen for a few seconds, to check what a
 #                         picture can't: your app stays in front, typing reaches the pencil's
-#                         search field (needs a working translation method in Settings)
+#                         search field, a second language joins the popup (needs a working
+#                         translation method in Settings)
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
@@ -72,7 +73,7 @@ check "Google: first endpoint" $'source: Latvian | updates: 1\nEN:Labdien & čau
     env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --print --engine google "Labdien & čau"
 check "Google: falls back when rate-limited" $'source: Latvian | updates: 1\nEN2:Labdien' \
     env BTRANSLATE_GOOGLE_URL="$MOCK/google429" "$BIN" --print --engine google "Labdien"
-check "Google: Serbian in Latin script" "EN:Dobar dan" \
+check "Google: Serbian in Latin script" "SR:Dobar dan" \
     env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --print --engine google --to "Serbian (Latin)" "Добар дан"
 check "Google: the original's language given" $'source: Lithuanian | updates: 1\nEN:Labas' \
     env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --print --engine google --from lt "Labas"
@@ -92,11 +93,15 @@ check "Speech: a voice of this Mac, without sound" "mac voice en-" "$BIN" --spee
 
 # -key value arguments override the saved settings for this run only.
 UI_OUT="$(env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --uitest build/uitest \
-    -googleEnabled YES -defaultEngine google -languages '(en, ru)' -target en 2>&1 || true)"
+    -googleEnabled YES -defaultEngine google -languages '(en, ru, lv)' -defaultLanguage ru 2>&1 || true)"
 check "UI, off screen: the popup stays where it was moved" "popup stays where it was moved: yes" echo "$UI_OUT"
 check "UI, off screen: the picker adds a language" "picker adds a language to the list: yes" echo "$UI_OUT"
 check "UI, off screen: the pencil's picker searches" "source picker finds: ltg, la, lv" echo "$UI_OUT"
 check "UI, off screen: the original's language set by hand" "the original's language can be set by hand: yes" echo "$UI_OUT"
+check "UI, off screen: the popup opens with the default language" "popup text: RU:" echo "$UI_OUT"
+check "UI, off screen: several languages at once" "several languages at once: yes (ru, en, lv)" echo "$UI_OUT"
+check "UI, off screen: the list's arrows and Make Default" \
+    "list buttons: en,ru,lv,sr-Latn default=ru → en,ru,sr-Latn,lv default=ru → en,ru,sr-Latn,lv default=sr-Latn → ru,en,sr-Latn,lv default=sr-Latn" echo "$UI_OUT"
 check "UI, off screen: pictures written" "source-picker.png" ls build/uitest
 
 if [ "${1:-}" = "--live" ]; then
@@ -105,7 +110,7 @@ if [ "${1:-}" = "--live" ]; then
 fi
 
 if [ "${1:-}" = "--screen" ]; then
-    check "On screen: focus, typing, picking a language" "screen check: ok" "$BIN" --screen-check
+    check "On screen: focus, typing, picking and adding a language" "screen check: ok" "$BIN" --screen-check
 fi
 
 [ "$failed" = 0 ] && echo "All tests passed." || { echo "Some tests failed."; exit 1; }

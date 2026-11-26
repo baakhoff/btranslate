@@ -63,15 +63,17 @@ class Handler(BaseHTTPRequestHandler):
         if "/translate_a/" in self.path:
             text = parse_qs(raw.decode()).get("q", [""])[0]
             self.record({"q": text})
-            given = parse_qs(urlparse(self.path).query).get("sl", ["auto"])[0]
+            query = parse_qs(urlparse(self.path).query)
+            given = query.get("sl", ["auto"])[0]
+            into = query.get("tl", ["en"])[0].upper()  # the "translation" is the text with this in front
             if self.path.startswith("/google429/translate_a/single"):
                 self.reply(429, b"<html><title>Sorry...</title></html>", "text/html")
             elif "/translate_a/single" in self.path:
-                self.reply(200, [[["EN:" + text, text]], None, "lv" if given == "auto" else given])
+                self.reply(200, [[[into + ":" + text, text]], None, "lv" if given == "auto" else given])
             elif given == "auto":
-                self.reply(200, [["EN2:" + text, "lv"]])
+                self.reply(200, [[into + "2:" + text, "lv"]])
             else:  # with the source language given, the second endpoint answers with the text alone
-                self.reply(200, ["EN2:" + text])
+                self.reply(200, [into + "2:" + text])
             return
         if self.path.endswith("/batchexecute"):
             call = json.loads(parse_qs(raw.decode()).get("f.req", ["[]"])[0])
