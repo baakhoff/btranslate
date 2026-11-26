@@ -90,10 +90,14 @@
 "Move up" = "Переместить выше";
 "Move down" = "Переместить ниже";
 "Make Default" = "Сделать основным";
+"Make Second" = "Сделать вторым";
+/* marks the second default language in the list, after its name */
+"second" = "второй";
+"For a text that is in the default language already, a popup opens with the second default" = "Если текст уже на основном языке, окно перевода открывается со вторым";
 /* After a star, next to the default language in the list */
 "default" = "основной";
 "A popup opens with the default language" = "Окно перевода открывается с основным языком";
-"A popup opens with the default language; + in the popup adds others from this list. Use the arrows, or drag rows, to put them in your order." = "Окно перевода открывается с основным языком; кнопка + в нем добавляет другие языки из этого списка. Расставьте языки в удобном порядке стрелками или перетаскиванием.";
+"A popup opens with the default language, and with the second one for a text that is in the default language already. + in the popup adds others from this list. Use the arrows, or drag rows, to put them in your order." = "Окно перевода открывается с основным языком, а если текст уже на нем, то со вторым. Кнопка + в окне добавляет другие языки из этого списка. Расставьте языки в удобном порядке стрелками или перетаскиванием.";
 "Read aloud with Google's voice where this Mac has none" = "Читать вслух голосом Google, если у Mac нет своего";
 "The speaker buttons use your Mac's voices. It has none for some languages, such as Latvian: with this on, a text you play in one of those is sent to Google." = "Кнопки динамика читают текст голосами вашего Mac. Для некоторых языков, например латышского, у него голосов нет: если эта настройка включена, текст на таком языке при прослушивании отправляется в Google.";
 "BTranslate's language:" = "Язык BTranslate:";
@@ -139,6 +143,11 @@
 "it has not got one of the two languages (%@, %@)" = "в нем нет одного из двух языков (%@, %@)";
 "The NLLB-200 language pack is not installed." = "Языковой пакет NLLB-200 не установлен.";
 /* %@ → %@: two languages as a sentence has them */
+/* in the popup, with a button under it that downloads the pack */
+"This offline translation needs the NLLB-200 language pack (%@ → %@)." = "Для этого офлайн-перевода нужен языковой пакет NLLB-200 (%@ → %@).";
+/* %@: the size of the download, "906 МБ" */
+"Download Language Pack (%@)" = "Загрузить языковой пакет (%@)";
+"The language pack will be downloaded as soon as there is an internet connection." = "Языковой пакет загрузится, как только появится интернет.";
 "This offline translation needs the NLLB-200 language pack (%@ → %@). Download it in Settings, on the Translation page." = "Для этого офлайн-перевода нужен языковой пакет NLLB-200 (%@ → %@). Загрузите его в настройках, на странице «Перевод».";
 "Works without internet" = "Работает без интернета";
 "Works without internet after a download" = "Работает без интернета после загрузки";

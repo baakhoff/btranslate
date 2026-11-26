@@ -24,12 +24,14 @@ the Neural Engine for the languages Apple lacks.
   - **Google Translate:** free and instant, no account.
   - **An AI model:** often better with context, names and tone. The answer streams in as it is written.
   - **Offline:** on the Mac itself. It needs no internet and the text stays on your Mac. macOS has about 25 languages for it; the optional **language pack** adds about 140 more, Latvian and Serbian among them.
-  - You choose which one a popup opens with; the others are a click away in the popup.
+  - You choose which one a popup opens with; the others are a click away in the popup. The AI model shows there only once it has its API key.
 - **It copes without internet:**
   - The popup goes over to the Offline method by itself, and a crossed-out Wi-Fi sign shows why.
   - A language the Offline method has not got says so and waits: it is translated as soon as the connection is back.
+  - Where the language pack would do it, a button in the popup downloads the pack (at once, or as soon as there is a connection), and the popup translates when it is there.
   - With the Offline method turned off, or on a Mac without it, the whole popup waits the same way.
 - **Several languages at once:** **+** next to the language adds another one from your list. Each gets its own translation, speaker and copy button; **×** takes it out again.
+- **A second default language:** a text that is in your default language already is translated into the second one instead (Russian text into English, say), without a click.
 - **The source language is detected** and shown. If the guess is wrong, click the **pencil** next to it and pick the right language (there's a search): the popup translates again.
 - **Listen:** one speaker button reads the original aloud, another the translation.
   - Your Mac's own voices do it, offline. The Croatian voice also reads Serbian and Bosnian.
@@ -51,7 +53,10 @@ An optional download for the Offline method: **NLLB-200** ("No Language Left Beh
 Meta AI, converted for Apple's Neural Engine.
 
 - **What it adds:** it has 166 of Google's languages, about 140 of which macOS can't translate offline: Latvian, Lithuanian, Estonian, Serbian, Croatian and Bosnian among them. Where macOS has both languages, its own translation is used.
-- **How to get it:** setup window → Translation → **Download** under "Offline, on this Mac" (906 MB). The download can be stopped and goes on from where it was; every file is checked against its checksum. **Remove** takes it off the Mac again.
+- **How to get it:** the installer asks about it; later, setup window → Translation → **Download** under "Offline, on this Mac" (906 MB), or the button the popup shows when a translation needs it. The download can be stopped and goes on from where it was; every file is checked against its checksum. **Remove** takes it off the Mac again.
+
+![The popup offers the language pack](docs/popup-pack.png)
+
 - **Where it runs:** on the Neural Engine, never on the GPU. Of the model's 840 operations, 825 run there; a vocabulary lookup and the search for the best words run on the CPU. That is on a Mac with Apple silicon. An Intel Mac has no Neural Engine: there Core ML has only the CPU left (not tested).
 - **Memory:** the model is loaded for a translation and let go right after it. Loading takes a tenth of a second.
 - **Speed:** about a second per sentence on an M5 Pro. The translation shows sentence by sentence.
@@ -78,6 +83,10 @@ curl -fsSL https://raw.githubusercontent.com/baakhoff/btranslate/main/install.sh
 It downloads the release, builds it on your Mac (a few seconds), puts
 `BTranslate.app` in `~/Applications` and opens the setup window. Nothing needs `sudo`.
 
+On a Mac with Apple silicon the installer then asks whether to download the
+[language pack](#the-language-pack) (906 MB): BTranslate needs it to work properly without
+internet. Enter says yes; `BTRANSLATE_PACK=yes` or `no` in front of `bash` answers beforehand.
+
 From a checkout, run `./install.sh`.
 
 ### Setup
@@ -92,7 +101,7 @@ The setup window has two pages.
 2. **For the AI model:** the provider, the model and your API key.
    - The model menu fills with the provider's own list once the key is in.
    - **Test** sends one short sentence, so you know the key and model work before you save.
-3. **Which method BTranslate opens with**, when more than one is on.
+3. **Which method BTranslate opens with**, when more than one can be used. The AI model is on offer here, and in the popup, once it has a key (or, for a server of your own, its address).
 
 **Languages** asks:
 
@@ -100,6 +109,7 @@ The setup window has two pages.
    - **+** opens a searchable list (by English name or the language's own name); click the ones you want. **−** removes the selected ones.
    - The arrows move the selected language up or down; you can also drag rows.
    - **Make Default** marks the language a popup opens with. In the popup, **+** adds any of the others.
+   - **Make Second** marks the second default: the one a popup opens with when the text is in the default language already. Until you choose one, it is the first other language of the list.
    - An arrow in a circle marks a language the Offline method has. Filled: it works without internet. Empty: it does after a download, which **Download** starts: of that language by macOS (which asks you to confirm), or of the language pack.
 2. **Whether Google's voice may read aloud** the languages your Mac has no voice for.
 3. **BTranslate's own language:** the same as the Mac, English or Russian. BTranslate restarts itself in the background to switch; nothing else changes.
@@ -177,6 +187,8 @@ There is no Xcode project and there are no dependencies: `swiftc` compiles the f
   - draws the popup, the settings window and the language pickers off screen, into `build/uitest/` and, in Russian, `build/uitest-ru/`, and checks that no label or button is cut short;
   - downloads a miniature language pack from the mock server: checksums, a damaged file, a download that goes on from where it stopped;
   - reads a made-up detector file of a few rows and compares every answer with the Python that wrote it;
+  - makes popups off screen (`BTranslate --popup-check`) and checks what they turn to: the second default, the methods on offer with and without an API key, the offer of the language pack and its download;
+  - runs the installer's question about the language pack, with each answer;
   - takes the connection away (Google's address stops answering) and checks that the popup goes over to the Offline method, waits where it must, and translates when the connection is back. A stand-in answers for Apple's translation, so this runs on any Mac;
   - makes speech with a Mac voice without playing it.
 - **The app's command line,** for trying things: `BTranslate --print --engine google --from lv --to Russian "Labdien"` prints a translation, and `BTranslate --speech-check lv "Labdien"` says which voice would read a text and plays it at volume zero, and `BTranslate --detect "Labdien"` shows what the language pack's detector, the Mac's recognizer and both together take a text for. `Sources/main.swift` lists the rest.

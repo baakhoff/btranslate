@@ -54,6 +54,8 @@ struct Config {
     var defaultEngine: Engine = .google
     var languageIDs: [String] = []  // the languages in the popup's menus, in order
     var defaultLanguageID = ""      // the language a popup opens with; "" or gone from the list: the first one
+    var secondLanguageID = ""       // the one it turns to for a text that is in the default language already;
+                                    // "" or gone from the list: the first other language of the list
     var googleVoice = true          // read aloud with Google's voice where the Mac has none
     var languageChoice = ""         // BTranslate's own language: "en", "ru", or "" to follow the Mac
 
@@ -67,9 +69,16 @@ struct Config {
         return url
     }
 
-    /// The methods that are turned on. Never empty.
+    /// Whether the AI method has what it needs to answer: an API key for the provider, or,
+    /// for a server of your own (where a key is optional), its address.
+    var aiIsSetUp: Bool {
+        providerID == "custom" ? !baseURL.isEmpty : AISetup.hasKey(providerID)
+    }
+
+    /// The methods a popup offers: the ones that are turned on, and of those the AI model
+    /// only once it is set up. Never empty.
     var engines: [Engine] {
-        let list: [Engine] = (googleEnabled ? [.google] : []) + (aiEnabled ? [.ai] : [])
+        let list: [Engine] = (googleEnabled ? [.google] : []) + (aiEnabled && aiIsSetUp ? [.ai] : [])
             + (deviceEnabled && OnDevice.isAvailable ? [.device] : [])
         return list.isEmpty ? [.google] : list
     }
@@ -85,6 +94,15 @@ struct Config {
 
     /// The language a new popup translates into: the default chosen in Settings.
     var startTarget: Target { targets.first { $0.id == defaultLanguageID } ?? targets[0] }
+
+    /// The second default: what a popup translates into when the text is in the default
+    /// language already. The one chosen in Settings, or else the first language of the list
+    /// that is another language than the default (not its other alphabet). nil with one language.
+    var secondTarget: Target? {
+        let first = startTarget
+        return targets.first { $0.id == secondLanguageID && $0 != first }
+            ?? targets.first { !OnDevice.same($0.google, first.google) }
+    }
 
     static var isSetUp: Bool { UserDefaults.standard.bool(forKey: "setupDone") }
 
@@ -106,6 +124,7 @@ struct Config {
             // Settings from before the default could be chosen: the language that was used last.
             c.defaultLanguageID = c.targets.first { $0.id == last || $0.english == last }?.id ?? ""
         }
+        c.secondLanguageID = d.string(forKey: "secondLanguage") ?? ""
         c.googleVoice = d.bool(forKey: "googleVoice")
         c.languageChoice = chosenInterfaceLanguage()
         // For tests: BTRANSLATE_PROVIDER / BTRANSLATE_MODEL override the saved settings.
@@ -130,6 +149,7 @@ struct Config {
         d.set(defaultEngine.rawValue, forKey: "defaultEngine")
         d.set(languageIDs, forKey: "languages")
         d.set(startTarget.id, forKey: "defaultLanguage")
+        d.set(secondTarget?.id ?? "", forKey: "secondLanguage")
         d.set(googleVoice, forKey: "googleVoice")
         if languageChoice != chosenInterfaceLanguage() { chooseInterfaceLanguage(languageChoice) }
         d.set(true, forKey: "setupDone")
@@ -147,6 +167,7 @@ enum Keychain {
 
     static func read(_ account: String) -> String? {
         if let k = ProcessInfo.processInfo.environment["BTRANSLATE_API_KEY"], !k.isEmpty { return k }
+        if ProcessInfo.processInfo.environment["BTRANSLATE_KEYCHAIN"] == "off" { return nil }  // for tests: a Mac without saved keys
         guard let out = run(["find-generic-password", "-a", account, "-s", service, "-w"]) else { return nil }
         let key = out.trimmingCharacters(in: .whitespacesAndNewlines)
         return key.isEmpty ? nil : key
@@ -184,6 +205,24 @@ enum Keychain {
         let data = out.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
         return p.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil
+    }
+}
+
+/// Whether a provider has a key, remembered while the app runs: reading the Keychain starts a
+/// program, too slow to do for every popup. `forget` after a key was saved or deleted.
+enum AISetup {
+    private static var known: [String: Bool] = [:]
+    private static let lock = NSLock()
+
+    static func hasKey(_ provider: String) -> Bool {
+        if let answer = lock.withLock({ known[provider] }) { return answer }
+        let answer = Keychain.read(provider) != nil
+        lock.withLock { known[provider] = answer }
+        return answer
+    }
+
+    static func forget() {
+        lock.withLock { known = [:] }
     }
 }
 

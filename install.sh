@@ -9,7 +9,10 @@
 # Options:
 #   --no-start   do not start BTranslate (and its setup window) at the end
 #   --version    print the version this installer installs
-# Env: BTRANSLATE_REF=main installs the main branch instead of the release tag.
+# Env: BTRANSLATE_PACK=yes|no downloads the language pack, or not, without asking. Asked
+#        otherwise, when BTranslate is installed for the first time on a Mac with Apple
+#        silicon and there is a terminal to ask in.
+#      BTRANSLATE_REF=main installs the main branch instead of the release tag.
 #      BTRANSLATE_ARCHIVE=<url> installs from another source archive (.tar.gz).
 #      BTRANSLATE_SIGN_IDENTITY: a code signing identity for the app (default: ad hoc).
 #
@@ -36,8 +39,9 @@ main() {
     fi
     # In Russian where BTranslate itself would be: the language chosen in its settings, or
     # else the first of the Mac's languages that it comes in (English and Russian).
+    # (BTRANSLATE_LANGUAGE=en|ru sets it, as it does for the app: the tests use that.)
     local ru="" language
-    for language in $( { defaults read "$BUNDLE_ID" AppleLanguages || true; defaults read -g AppleLanguages || true; } 2>/dev/null | tr -d ' ",()' ); do
+    for language in ${BTRANSLATE_LANGUAGE:-} $( { defaults read "$BUNDLE_ID" AppleLanguages || true; defaults read -g AppleLanguages || true; } 2>/dev/null | tr -d ' ",()' ); do
         case "$language" in
             ru|ru-*|ru_*) ru=1; break ;;
             en|en-*|en_*) break ;;
@@ -45,6 +49,74 @@ main() {
     done
     t() { if [ -n "$ru" ]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }  # t "English" "Русский"
     die() { printf '%s: %s\n' "$(t "BTranslate installer" "Установщик BTranslate")" "$*" >&2; exit 1; }
+
+    # The language pack (README, "The language pack"): BTranslate works properly without
+    # internet only with it. An optional download all the same, so it is asked about, when
+    # BTranslate is installed for the first time (`first`). Leaves in `hint` what to say at
+    # the end if the pack is not there.
+    language_pack() {
+        local bin="$APP/Contents/MacOS/BTranslate" pack="${BTRANSLATE_PACK:-ask}" size=""
+        if "$bin" --pack 2>/dev/null | grep -q "language pack: installed"; then
+            pack=there
+        else
+            size="$("$bin" --pack 2>/dev/null | sed -n 's/^download: \([0-9]*\) MB$/\1/p')"
+            size="${size:-906} $(t "MB" "МБ")"
+        fi
+        if [ "$pack" = ask ]; then
+            pack=no
+            if [ -n "$first" ] && [ "$(uname -m)" = arm64 ]; then
+                say "$(t "The language pack (recommended)" "Языковой пакет (рекомендуется)")"
+                if [ -n "$ru" ]; then
+                    cat <<TEXT
+Он нужен BTranslate, чтобы полноценно работать без интернета: добавляет около
+140 языков, которые macOS не переводит офлайн (латышский, сербский и другие),
+и сам определяет язык текста. Работает на Neural Engine. Загрузка: $size.
+Только для некоммерческого использования (лицензия модели: CC-BY-NC 4.0).
+TEXT
+                else
+                    cat <<TEXT
+BTranslate needs it to work properly without internet: it adds about 140
+languages that macOS can't translate offline (Latvian, Serbian and more) and
+tells a text's language itself. It runs on the Neural Engine. Download: $size.
+Non-commercial use only (the model's licence: CC-BY-NC 4.0).
+TEXT
+                fi
+                # The question goes to the terminal: with "curl … | bash" the script itself is on
+                # standard input. No terminal, no answer: then nothing is downloaded.
+                local answer="" asked=""
+                printf '%s ' "$(t "Download it now? [Y/n]" "Загрузить сейчас? [Y/n]")"
+                if [ -t 0 ]; then
+                    read -r answer && asked=1
+                elif { read -r answer < /dev/tty; } 2>/dev/null; then
+                    asked=1
+                fi
+                if [ -z "$asked" ]; then
+                    printf '\n%s\n' "$(t "(No terminal to ask in: not downloaded.)" "(Спросить негде: не загружено.)")"
+                else
+                    case "$answer" in
+                        n|N|no|No|NO|н|Н|нет|Нет|НЕТ) ;;
+                        *) pack=yes ;;
+                    esac
+                fi
+            fi
+        fi
+        if [ "$pack" = yes ]; then
+            say "$(t "Downloading the language pack" "Загрузка языкового пакета") ($size)"
+            local line
+            "$bin" --pack-install 2>/dev/null | while IFS= read -r line; do
+                case "$line" in
+                    "downloading: "*) printf '\r    %s  ' "${line#downloading: }" ;;
+                    "preparing"*) printf '\r%s\n' "$(t "macOS is preparing the pack for the Neural Engine (up to a minute)…" "macOS готовит пакет для Neural Engine (до минуты)…")" ;;
+                    "language pack: installed") printf '%s\n' "$(t "The language pack is installed." "Языковой пакет установлен.")" ;;
+                    "language pack: FAILED: "*) printf '\r%s\n' "${line#language pack: FAILED: }" ;;
+                esac
+            done || true
+        fi
+        if [ "$pack" != there ] && ! "$bin" --pack 2>/dev/null | grep -q "language pack: installed"; then
+            hint="$(t "The language pack is not installed. To get it later: BTranslate's settings → Translation → Download ($size)." \
+                      "Языковой пакет не установлен. Загрузить его позже: настройки BTranslate → «Перевод» → «Загрузить» ($size).")"
+        fi
+    }
 
     local start=1
     while [ $# -gt 0 ]; do
@@ -58,6 +130,16 @@ main() {
     done
 
     [ "$(uname -s)" = Darwin ] || die "BTranslate is a macOS app."
+
+    # For tests/run.sh: only the language pack's step, as on a first install, for the app at
+    # BTRANSLATE_TEST_APP.
+    if [ "${BTRANSLATE_INSTALLER_TEST:-}" = pack ]; then
+        APP="$BTRANSLATE_TEST_APP"
+        local first=1 hint=""
+        language_pack
+        if [ -n "$hint" ]; then printf '\n%s\n' "$hint"; fi
+        return 0
+    fi
     local major
     major="$(sw_vers -productVersion | cut -d. -f1)"
     [ "$major" -ge 14 ] || die "$(t "macOS 14 or later is needed (this Mac has $(sw_vers -productVersion))." \
@@ -97,8 +179,13 @@ main() {
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP"
     /System/Library/CoreServices/pbs -update
 
+    local first=1
+    [ "$(defaults read "$BUNDLE_ID" setupDone 2>/dev/null || true)" = 1 ] && first=
+    local hint=""
+    language_pack
+
     if [ -n "$start" ]; then
-        if [ "$(defaults read "$BUNDLE_ID" setupDone 2>/dev/null || true)" = 1 ]; then
+        if [ -z "$first" ]; then
             open -g "$APP" --args --background   # an update: keep the settings, no window
         else
             open "$APP"                          # first install: the setup window
@@ -129,6 +216,7 @@ Keyboard shortcut: System Settings → Keyboard → Keyboard Shortcuts… → Se
 → Text → BTranslate.
 TEXT
     fi
+    if [ -n "$hint" ]; then printf '\n%s\n' "$hint"; fi
 }
 
 main "$@"

@@ -1,10 +1,11 @@
 import Cocoa
 
 /// A table row that names a language: "Russian" and, in grey, its own name "русский"; the
-/// default language of the list is marked as that. At the right end, an arrow in a circle
+/// default language of the list and the second default are marked as that. At the right end, an arrow in a circle
 /// for a language the Offline method has: filled when it is there, empty when it needs a download.
 @MainActor
-private func languageCell(in table: NSTableView, for target: Target, isDefault: Bool = false, offline: OfflineStatus? = nil) -> NSView {
+private func languageCell(in table: NSTableView, for target: Target, isDefault: Bool = false, isSecond: Bool = false,
+                          offline: OfflineStatus? = nil) -> NSView {
     let id = NSUserInterfaceItemIdentifier("language")
     let cell: NSTableCellView
     if let reused = table.makeView(withIdentifier: id, owner: nil) as? NSTableCellView {
@@ -52,6 +53,8 @@ private func languageCell(in table: NSTableView, for target: Target, isDefault: 
     }
     if isDefault {
         text.append(NSAttributedString(string: "   ★ " + L("default"), attributes: [.foregroundColor: NSColor.controlAccentColor]))
+    } else if isSecond {
+        text.append(NSAttributedString(string: "   ☆ " + L("second"), attributes: [.foregroundColor: NSColor.controlAccentColor]))
     }
     let oneLine = NSMutableParagraphStyle()  // a long name is cut short, never wrapped into the next row
     oneLine.lineBreakMode = .byTruncatingTail
@@ -182,9 +185,10 @@ final class LanguagePicker: NSObject, NSTableViewDataSource, NSTableViewDelegate
 
 // MARK: - The list in Settings
 
-/// The languages the popup offers: a table with + − ↑ ↓ and "Make Default" under it. Rows can
-/// also be dragged into another order. One language is the default, the one a popup opens
-/// with. At least one language stays.
+/// The languages the popup offers: a table with + − ↑ ↓, "Make Default" and "Make Second"
+/// under it. Rows can also be dragged into another order. One language is the default, the
+/// one a popup opens with; another is the second default, which a popup turns to for a text
+/// that is in the default language already. At least one language stays.
 @MainActor
 final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var languages: [Target] = [] {
@@ -201,6 +205,17 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         }
     }
     var defaultLanguage: Target? { languages.first { $0.id == defaultID } ?? languages.first }
+    /// The second default as it was chosen; `secondLanguage` is what holds (see Config.secondTarget).
+    var secondID = "" {
+        didSet {
+            table.reloadData()
+            refreshButtons()
+        }
+    }
+    var secondLanguage: Target? {
+        guard let first = defaultLanguage else { return nil }
+        return languages.first { $0.id == secondID && $0 != first } ?? languages.first { !OnDevice.same($0.google, first.google) }
+    }
     /// Which languages the Offline method has, by their ids. Empty where the Mac has no such method.
     var offline: [String: OfflineStatus] = [:] {
         didSet {
@@ -217,6 +232,7 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
     private let table = NSTableView()
     private let buttons = NSSegmentedControl()
     private let defaultButton = NSButton(title: L("Make Default"), target: nil, action: nil)
+    private let secondButton = NSButton(title: L("Make Second"), target: nil, action: nil)
     private let downloadButton = NSButton(title: L("Download"), target: nil, action: nil)
     private let rowType = NSPasteboard.PasteboardType("io.github.baakhoff.btranslate.language-row")
 
@@ -250,7 +266,7 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         buttons.segmentStyle = .smallSquare
         for (i, image) in images.enumerated() {
             buttons.setImage(image, forSegment: i)
-            buttons.setWidth(28, forSegment: i)
+            buttons.setWidth(25, forSegment: i)  // narrow: three buttons with long names in some languages follow
             buttons.setToolTip(tips[i], forSegment: i)
         }
         buttons.target = self
@@ -262,6 +278,12 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         defaultButton.toolTip = L("A popup opens with the default language")
         defaultButton.target = self
         defaultButton.action = #selector(makeSelectedDefault)
+        secondButton.bezelStyle = .rounded
+        secondButton.controlSize = .small
+        secondButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        secondButton.toolTip = L("For a text that is in the default language already, a popup opens with the second default")
+        secondButton.target = self
+        secondButton.action = #selector(makeSelectedSecond)
         downloadButton.bezelStyle = .rounded
         downloadButton.controlSize = .small
         downloadButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
@@ -269,11 +291,11 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         downloadButton.target = self
         downloadButton.action = #selector(downloadSelected)
         downloadButton.isHidden = !OnDevice.isAvailable
-        let row = NSStackView(views: [buttons, defaultButton, downloadButton])
-        row.spacing = 10
+        let row = NSStackView(views: [buttons, defaultButton, secondButton, downloadButton])
+        row.spacing = 6
 
         let note = NSTextField(wrappingLabelWithString:
-            L("A popup opens with the default language; + in the popup adds others from this list. Use the arrows, or drag rows, to put them in your order."))
+            L("A popup opens with the default language, and with the second one for a text that is in the default language already. + in the popup adds others from this list. Use the arrows, or drag rows, to put them in your order."))
         note.font = .systemFont(ofSize: 11)
         note.textColor = .secondaryLabelColor
         note.translatesAutoresizingMaskIntoConstraints = false
@@ -323,6 +345,7 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         buttons.setEnabled(selectedRow.map { $0 > 0 } ?? false, forSegment: 2)
         buttons.setEnabled(selectedRow.map { $0 < languages.count - 1 } ?? false, forSegment: 3)
         defaultButton.isEnabled = selectedRow.map { languages[$0] != defaultLanguage } ?? false
+        secondButton.isEnabled = selectedRow.map { languages[$0] != defaultLanguage && languages[$0] != secondLanguage } ?? false
         downloadButton.isEnabled = selectedRow.map { offline[languages[$0].id] == .downloadable } ?? false
     }
 
@@ -365,10 +388,17 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         select(row: row)
     }
 
+    @objc func makeSelectedSecond() {
+        guard let row = selectedRow, languages[row] != defaultLanguage else { return }
+        secondID = languages[row].id
+        select(row: row)
+    }
+
     func numberOfRows(in tableView: NSTableView) -> Int { languages.count }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        languageCell(in: tableView, for: languages[row], isDefault: languages[row] == defaultLanguage, offline: offline[languages[row].id])
+        languageCell(in: tableView, for: languages[row], isDefault: languages[row] == defaultLanguage,
+                     isSecond: languages[row] == secondLanguage, offline: offline[languages[row].id])
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) { refreshButtons() }

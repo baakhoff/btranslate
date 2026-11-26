@@ -26,8 +26,11 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private let keyHelp = NSTextField(wrappingLabelWithString: "")
     private let testButton = NSButton(title: L("Test"), target: nil, action: nil)
     private let status = NSTextField(wrappingLabelWithString: "")
-    private let defaultControl = NSSegmentedControl(labels: ["Google", L("AI"), L("Offline")], trackingMode: .selectOne, target: nil, action: nil)
-    private let methods: [Engine] = [.google, .ai, .device]  // the segments of defaultControl
+    // "Opens with": a segment for each method that can be used now (the AI model only once it
+    // has a key, or a server's address).
+    private let defaultControl = NSSegmentedControl(labels: ["Google"], trackingMode: .selectOne, target: nil, action: nil)
+    private var shownMethods: [Engine] = [.google]  // the segments of defaultControl
+    private var chosenDefault: Engine = .google     // the method picked there, kept while it is not on offer
     private var aiLabels: [NSTextField] = []
     private var urlRow: NSGridRow?  // shown for the Custom provider only
     private let languageEditor = LanguageListEditor(width: 436)
@@ -106,9 +109,10 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     }
 
     /// Works the list's buttons on its last row: up, make default, then remove the row that was
-    /// first (UI test). Returns the order and the default after each step. Nothing is saved.
+    /// first (UI test). Returns the order, the default and the second default after each step.
+    /// Nothing is saved.
     func reorderForTest() -> [String] {
-        func state() -> String { "\(draft().languageIDs.joined(separator: ",")) default=\(draft().defaultLanguageID)" }
+        func state() -> String { "\(draft().languageIDs.joined(separator: ",")) default=\(draft().defaultLanguageID) second=\(draft().secondLanguageID)" }
         var steps = [state()]
         let last = languageEditor.languages.count - 1
         languageEditor.select(row: last)
@@ -119,8 +123,14 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         languageEditor.select(row: 0)
         languageEditor.moveSelected(by: 1)
         steps.append(state())
+        languageEditor.select(row: languageEditor.languages.count - 1)
+        languageEditor.makeSelectedSecond()
+        steps.append(state())
         return steps
     }
+
+    /// The methods "Opens with" offers now (UI test).
+    var offeredMethods: [Engine] { shownMethods }
 
     /// What the language menu's items stand for, each picked in turn: "" is the Mac's own
     /// language (UI test). Nothing is saved.
@@ -198,6 +208,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         modelBox.completes = true
         modelBox.numberOfVisibleItems = 14
         urlField.placeholderString = "http://127.0.0.1:8000/v1"
+        urlField.delegate = self
         keyField.delegate = self
         testButton.target = self
         testButton.action = #selector(runTest)
@@ -327,6 +338,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     // MARK: Showing the saved settings
 
     private func fill() {
+        AISetup.forget()  // a key may have come or gone since the window was last open
         googleBox.state = config.googleEnabled ? .on : .off
         aiBox.state = config.aiEnabled ? .on : .off
         deviceBox.isEnabled = OnDevice.isAvailable
@@ -335,9 +347,10 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         refreshOffline()
         providerMenu.selectItem(at: providers.firstIndex { $0.id == config.providerID } ?? 0)
         urlField.stringValue = config.customURL
-        defaultControl.selectedSegment = methods.firstIndex(of: config.defaultEngine) ?? 0
+        chosenDefault = config.defaultEngine
         languageEditor.languages = config.targets
         languageEditor.defaultID = config.startTarget.id
+        languageEditor.secondID = config.secondTarget?.id ?? ""
         googleVoiceBox.state = config.googleVoice ? .on : .off
         languageMenu.selectItem(at: (interfaceLanguages.firstIndex { $0.code == config.languageChoice } ?? -1) + 1)
         setStatus("", color: .secondaryLabelColor)
@@ -363,13 +376,22 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         let ai = aiBox.state == .on
         for control in [providerMenu, modelBox, urlField, keyField, testButton] as [NSControl] { control.isEnabled = ai }
         for l in aiLabels { l.textColor = ai ? .labelColor : .disabledControlTextColor }
-        // "Opens with" offers the methods that are on; with one, there is nothing to choose.
-        let on = [googleBox.state == .on, ai, deviceBox.state == .on]
-        for (i, isOn) in on.enumerated() { defaultControl.setEnabled(isOn, forSegment: i) }
-        if !(on.indices.contains(defaultControl.selectedSegment) && on[defaultControl.selectedSegment]) {
-            defaultControl.selectedSegment = on.firstIndex(of: true) ?? 0
+        // "Opens with" offers the methods a popup would: the ones that are on, and the AI
+        // model only once it has what it needs. With one, there is nothing to choose.
+        let typedKey = !keyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let aiReady = ai && (selectedProvider.id == "custom"
+                             ? !urlField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                             : typedKey || AISetup.hasKey(selectedProvider.id))
+        var offered: [Engine] = (googleBox.state == .on ? [.google] : []) + (aiReady ? [.ai] : []) + (deviceBox.state == .on ? [.device] : [])
+        if offered.isEmpty { offered = [.google] }
+        shownMethods = offered
+        defaultControl.segmentCount = offered.count
+        for (i, method) in offered.enumerated() {
+            defaultControl.setLabel(method == .google ? "Google" : method == .ai ? L("AI") : L("Offline"), forSegment: i)
+            defaultControl.setWidth(0, forSegment: i)  // as wide as its label
         }
-        defaultControl.isEnabled = on.filter { $0 }.count > 1
+        defaultControl.selectedSegment = offered.firstIndex(of: chosenDefault) ?? 0
+        defaultControl.isEnabled = offered.count > 1
     }
 
     /// The language pack's line and button, as its installer stands now.
@@ -383,6 +405,9 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         case .absent:
             note = L("Language pack NLLB-200 (Meta AI): about 140 more languages for it, Latvian and Serbian among them, on the Neural Engine. %@; non-commercial use only.",
                      megabytes(LanguagePack.megabytes * 1_000_000))
+        case .waiting:
+            note = L("The language pack will be downloaded as soon as there is an internet connection.")
+            button = L("Cancel")
         case .downloading(let done, let total):
             note = L("Downloading the language pack: %@ of %@.", megabytes(done), megabytes(total))
             button = L("Cancel")
@@ -420,10 +445,10 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
 
     @objc private func packButtonClicked() {
         switch PackInstaller.shared.state {
-        case .downloading: PackInstaller.shared.cancel()
+        case .downloading, .waiting: PackInstaller.shared.cancel()
         case .installed: PackInstaller.shared.remove()
         case .preparing: break
-        default: PackInstaller.shared.start()
+        default: PackInstaller.shared.startWhenPossible()
         }
     }
 
@@ -467,9 +492,10 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         c.providerID = selectedProvider.id
         c.model = modelBox.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         c.customURL = urlField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        c.defaultEngine = methods.indices.contains(defaultControl.selectedSegment) ? methods[defaultControl.selectedSegment] : .google
+        c.defaultEngine = shownMethods.indices.contains(defaultControl.selectedSegment) ? shownMethods[defaultControl.selectedSegment] : .google
         c.languageIDs = languageEditor.languages.map(\.id)
         c.defaultLanguageID = languageEditor.defaultLanguage?.id ?? ""
+        c.secondLanguageID = languageEditor.secondLanguage?.id ?? ""
         c.googleVoice = googleVoiceBox.state == .on
         let chosen = languageMenu.indexOfSelectedItem - 1  // -1: the first item, "Same as the Mac"
         c.languageChoice = interfaceLanguages.indices.contains(chosen) ? interfaceLanguages[chosen].code : ""
@@ -513,7 +539,14 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         refreshEnabled()
     }
 
-    @objc private func defaultChanged() {}
+    @objc private func defaultChanged() {
+        if shownMethods.indices.contains(defaultControl.selectedSegment) { chosenDefault = shownMethods[defaultControl.selectedSegment] }
+    }
+
+    /// A key or an address typed in: the AI model may be on offer in "Opens with" now.
+    func controlTextDidChange(_ obj: Notification) {
+        if (obj.object as? NSTextField) === keyField || (obj.object as? NSTextField) === urlField { refreshEnabled() }
+    }
 
     func controlTextDidEndEditing(_ obj: Notification) {
         if (obj.object as? NSTextField) === keyField || (obj.object as? NSTextField) === urlField { loadModels() }
@@ -563,6 +596,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             setStatus(L("The key could not be saved to the Keychain."), color: .systemRed)
             return
         }
+        AISetup.forget()
         let languageChanged = c.languageChoice != config.languageChoice
         c.save()
         config = c

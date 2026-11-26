@@ -472,22 +472,29 @@ func isLocalAddress(_ address: String) -> Bool {
     return parts.count == 4 && parts[0] == 172 && (16...31).contains(parts[1])
 }
 
+/// For tests, BTRANSLATE_CONNECTION=off is a Mac without a network, whatever the real one has.
+private let connectionForcedOff = ProcessInfo.processInfo.environment["BTRANSLATE_CONNECTION"] == "off"
+
 /// Tells when the Mac has a way to the internet again.
 @MainActor
 final class Connection {
     static let shared = Connection()
 
     private let monitor = NWPathMonitor()
-    private var online = true
+    private var online = !connectionForcedOff
     private var waiting: [@MainActor () -> Void] = []
 
     private init() {
         monitor.pathUpdateHandler = { path in
+            if connectionForcedOff { return }
             let online = path.status == .satisfied
             Task { @MainActor in Connection.shared.changed(to: online) }
         }
         monitor.start(queue: DispatchQueue(label: "io.github.baakhoff.btranslate.connection"))
     }
+
+    /// False while the Mac has no network to send anything through.
+    var isOnline: Bool { online }
 
     /// Runs `work` once, the next time the connection comes back after being gone.
     func whenBack(_ work: @escaping @MainActor () -> Void) {

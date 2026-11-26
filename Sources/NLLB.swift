@@ -600,6 +600,7 @@ final class PackInstaller {
 
     enum State: Equatable {
         case absent
+        case waiting                             // for an internet connection: the download starts when there is one
         case downloading(done: Int, total: Int)  // bytes
         case preparing                           // macOS is getting the model ready for the Neural Engine
         case installed
@@ -607,9 +608,14 @@ final class PackInstaller {
     }
 
     private(set) var state: State = LanguagePack.isInstalled ? .installed : .absent {
-        didSet { onChange?() }
+        didSet {
+            onChange?()
+            NotificationCenter.default.post(name: PackInstaller.changed, object: nil)
+        }
     }
-    var onChange: (() -> Void)?
+    var onChange: (() -> Void)?  // the setup window's
+    /// Posted whenever `state` changes: a popup that offers the download follows it.
+    static let changed = Notification.Name("io.github.baakhoff.btranslate.pack-installer-changed")
     private var task: Task<Void, Never>?
 
     var isBusy: Bool {
@@ -636,7 +642,18 @@ final class PackInstaller {
         }
     }
 
+    /// Starts the download; without an internet connection, as soon as there is one again.
+    func startWhenPossible() {
+        guard !isBusy, state != .installed, state != .waiting else { return }
+        guard !Connection.shared.isOnline else { start(); return }
+        state = .waiting
+        Connection.shared.whenBack { [weak self] in
+            if self?.state == .waiting { self?.start() }
+        }
+    }
+
     func cancel() {
+        if state == .waiting { state = .absent }
         task?.cancel()
     }
 

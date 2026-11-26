@@ -38,6 +38,10 @@
 //                                                                   without a download: for English and
 //                                                                   German, if both are there already,
 //                                                                   macOS answers at once and shows nothing
+//   BTranslate --popup-check "text" [--download] [--picture DIR]    a popup made off screen: the methods
+//                                                                   it offers, what each language shows,
+//                                                                   and whether the language pack is
+//                                                                   offered; --download presses that button
 //   BTranslate --offline-uitest switch|wait|settings DIR            the popup without a connection and
 //                                                                   the settings' offline marks, drawn
 //                                                                   into DIR off screen (tests/run.sh
@@ -62,7 +66,9 @@
 //                                                                   after a change of its language
 //   BTranslate --uitest DIR                                         draw the popup and the settings
 //                                                                   window into DIR as PNGs, off screen
-//   Env: BTRANSLATE_PROVIDER, BTRANSLATE_MODEL, BTRANSLATE_BASE_URL, BTRANSLATE_API_KEY,
+//   Env: BTRANSLATE_KEYCHAIN=off is a Mac without saved API keys, BTRANSLATE_CONNECTION=off one
+//        without a network (for the download of the language pack);
+//        BTRANSLATE_PROVIDER, BTRANSLATE_MODEL, BTRANSLATE_BASE_URL, BTRANSLATE_API_KEY,
 //        BTRANSLATE_GOOGLE_URL override the saved settings; BTRANSLATE_LANGUAGE=en|ru sets
 //        the language of BTranslate's own texts (and of what these modes print from them);
 //        BTRANSLATE_OFFLINE=mock stands in for Apple's translation (Sources/OnDevice.swift);
@@ -383,6 +389,50 @@ func runOfflineUITest(_ scenario: String, into dir: String) {
     popup.start()
 }
 
+/// A popup made off screen for a text. Prints the methods it offers and, for each language
+/// it translates into, the language, what it shows, and whether the language pack is
+/// offered under it. With --download the offer's button is then pressed, and the popup is
+/// printed again once the pack is there. --picture DIR also draws the popup into DIR.
+@MainActor
+func runPopupCheck(text: String) {
+    let popup = Popup(text: text)
+    Popup.current = popup
+    popup.prepare()
+    var pressed = false
+    func report(_ stage: String) {
+        print("\(stage): methods \(popup.config.engines.map(\.rawValue).joined(separator: ", ")); the original: \(popup.shownSource)")
+        for (section, offered) in zip(popup.sections, popup.packOffered) {
+            let shown = section.textView.string.replacingOccurrences(of: "\n", with: " / ")
+            print("   \(section.target.id): \(shown)\(offered ? " [\(section.packButton.title)]" : "")")
+        }
+        if let dir = argument(after: "--picture"), let view = popup.panel.contentView {
+            try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            snapshot(view, to: "\(dir)/popup-check\(pressed ? "-after" : "").png")
+        }
+    }
+    var observer: NSObjectProtocol?
+    popup.onSettled = {
+        report(pressed ? "with the pack" : "popup")
+        guard arguments.contains("--download"), !pressed, popup.packOffered.contains(true) else { exit(0) }
+        pressed = true
+        observer = NotificationCenter.default.addObserver(forName: PackInstaller.changed, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                if case .failed(let why) = PackInstaller.shared.state {
+                    report("the download failed (\(why))")
+                    exit(1)
+                }
+            }
+        }
+        _ = observer
+        popup.downloadPack()
+        if PackInstaller.shared.state == .waiting {  // no network: the download is put off until there is one
+            report("waiting for a connection")
+            exit(0)
+        }
+    }
+    popup.start()
+}
+
 /// The settings window's offline marks and Download button, off screen.
 @MainActor
 func runOfflineSettingsTest(into dir: String) async {
@@ -400,6 +450,8 @@ func runOfflineSettingsTest(into dir: String) async {
     print("offline marks: \(list.map { "\($0.id) \(statuses[$0.id]?.rawValue ?? "none")" }.joined(separator: ", "))")
     let offered = list.indices.map { "\(list[$0].id) \(SettingsController.shared.downloadOfferedForTest(row: $0) ? "yes" : "no")" }
     print("Download offered: \(offered.joined(separator: ", "))")
+    _ = SettingsController.shared.preparedContent(page: 0)
+    print("opens with: \(SettingsController.shared.offeredMethods.map(\.rawValue).joined(separator: ", "))")
     print("settings pages are \(Int(SettingsController.shared.pageHeights.0)) and \(Int(SettingsController.shared.pageHeights.1)) points tall")
     print("settings window, every text fits: \(cut.isEmpty ? "yes" : "NO (\(cut.joined(separator: " | ")))")")
     exit(cut.isEmpty ? 0 : 1)
@@ -546,6 +598,7 @@ if arguments.contains("--selftest") {
         print("language pack: installed, version \(pack.version), \(pack.languages.count) languages, sentences of up to \(pack.length) tokens")
     } else {
         print("language pack: not installed")
+        print("download: \(LanguagePack.megabytes) MB")
     }
     print("folder: \(LanguagePack.folder.path)")
     exit(0)
@@ -808,6 +861,13 @@ if arguments.contains("--selftest") {
                 exit(1)
             }
         }
+        app.run()
+    }
+} else if let text = argument(after: "--popup-check") {
+    MainActor.assumeIsolated {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        runPopupCheck(text: text)
         app.run()
     }
 } else if let scenario = argument(after: "--offline-uitest") {

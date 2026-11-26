@@ -615,6 +615,33 @@ func selfTest() -> [String] {
     expect("offline: Serbian in Latin letters, which the Mac calls Croatian", OnDevice.asTheUserMeans("hr", list: ["en", "sr-Latn"], recent: []) == "sr"
         && OnDevice.asTheUserMeans("hr", list: ["en"], recent: ["sr"]) == "sr" && OnDevice.asTheUserMeans("hr", list: ["en", "ru"], recent: []) == "hr"
         && OnDevice.asTheUserMeans("hr", list: ["hr", "sr"], recent: []) == "hr" && OnDevice.asTheUserMeans("de", list: ["sr"], recent: []) == "de")
+    var chosen = Config()
+    chosen.languageIDs = ["en", "ru", "lv"]
+    chosen.defaultLanguageID = "ru"
+    let firstOther = chosen.secondTarget?.id
+    chosen.secondLanguageID = "lv"
+    let picked = chosen.secondTarget?.id
+    chosen.secondLanguageID = "ru"  // the default itself can't be its own second
+    let notItself = chosen.secondTarget?.id
+    var serbian = Config()
+    serbian.languageIDs = ["sr-Latn", "sr", "en"]
+    serbian.defaultLanguageID = "sr-Latn"
+    let pastTheOtherAlphabet = serbian.secondTarget?.id
+    serbian.secondLanguageID = "sr"
+    var alone = Config()
+    alone.languageIDs = ["lv"]
+    expect("second default: the first other language of the list, or the one chosen (\(firstOther ?? "none"), \(picked ?? "none"), \(notItself ?? "none"))",
+           firstOther == "en" && picked == "lv" && notItself == "en")
+    expect("second default: not the default's other alphabet unless it is chosen; none with one language",
+           pastTheOtherAlphabet == "en" && serbian.secondTarget?.id == "sr" && alone.secondTarget == nil)
+    var own = Config()
+    own.googleEnabled = true
+    own.aiEnabled = true
+    own.deviceEnabled = false
+    own.providerID = "custom"
+    let noAddress = ProcessInfo.processInfo.environment["BTRANSLATE_BASE_URL"] == nil ? own.engines : [.google]
+    own.customURL = "http://127.0.0.1:8000/v1"
+    expect("methods: the AI model is offered once it is set up (a server of your own: its address)", noAddress == [.google] && own.engines == [.google, .ai])
     expect("offline: a text as the pack's detector sees it", OnDevice.prepared("ZABRANJENO PUŠENJE!").split(separator: " ") == ["zabranjeno", "pušenje"]
         && OnDevice.prepared("Hello, world 123 🙂").split(separator: " ") == ["Hello", "world"]
         && OnDevice.prepared("don't re-do it").split(separator: " ") == ["don't", "re-do", "it"]

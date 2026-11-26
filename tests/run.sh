@@ -151,8 +151,8 @@ check "UI, off screen: the pencil's picker searches" "source picker finds: ltg, 
 check "UI, off screen: the original's language set by hand" "the original's language can be set by hand: yes" echo "$UI_OUT"
 check "UI, off screen: the popup opens with the default language" "popup text: RU:" echo "$UI_OUT"
 check "UI, off screen: several languages at once" "several languages at once: yes (ru, en, lv)" echo "$UI_OUT"
-check "UI, off screen: the list's arrows and Make Default" \
-    "list buttons: en,ru,lv,sr-Latn default=ru → en,ru,sr-Latn,lv default=ru → en,ru,sr-Latn,lv default=sr-Latn → ru,en,sr-Latn,lv default=sr-Latn" echo "$UI_OUT"
+check "UI, off screen: the list's arrows, Make Default and Make Second" \
+    "list buttons: en,ru,lv,sr-Latn default=ru second=en → en,ru,sr-Latn,lv default=ru second=en → en,ru,sr-Latn,lv default=sr-Latn second=en → ru,en,sr-Latn,lv default=sr-Latn second=en → ru,en,sr-Latn,lv default=sr-Latn second=lv" echo "$UI_OUT"
 check "UI, off screen: pictures written" "source-picker.png" ls build/uitest
 check "UI, off screen: every text of the settings window fits" "settings window, every text fits: yes" echo "$UI_OUT"
 check "UI, off screen: the menu of BTranslate's own language" "language menu: the Mac's, en, ru" echo "$UI_OUT"
@@ -173,7 +173,7 @@ OFF_OUT="$(env BTRANSLATE_GOOGLE_URL="$MOCK/googleflaky1-switch" "$BIN" --offlin
 check "No connection: the popup goes over to the Offline method" \
     "switch, without a connection: method device, no connection shown: yes, texts: OFFLINE de>ru: Guten Tag!" echo "$OFF_OUT"
 check "No connection: a language the Offline method can't do here waits" \
-    "Download it in Settings, on the Translation page. / No internet connection. BTranslate will translate as soon as it is back." echo "$OFF_OUT"
+    "needs the NLLB-200 language pack (German → Latvian). / No internet connection. BTranslate will translate as soon as it is back." echo "$OFF_OUT"
 check "No connection: the first method takes over again when the connection is back" \
     "switch, the connection is back: method google, no connection shown: no, texts: RU:Guten Tag! Ich bin morgen von neun bis fünf im Büro. | LV:Guten Tag!" echo "$OFF_OUT"
 WAIT_OUT="$(env BTRANSLATE_GOOGLE_URL="$MOCK/googleflaky1-wait" "$BIN" --offline-uitest wait "${OFF[@]}" -deviceEnabled NO -languages '(ru)' build/uitest 2>&1 || true)"
@@ -190,6 +190,65 @@ check "Settings: Download is offered for the languages that need one" "Download 
 check "Settings, with the offline marks: every text fits" "settings window, every text fits: yes" echo "$SET_OUT"
 SET_RU="$(env BTRANSLATE_LANGUAGE=ru "$BIN" --offline-uitest settings -AppleLanguages '(ru)' -googleEnabled YES -deviceEnabled YES -languages '(en, ru, fr, lv)' build/uitest-ru 2>&1 || true)"
 check "Settings in Russian, with the offline marks: every text fits" "settings window, every text fits: yes" echo "$SET_RU"
+
+# A popup made off screen (BTranslate --popup-check): what it turns to, which methods it offers.
+POP=(-googleEnabled YES -defaultEngine google -recentSources '()')
+LV="Labdien! Kā jums klājas?"
+check "Second default: a text in the default language goes into the next language of the list" "   en: EN:Labdien!" \
+    env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --popup-check "$LV" "${POP[@]}" -languages '(en, ru, lv)' -defaultLanguage lv -secondLanguage ''
+check "Second default: the one chosen in Settings" "   ru: RU:Labdien!" \
+    env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --popup-check "$LV" "${POP[@]}" -languages '(en, ru, lv)' -defaultLanguage lv -secondLanguage ru
+check "Second default: a text in another language keeps the default" "   ru: RU:Labdien!" \
+    env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --popup-check "$LV" "${POP[@]}" -languages '(en, ru, lv)' -defaultLanguage ru -secondLanguage en
+check "Second default: none with one language in the list" "   lv: LV:Labdien!" \
+    env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --popup-check "$LV" "${POP[@]}" -languages '(lv)' -defaultLanguage lv
+AI=(-aiEnabled YES -aiProvider openai -deviceEnabled YES -languages '(en, ru)' -defaultLanguage ru)
+check "AI model without a key: not among the popup's methods" "methods google, device;" \
+    env BTRANSLATE_GOOGLE_URL="$MOCK/google" BTRANSLATE_KEYCHAIN=off "$BIN" --popup-check "Labdien" "${POP[@]}" "${AI[@]}"
+check "AI model with a key: among them" "methods google, ai, device;" \
+    env BTRANSLATE_GOOGLE_URL="$MOCK/google" BTRANSLATE_API_KEY=test-key "$BIN" --popup-check "Labdien" "${POP[@]}" "${AI[@]}"
+check "AI model on a server of your own: its address is enough" "methods google, ai, device;" \
+    env BTRANSLATE_GOOGLE_URL="$MOCK/google" BTRANSLATE_KEYCHAIN=off "$BIN" --popup-check "Labdien" "${POP[@]}" "${AI[@]}" -aiProvider custom -aiBaseURL "$MOCK/openai"
+check "AI model on a server of your own, no address: not among them" "methods google, device;" \
+    env BTRANSLATE_GOOGLE_URL="$MOCK/google" BTRANSLATE_KEYCHAIN=off "$BIN" --popup-check "Labdien" "${POP[@]}" "${AI[@]}" -aiProvider custom -aiBaseURL ''
+check "Settings: \"opens with\" leaves the AI model out until it has a key" "opens with: google, device" \
+    env BTRANSLATE_KEYCHAIN=off "$BIN" --offline-uitest settings -googleEnabled YES "${AI[@]}" build/uitest
+check "Settings: \"opens with\" has the AI model once it has one" "opens with: google, ai, device" \
+    env BTRANSLATE_API_KEY=test-key "$BIN" --offline-uitest settings -googleEnabled YES "${AI[@]}" build/uitest
+
+# Where the Offline method can't translate for want of the language pack, the popup offers it.
+GER="Guten Tag! Ich bin morgen von neun bis fünf im Büro."
+OFFER=(-googleEnabled YES -aiEnabled NO -deviceEnabled YES -languages '(lv, ru)' -defaultLanguage lv -recentSources '()')
+check "Language pack offered: a button under the message downloads it" \
+    "(German → Latvian). [Download Language Pack (906 MB)]" "$BIN" --popup-check "$GER" "${OFFER[@]}" -defaultEngine device
+check "Language pack offered: the bar names the language the Mac told" "the original: German" "$BIN" --popup-check "$GER" "${OFFER[@]}" -defaultEngine device
+check "Language pack offered: also when the popup went offline for lack of a connection" \
+    "BTranslate will translate as soon as it is back. [Download Language Pack (906 MB)]" \
+    env BTRANSLATE_GOOGLE_URL="$DEAD" "$BIN" --popup-check "$GER" "${OFFER[@]}" -defaultEngine google
+check "Language pack offered: without a network, the download waits for one" \
+    "/ The language pack will be downloaded as soon as there is an internet connection." \
+    env BTRANSLATE_CONNECTION=off "$BIN" --popup-check "$GER" --download "${OFFER[@]}" -defaultEngine device
+check "Language pack offered: nothing at the address is said so, and the button stays" \
+    "It may not be published yet. [Download Language Pack (906 MB)]" \
+    env BTRANSLATE_PACK_URL="$MOCK/nothing" "$BIN" --popup-check "$GER" --download "${OFFER[@]}" -defaultEngine device
+check "Language pack offered: not where the pack would not help" "   ab: The Offline method has no Abkhaz." \
+    "$BIN" --popup-check "$GER" "${OFFER[@]}" -languages '(ab)' -defaultLanguage ab -defaultEngine device
+check "Language pack offered: the button downloads it, and the popup translates again" "with the pack: methods" \
+    env BTRANSLATE_PACK_URL="$MOCK/pack" "$BIN" --popup-check "$GER" --download "${OFFER[@]}" -defaultEngine device
+"$BIN" --pack-remove > /dev/null
+
+# The installer's question about the language pack: its step alone, for the app just built.
+INST=(BTRANSLATE_INSTALLER_TEST=pack BTRANSLATE_TEST_APP="$PWD/build/BTranslate.app")
+check "Installer: the language pack, wanted" "The language pack is installed." \
+    env "${INST[@]}" BTRANSLATE_PACK=yes BTRANSLATE_PACK_URL="$MOCK/pack" ./install.sh
+"$BIN" --pack-remove > /dev/null
+check "Installer: the language pack, not wanted" "The language pack is not installed. To get it later: BTranslate's settings → Translation → Download (906 MB)." \
+    env "${INST[@]}" BTRANSLATE_PACK=no ./install.sh
+check "Installer: the language pack is not at its address" "It may not be published yet." \
+    env "${INST[@]}" BTRANSLATE_PACK=yes BTRANSLATE_PACK_URL="$MOCK/nothing" ./install.sh
+check "Installer, in Russian: the language pack" "Языковой пакет установлен." \
+    env "${INST[@]}" BTRANSLATE_LANGUAGE=ru BTRANSLATE_PACK=yes BTRANSLATE_PACK_URL="$MOCK/pack" ./install.sh
+"$BIN" --pack-remove > /dev/null
 
 # The language pack's detector of a text's language, on a made-up file of a few rows: the app
 # must read it as the Python that wrote it does (tools/nllb/lid.py toy).

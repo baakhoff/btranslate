@@ -63,6 +63,9 @@ final class TranslationSection {
     var settled = false           // a translation or an error message is showing
     var waiting = false           // no translation for lack of a connection: one is made when it is back
     var task: Task<Void, Never>?
+    var opensWithDefault = false  // it shows the default language because the popup opened with it, not because it was picked here
+    var turnedFrom: Target?       // the default language it left for the second default: the text was in it already
+    var packOffer: String?        // a message the language pack would put right: a button under it downloads the pack
 
     let arrow = NSTextField(labelWithString: "→")
     let menu = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -70,7 +73,8 @@ final class TranslationSection {
     let copyButton = NSButton()
     let removeButton = NSButton()
     let textView = NSTextView()
-    var views: [NSView] { [arrow, menu, speakButton, copyButton, removeButton, textView] }
+    let packButton = NSButton(title: "", target: nil, action: nil)
+    var views: [NSView] { [arrow, menu, speakButton, copyButton, removeButton, textView, packButton] }
 
     init(target: Target) {
         self.target = target
@@ -131,7 +135,7 @@ final class Popup: NSObject, NSWindowDelegate {
         engine = config.startEngine
         super.init()
         build()
-        addSection(config.startTarget)
+        addSection(config.startTarget).opensWithDefault = true
     }
 
     private func build() {
@@ -191,6 +195,7 @@ final class Popup: NSObject, NSWindowDelegate {
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(menuDidOpen), name: NSMenu.didBeginTrackingNotification, object: nil)
         center.addObserver(self, selector: #selector(menuDidClose), name: NSMenu.didEndTrackingNotification, object: nil)
+        center.addObserver(self, selector: #selector(packChanged), name: PackInstaller.changed, object: nil)
 
         for view in [sourceLabel, speakSourceButton, sourceButton, offlineIcon, engineControl, settingsButton, scroll] as [NSView] {
             background.addSubview(view)
@@ -282,6 +287,13 @@ final class Popup: NSObject, NSWindowDelegate {
         configure(section.speakButton, symbol: "speaker.wave.2", size: 13, tip: "", action: #selector(speakTranslation(_:)))
         configure(section.copyButton, symbol: "doc.on.doc", size: 13, tip: L("Copy this translation"), action: #selector(copyTranslation(_:)))
         configure(section.removeButton, symbol: "xmark", size: 11, tip: L("Take this language out of the popup"), action: #selector(removeLanguage(_:)))
+        section.packButton.bezelStyle = .rounded
+        section.packButton.controlSize = .small
+        section.packButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        section.packButton.target = self
+        section.packButton.action = #selector(downloadPack)
+        section.packButton.refusesFirstResponder = true
+        section.packButton.isHidden = true
 
         let text = section.textView
         text.isEditable = false
@@ -340,6 +352,8 @@ final class Popup: NSObject, NSWindowDelegate {
         guard let section = sections.first(where: { $0.menu === sender }), let name = sender.titleOfSelectedItem,
               let target = config.targets.first(where: { $0.name == name }) else { return }
         section.target = target  // for this popup only; Settings has the default language
+        section.opensWithDefault = false
+        section.turnedFrom = nil
         refreshMenus()
         start(section)
         refreshBar()
@@ -383,8 +397,41 @@ final class Popup: NSObject, NSWindowDelegate {
     func start() {
         Speaker.shared.stop()
         detectedSource = nil
-        for section in sections { start(section) }
+        for section in sections {
+            // Back to the default language first: whether the text is in it is found out anew.
+            if let before = section.turnedFrom, !sections.contains(where: { $0 !== section && $0.target == before }) {
+                section.target = before
+                section.turnedFrom = nil
+                section.opensWithDefault = true
+                refreshMenus()
+            }
+            start(section)
+        }
         refreshBar()
+    }
+
+    /// A text that is in the popup's default language already has nothing to gain from being
+    /// translated into it: the section the popup opened with turns to the second default
+    /// (Settings, Languages page) and translates anew. Not a section whose language was
+    /// picked in this popup by hand. Returns true if it turned.
+    private func turnToSecond(_ section: TranslationSection, from code: String) -> Bool {
+        guard section.opensWithDefault, isAlready(in: section.target, code: code), let second = config.secondTarget,
+              !sections.contains(where: { $0.target == second }) else { return false }
+        section.opensWithDefault = false
+        section.turnedFrom = section.target
+        section.target = second
+        detectedSource = code
+        refreshMenus()
+        start(section)
+        refreshBar()
+        return true
+    }
+
+    /// Whether a text found to be in the language `code` is in `target`'s language already,
+    /// written its way. Serbian in the other alphabet is not: turning it over is a job.
+    private func isAlready(in target: Target, code: String) -> Bool {
+        guard OnDevice.same(code, target.google) else { return false }
+        return target.google != "sr" || isMostlyLatin(source) == target.latin
     }
 
     private func start(_ section: TranslationSection) {
@@ -393,6 +440,8 @@ final class Popup: NSObject, NSWindowDelegate {
         section.translation = ""
         section.settled = false
         section.waiting = false
+        section.packOffer = nil
+        section.packButton.isHidden = true
         setText(L("Translating…"), in: section, color: .secondaryLabelColor)
         let engine = engine, target = section.target, config = config, chosenSource = chosenSource
         section.task = Task { [weak self, weak section] in
@@ -401,6 +450,7 @@ final class Popup: NSObject, NSWindowDelegate {
                 try await translate(self.source, engine: engine, target: target, source: chosenSource, config: config) { [weak self, weak section] code, text in
                     guard let self, let section, !Task.isCancelled else { return }
                     if engine != .device { self.noConnection = false }  // an answer from the internet
+                    if let code, self.turnToSecond(section, from: code) { return }
                     let firstPiece = section.translation.isEmpty
                     if let code, self.detectedSource == nil || section === self.sections.first { self.detectedSource = code }
                     section.translation = text
@@ -411,10 +461,22 @@ final class Popup: NSObject, NSWindowDelegate {
                 if Task.isCancelled || (error as? URLError)?.code == .cancelled || error is CancellationError { return }
                 section.translation = ""
                 // The Mac told the text's language, though the Offline method can't translate from it: show it.
-                if case OfflineError.noLanguage(let code) = error, code != target.google, chosenSource == nil, self.detectedSource == nil {
-                    self.detectedSource = code
+                if chosenSource == nil, self.detectedSource == nil {
+                    switch error {
+                    case OfflineError.noLanguage(let code) where code != target.google: self.detectedSource = code
+                    case OfflineError.needsPack(let code, _), OfflineError.notDownloaded(let code, _), OfflineError.noPair(let code, _):
+                        self.detectedSource = code
+                    default: break
+                    }
                 }
                 let later = L("No internet connection. BTranslate will translate as soon as it is back.")
+                // What the Offline method can't do for want of the language pack: the popup offers the pack.
+                let offer = self.packWouldHelp(error, target: target)
+                var message = describe(error)
+                if offer, case OfflineError.needsPack(let from, let to) = error {
+                    message = L("This offline translation needs the NLLB-200 language pack (%@ → %@).",
+                                languageName(from, inText: true), languageName(to, inText: true))
+                }
                 if engine != .device, isConnectionError(error) {
                     if self.goOffline(from: engine) { return }  // every language starts anew, with the Offline method
                     section.waiting = true
@@ -423,9 +485,14 @@ final class Popup: NSObject, NSWindowDelegate {
                 } else if engine == .device, self.autoOffline != nil {
                     // The Offline method can't do this one, and it is only in use for lack of a connection.
                     section.waiting = true
-                    self.setText(describe(error) + "\n" + later, in: section, color: .secondaryLabelColor)
+                    message += "\n" + later
+                    self.setText(message, in: section, color: .secondaryLabelColor)
                 } else {
-                    self.setText(describe(error), in: section, color: .systemRed)
+                    self.setText(message, in: section, color: offer ? .secondaryLabelColor : .systemRed)
+                }
+                if offer {
+                    section.packOffer = message
+                    self.showPackOffer(in: section)
                 }
             }
             if Task.isCancelled { return }
@@ -434,6 +501,61 @@ final class Popup: NSObject, NSWindowDelegate {
             if self.sections.allSatisfy(\.settled) { self.onSettled?() }
         }
     }
+
+    // MARK: Offering the language pack
+
+    /// True for what the Offline method could not do and the language pack would put right,
+    /// while the pack is not installed: a pair of languages macOS has not got (or not
+    /// downloaded), or a text whose language the Mac can't tell.
+    private func packWouldHelp(_ error: Error, target: Target) -> Bool {
+        guard !LanguagePack.isInstalled, OnDevice.packHas(target.id) else { return false }
+        switch error {
+        case OfflineError.needsPack, OfflineError.unknownLanguage: return true
+        case OfflineError.notDownloaded(let from, _): return OnDevice.packHas(from)
+        default: return false
+        }
+    }
+
+    /// Under such a message: a button that downloads the pack, or how its download stands.
+    /// When the pack is there, the section translates anew.
+    private func showPackOffer(in section: TranslationSection) {
+        guard let offer = section.packOffer else { return }
+        func megabytes(_ bytes: Int) -> String { L("%ld MB", bytes / 1_000_000) }
+        var text = offer, button = true
+        switch PackInstaller.shared.state {
+        case .absent:
+            break
+        case .failed(let why):
+            text += "\n" + why
+        case .waiting:
+            text += "\n" + L("The language pack will be downloaded as soon as there is an internet connection.")
+            button = false
+        case .downloading(let done, let total):
+            text = L("Downloading the language pack: %@ of %@.", megabytes(done), megabytes(total))
+            button = false
+        case .preparing:
+            text = L("macOS is preparing the language pack for the Neural Engine. This takes up to a minute, once.")
+            button = false
+        case .installed:
+            start(section)
+            return
+        }
+        setText(text, in: section, color: .secondaryLabelColor)
+        section.packButton.title = L("Download Language Pack (%@)", megabytes(LanguagePack.megabytes * 1_000_000))
+        section.packButton.isHidden = !button
+    }
+
+    @objc private func packChanged() {
+        guard !closed else { return }
+        for section in sections where section.packOffer != nil { showPackOffer(in: section) }
+        layout()
+    }
+
+    @objc func downloadPack() {
+        PackInstaller.shared.startWhenPossible()
+    }
+
+    var packOffered: [Bool] { sections.map { !$0.packButton.isHidden } }  // (UI test)
 
     var shownText: String { sections.first?.textView.string ?? "" }
     var shownTexts: [String] { sections.map(\.textView.string) }
@@ -735,6 +857,11 @@ final class Popup: NSObject, NSWindowDelegate {
             let h = textHeight(section.textView, width: contentWidth)
             section.textView.frame = NSRect(x: 0, y: y, width: contentWidth, height: h)
             y += h
+            if !section.packButton.isHidden {
+                section.packButton.sizeToFit()
+                section.packButton.frame.origin = NSPoint(x: 0, y: y + 6)
+                y += 6 + section.packButton.frame.height + 2
+            }
         }
         let contentHeight = y
         let visibleHeight = min(contentHeight, Popup.maxTextHeight)
