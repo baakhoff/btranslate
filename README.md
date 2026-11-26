@@ -28,7 +28,8 @@ translator doesn't have, such as Latvian and Serbian.
   - Your Mac's own voices do it, offline. The Croatian voice also reads Serbian and Bosnian.
   - macOS has no voice for some languages (Latvian, for one). For those, Google Translate's voice can read the text; you can turn that off in the setup window.
 - **Your own list of languages:**
-  - Add any of the 249 languages Google Translate knows, as many or as few as you like. Serbian comes in both Latin and Cyrillic script.
+  - Add any of the 249 languages Google Translate knows, as many or as few as you like.
+  - Serbian comes in both Latin and Cyrillic script, and a Serbian text can be turned from one alphabet into the other.
   - Put them in your order and choose the default one: a popup opens with it.
   - The list starts with your Mac's own languages.
 - **Copy:** the copy button or ⌘C copies a translation (or the part you selected).
@@ -145,6 +146,9 @@ There is no Xcode project and there are no dependencies: `swiftc` compiles the f
 
 - **The menu item** is a macOS Service the app declares in its `Info.plist`. macOS hands it the selected text; no accessibility or screen permission is involved.
 - **The popup** is a panel that does not activate its app, so your app keeps the front. The app stays running in the background after its first use, so later popups open at once.
+- **Serbian in two alphabets:** Google writes Serbian in Cyrillic only, and hands a Serbian text back unchanged. So BTranslate changes the alphabet itself, in both directions.
+  - Going to Cyrillic, it leaves in Latin what looks foreign: words with q, w, x or y, abbreviations such as STL, names like GitHub, and English in brackets or with a hyphen ("open-source").
+  - A foreign name that nothing marks as foreign is converted letter by letter. The AI method does better with those.
 - **The app is signed ad hoc** (no Apple developer account), which is why the installer builds it on your Mac instead of downloading a binary that Gatekeeper would block. Set `BTRANSLATE_SIGN_IDENTITY` to sign with an identity of your own.
 - **API keys** are read and written through `/usr/bin/security`, so an update (a new ad hoc signature) does not bring up a Keychain prompt.
 

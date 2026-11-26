@@ -75,6 +75,8 @@ check "Google: falls back when rate-limited" $'source: Latvian | updates: 1\nEN2
     env BTRANSLATE_GOOGLE_URL="$MOCK/google429" "$BIN" --print --engine google "Labdien"
 check "Google: Serbian in Latin script" "SR:Dobar dan" \
     env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --print --engine google --to "Serbian (Latin)" "Добар дан"
+check "Google: Serbian handed back in Latin letters becomes Cyrillic" "SR:Добар дан, идемо у Docker (open-source)" \
+    env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --print --engine google --from sr --to "Serbian (Cyrillic)" "Dobar dan, idemo u Docker (open-source)"
 check "Google: the original's language given" $'source: Lithuanian | updates: 1\nEN:Labas' \
     env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --print --engine google --from lt "Labas"
 logged "Google: it is asked for that language" 'translate_a/single?client=gtx&sl=lt&'

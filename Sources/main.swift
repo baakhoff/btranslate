@@ -21,6 +21,7 @@
 //                                                                   typing reaches the pencil's search
 //   BTranslate --models                                             print the provider's models
 //   BTranslate --selftest                                           checks that need no network
+//   BTranslate --cyrillize "text"                                   Serbian in Latin letters → Cyrillic
 //   BTranslate --keychain-test                                      save, read and delete a dummy key
 //   BTranslate --uitest DIR                                         draw the popup and the settings
 //                                                                   window into DIR as PNGs, off screen
@@ -355,6 +356,9 @@ if arguments.contains("--selftest") {
     let failures = selfTest()
     print(failures.isEmpty ? "selftest: ok" : "selftest FAILED: " + failures.joined(separator: "; "))
     exit(failures.isEmpty ? 0 : 1)
+} else if arguments.contains("--cyrillize") {
+    print(cyrillize(arguments.last ?? ""))  // Serbian in Latin letters → Cyrillic, to try the rules
+    exit(0)
 } else if arguments.contains("--keychain-test") {
     let account = "selftest", value = "dummy-KEY_\(ProcessInfo.processInfo.processIdentifier)"
     let saved = Keychain.save(value, account: account)
