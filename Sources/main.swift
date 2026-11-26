@@ -10,7 +10,7 @@
 // AI provider, model and API key, and the method a popup opens with.
 //
 // Command line, for tests:
-//   BTranslate --print [--engine google|ai] [--to Russian] "text"   print a translation
+//   BTranslate --print [--engine google|ai] [--to Russian|ru] "text"   print a translation
 //   BTranslate --models                                             print the provider's models
 //   BTranslate --selftest                                           checks that need no network
 //   BTranslate --keychain-test                                      save, read and delete a dummy key
@@ -172,6 +172,14 @@ func runUITest(into dir: String) {
     if let content = SettingsController.shared.preparedContent() {
         snapshot(content, to: dir + "/settings.png")
     }
+    snapshot(SettingsController.shared.preparedPicker(search: "ser"), to: dir + "/languages.png")
+    // Add a language through the picker: it joins the list and leaves the picker.
+    let before = Config.load().targets.map(\.id)
+    let added = SettingsController.shared.addFirstFoundLanguage()
+    let addedOK = added.list.count == before.count + 1 && added.list.dropLast().elementsEqual(before)
+        && !added.stillOffered.contains(added.list.last ?? "")
+    print("picker adds a language to the list: \(addedOK ? "yes" : "NO (\(before) → \(added.list))")")
+    if !addedOK { exit(1) }
     let popup = Popup(text: argument(after: "--text") ?? "Labdien! Kā jums klājas? Rīt es būšu birojā no deviņiem līdz pieciem.")
     Popup.current = popup
     var round = 0
@@ -225,8 +233,10 @@ if arguments.contains("--selftest") {
     runHeadless {
         let config = Config.load()
         let engine: Engine = argument(after: "--engine").flatMap(Engine.init(rawValue:)) ?? config.startEngine
-        let wanted = (argument(after: "--to") ?? "English").lowercased()
-        let target = targets.first { $0.name.lowercased() == wanted } ?? targets[0]
+        guard let target = findTarget(argument(after: "--to") ?? "English") else {
+            print("ERROR: no such language. Give its name or code, such as Russian or ru.")
+            return 1
+        }
         var updates = 0
         var last: (String?, String) = (nil, "")
         do {

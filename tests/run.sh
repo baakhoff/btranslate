@@ -52,7 +52,10 @@ check "Anthropic: older model (no effort setting)" "$TRANSLATED" ai anthropic an
 check "Anthropic: refusal" "declined to translate" ai anthropic anthropic-refusal "Labdien"
 KEY=wrong-key check "Anthropic: bad key" "API key was refused (HTTP 401): invalid x-api-key" ai anthropic anthropic "Labdien"
 check "Anthropic: target language in the prompt" "$TRANSLATED" ai anthropic anthropic --to "Serbian (Latin)" "Labdien"
-logged "Anthropic: prompt names the script" 'Serbian, written in the Latin script'
+logged "Anthropic: prompt names the alphabet" 'Serbian written in the Latin alphabet (srpski, latinica)'
+check "AI: a language by its code" "$TRANSLATED" ai anthropic anthropic --to ru "Labdien"
+logged "AI: told the language in English and in its own name" 'Translate into Russian (русский):'
+logged "AI: the text is marked off from the instruction" '<text>\\nLabdien\\n</text>'
 
 check "OpenAI-style: streaming" "$TRANSLATED" ai deepseek openai "Labdien"
 logged "OpenAI-style: bearer key, default model" '"authorization": "Bearer test-key".*"model": "deepseek-chat"'
@@ -69,8 +72,12 @@ check "Google: falls back when rate-limited" $'source: Latvian | updates: 1\nEN2
 check "Google: Serbian in Latin script" "EN:Dobar dan" \
     env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --print --engine google --to "Serbian (Latin)" "Добар дан"
 
-check "Popup and settings draw off screen; the popup stays where it was moved" "popup stays where it was moved: yes" \
-    env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --uitest build/uitest
+# -key value arguments override the saved settings for this run only.
+UI_OUT="$(env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --uitest build/uitest \
+    -googleEnabled YES -defaultEngine google -languages '(en, ru)' -target en 2>&1 || true)"
+check "UI, off screen: the popup stays where it was moved" "popup stays where it was moved: yes" echo "$UI_OUT"
+check "UI, off screen: the picker adds a language" "picker adds a language to the list: yes" echo "$UI_OUT"
+check "UI, off screen: pictures written" "languages.png" ls build/uitest
 
 if [ "${1:-}" = "--live" ]; then
     check "Google, live" "source: Latvian" "$BIN" --print --engine google "Labdien! Kā jums klājas?"

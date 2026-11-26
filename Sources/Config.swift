@@ -50,6 +50,7 @@ struct Config {
     var model = "claude-haiku-5-5"
     var customURL = ""
     var defaultEngine: Engine = .google
+    var languageIDs: [String] = []  // the languages in the popup's menu, in order
 
     var provider: Provider { providers.first { $0.id == providerID } ?? providers[0] }
 
@@ -70,6 +71,20 @@ struct Config {
     /// The method a new popup opens with.
     var startEngine: Engine { engines.contains(defaultEngine) ? defaultEngine : engines[0] }
 
+    /// The languages the popup offers. Never empty.
+    var targets: [Target] {
+        let list = languageIDs.compactMap(target(id:))
+        return list.isEmpty ? defaultLanguageIDs().compactMap(target(id:)) : list
+    }
+
+    /// The language a new popup translates into: the one used last, if it is still in the list.
+    var startTarget: Target {
+        let saved = UserDefaults.standard.string(forKey: "target")  // an id; a name in settings from 1.0 drafts
+        return targets.first { $0.id == saved || $0.name == saved } ?? targets[0]
+    }
+
+    static func remember(_ target: Target) { UserDefaults.standard.set(target.id, forKey: "target") }
+
     static var isSetUp: Bool { UserDefaults.standard.bool(forKey: "setupDone") }
 
     static func load() -> Config {
@@ -82,6 +97,7 @@ struct Config {
         c.model = d.string(forKey: "aiModel") ?? c.model
         c.customURL = d.string(forKey: "aiBaseURL") ?? ""
         c.defaultEngine = Engine(rawValue: d.string(forKey: "defaultEngine") ?? "") ?? .google
+        c.languageIDs = d.stringArray(forKey: "languages") ?? defaultLanguageIDs()
         // For tests: BTRANSLATE_PROVIDER / BTRANSLATE_MODEL override the saved settings.
         let env = ProcessInfo.processInfo.environment
         if let p = env["BTRANSLATE_PROVIDER"], providers.contains(where: { $0.id == p }) {
@@ -101,6 +117,7 @@ struct Config {
         d.set(model, forKey: "aiModel")
         d.set(customURL, forKey: "aiBaseURL")
         d.set(defaultEngine.rawValue, forKey: "defaultEngine")
+        d.set(languageIDs, forKey: "languages")
         d.set(true, forKey: "setupDone")
     }
 }
@@ -159,67 +176,105 @@ enum Keychain {
 // MARK: - Languages to translate into
 
 struct Target: Equatable {
-    let name: String    // shown in the menu
-    let google: String  // Google's language code
-    let prompt: String  // how an AI model is told the language
-    var latin = false   // Google writes Serbian in Cyrillic: convert it to Latin
+    let id: String        // what the settings store: Google's code, or "sr-Latn"
+    let name: String      // shown in menus
+    let google: String    // Google's language code
+    let prompt: String    // how an AI model is told the language
+    let latin: Bool       // Google writes Serbian in Cyrillic: convert it to Latin
+    let ownName: String?  // the language's name in the language itself
 
-    init(_ name: String, _ google: String, prompt: String? = nil, latin: Bool = false) {
+    init(id: String, name: String, google: String, prompt: String, latin: Bool = false, ownName: String?) {
+        self.id = id
         self.name = name
         self.google = google
-        self.prompt = prompt ?? name
+        self.prompt = prompt
         self.latin = latin
+        self.ownName = ownName
+    }
+
+    static func == (a: Target, b: Target) -> Bool { a.id == b.id }
+}
+
+/// Google's codes that macOS knows under another name.
+private let appleCode = ["iw": "he", "jw": "jv", "zh-CN": "zh-Hans", "zh-TW": "zh-Hant", "pt": "pt-BR"]
+
+private func ownName(_ code: String, english: String) -> String? {
+    let id = appleCode[code] ?? code
+    guard let own = Locale(identifier: id).localizedString(forIdentifier: id),
+          own.caseInsensitiveCompare(english) != .orderedSame else { return nil }
+    return own
+}
+
+/// Every language Google Translate knows (Sources/Languages.swift), with Serbian in both alphabets.
+let allTargets: [Target] = googleLanguages.flatMap { code, name -> [Target] in
+    let own = ownName(code, english: name)
+    switch code {
+    case "sr":  // Google has one Serbian and writes it in Cyrillic
+        return [Target(id: "sr-Latn", name: "Serbian (Latin)", google: "sr",
+                       prompt: "Serbian written in the Latin alphabet (srpski, latinica)", latin: true, ownName: "srpski"),
+                Target(id: "sr", name: "Serbian (Cyrillic)", google: "sr",
+                       prompt: "Serbian written in the Cyrillic alphabet (српски, ћирилица)", ownName: "српски")]
+    case "zh-CN":
+        return [Target(id: code, name: name, google: code, prompt: "Simplified Chinese (简体中文)", ownName: own)]
+    case "zh-TW":
+        return [Target(id: code, name: name, google: code, prompt: "Traditional Chinese (繁體中文)", ownName: own)]
+    default:
+        // An AI model is told the language in English and in the language itself: "Russian (русский)".
+        let prompt = own.map { name.contains("(") ? "\(name): \($0)" : "\(name) (\($0))" } ?? name
+        return [Target(id: code, name: name, google: code, prompt: prompt, ownName: own)]
     }
 }
 
-private let allTargets: [Target] = [
-    Target("Arabic", "ar"), Target("Bulgarian", "bg"),
-    Target("Chinese (Simplified)", "zh-CN", prompt: "Simplified Chinese"),
-    Target("Chinese (Traditional)", "zh-TW", prompt: "Traditional Chinese"),
-    Target("Croatian", "hr"), Target("Czech", "cs"), Target("Danish", "da"), Target("Dutch", "nl"),
-    Target("English", "en"), Target("Estonian", "et"), Target("Finnish", "fi"), Target("French", "fr"),
-    Target("German", "de"), Target("Greek", "el"), Target("Hebrew", "iw"), Target("Hindi", "hi"),
-    Target("Hungarian", "hu"), Target("Indonesian", "id"), Target("Italian", "it"), Target("Japanese", "ja"),
-    Target("Korean", "ko"), Target("Latvian", "lv"), Target("Lithuanian", "lt"), Target("Norwegian", "no"),
-    Target("Polish", "pl"), Target("Portuguese", "pt"), Target("Romanian", "ro"), Target("Russian", "ru"),
-    Target("Serbian (Latin)", "sr", prompt: "Serbian, written in the Latin script", latin: true),
-    Target("Serbian (Cyrillic)", "sr", prompt: "Serbian, written in the Cyrillic script"),
-    Target("Slovak", "sk"), Target("Slovenian", "sl"), Target("Spanish", "es"), Target("Swedish", "sv"),
-    Target("Thai", "th"), Target("Turkish", "tr"), Target("Ukrainian", "uk"), Target("Vietnamese", "vi"),
-]
+func target(id: String) -> Target? { allTargets.first { $0.id == id } }
 
-/// The Mac's own languages (System Settings → Language & Region), in its order; the menu lists them first.
-let preferredTargets: [Target] = {
-    var out: [Target] = []
-    for id in Locale.preferredLanguages {
-        var code = Locale(identifier: id).language.languageCode?.identifier ?? ""
-        if code == "he" { code = "iw" }
-        if code == "nb" || code == "nn" { code = "no" }
-        for t in allTargets where t.google.split(separator: "-")[0] == code && !out.contains(t) {
-            if code == "zh" {  // pick the script the Mac uses
-                let traditional = id.contains("Hant") || id.hasSuffix("TW") || id.hasSuffix("HK")
-                if traditional != (t.google == "zh-TW") { continue }
-            }
-            out.append(t)
+/// A language by its name or code, as typed on the command line.
+func findTarget(_ text: String) -> Target? {
+    let wanted = text.lowercased()
+    return allTargets.first { $0.name.lowercased() == wanted || $0.id.lowercased() == wanted }
+}
+
+/// What a search finds in `list`: names that start with the text first, then names, own
+/// names ("рус" finds Russian) and codes that contain it.
+func searchTargets(_ query: String, in list: [Target]) -> [Target] {
+    let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+    guard !q.isEmpty else { return list }
+    let starts = list.filter { $0.name.lowercased().hasPrefix(q) }
+    let contains = list.filter { t in
+        !t.name.lowercased().hasPrefix(q)
+            && (t.name.lowercased().contains(q) || (t.ownName?.lowercased().contains(q) ?? false) || t.id.lowercased() == q)
+    }
+    return starts + contains
+}
+
+/// The list a new install starts with: the Mac's own languages (System Settings → Language &
+/// Region), in its order, and English.
+func defaultLanguageIDs() -> [String] {
+    var ids: [String] = []
+    for identifier in Locale.preferredLanguages {
+        let language = Locale(identifier: identifier).language
+        guard var code = language.languageCode?.identifier else { continue }
+        let script = language.script?.identifier, region = language.region?.identifier
+        switch code {
+        case "he": code = "iw"
+        case "jv": code = "jw"
+        case "nb", "nn": code = "no"
+        case "zh": code = (script == "Hant" || region == "TW" || region == "HK") ? "zh-TW" : "zh-CN"
+        case "sr": code = script == "Latn" ? "sr-Latn" : "sr"
+        case "pt": code = region == "PT" ? "pt-PT" : "pt"
+        case "fr": code = region == "CA" ? "fr-CA" : "fr"
+        default: break
         }
+        if target(id: code) != nil, !ids.contains(code) { ids.append(code) }
     }
-    return out
-}()
-
-let otherTargets: [Target] = allTargets.filter { !preferredTargets.contains($0) }
-let targets: [Target] = preferredTargets + otherTargets
-
-/// The language the last popup translated into; at first, the Mac's own language.
-var lastTarget: Target {
-    get {
-        let name = UserDefaults.standard.string(forKey: "target")
-        return targets.first { $0.name == name } ?? targets.first { $0.name == "English" && preferredTargets.isEmpty } ?? targets[0]
-    }
-    set { UserDefaults.standard.set(newValue.name, forKey: "target") }
+    if !ids.contains("en") { ids.append("en") }
+    return ids
 }
 
+/// A language code's English name: Google's own name for it, or else macOS's.
 func languageName(_ code: String) -> String {
-    var base = code.split(separator: "-").first.map(String.init) ?? code
-    if base == "iw" { base = "he" }
+    let lower = code.lowercased()
+    if let known = googleLanguages.first(where: { $0.code.lowercased() == lower }) { return known.name }
+    let base = lower.split(separator: "-").first.map(String.init) ?? lower
+    if let known = googleLanguages.first(where: { $0.code == (base == "he" ? "iw" : base) }) { return known.name }
     return Locale(identifier: "en").localizedString(forLanguageCode: base) ?? code
 }

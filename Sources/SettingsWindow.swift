@@ -1,8 +1,8 @@
 import Cocoa
 
 /// The setup window: which translation methods to use, the AI provider, model and API key,
-/// and which method a popup opens with. It opens when you start BTranslate yourself (the
-/// installer does, once) and from the gear button in the popup.
+/// the languages to translate into, and which method a popup opens with. It opens when you
+/// start BTranslate yourself (the installer does, once) and from the gear button in the popup.
 @MainActor
 final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     static let shared = SettingsController()
@@ -23,6 +23,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private let defaultControl = NSSegmentedControl(labels: ["Google", "AI"], trackingMode: .selectOne, target: nil, action: nil)
     private var aiLabels: [NSTextField] = []
     private var urlRow: NSGridRow?  // shown for the Custom provider only
+    private let languageEditor = LanguageListEditor(width: 436)
 
     private var modelTask: Task<Void, Never>?
     private var testTask: Task<Void, Never>?
@@ -48,6 +49,19 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         config = Config.load()
         fill()
         return window?.contentView
+    }
+
+    /// The "+" picker's content as it looks after typing `search` (UI test).
+    func preparedPicker(search: String) -> NSView {
+        languageEditor.picker.setSearch(search)
+        return languageEditor.picker.view
+    }
+
+    /// Adds the picker's first match to the list, and reports the list and what the picker
+    /// still offers (UI test). Nothing is saved.
+    func addFirstFoundLanguage() -> (list: [String], stillOffered: [String]) {
+        languageEditor.picker.addFirstFound()
+        return (draft().languageIDs, languageEditor.picker.foundIDs)
     }
 
     // MARK: Building the window
@@ -129,11 +143,12 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         let buttons = NSStackView(views: [spacer, cancel, save])
         buttons.spacing = 8
 
-        let line1 = NSBox(), line2 = NSBox()
-        line1.boxType = .separator
-        line2.boxType = .separator
+        let line1 = NSBox(), line2 = NSBox(), line3 = NSBox()
+        for line in [line1, line2, line3] { line.boxType = .separator }
+        let languagesLabel = NSTextField(labelWithString: "Languages to translate into:")
 
-        let stack = NSStackView(views: [title, intro, googleBox, googleNote, aiBox, aiNote, grid, line1, defaultRow, line2, buttons])
+        let stack = NSStackView(views: [title, intro, googleBox, googleNote, aiBox, aiNote, grid, line1,
+                                        languagesLabel, languageEditor.view, line3, defaultRow, line2, buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
@@ -143,6 +158,9 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         stack.setCustomSpacing(2, after: aiBox)
         stack.setCustomSpacing(12, after: aiNote)
         stack.setCustomSpacing(14, after: grid)
+        stack.setCustomSpacing(12, after: line1)
+        stack.setCustomSpacing(14, after: languageEditor.view)
+        stack.setCustomSpacing(12, after: line3)
         stack.setCustomSpacing(14, after: defaultRow)
         stack.edgeInsets = NSEdgeInsets(top: 20, left: 22, bottom: 18, right: 22)
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -157,7 +175,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             content.widthAnchor.constraint(equalToConstant: width),
         ])
-        for view in [intro, googleNote, aiNote, grid, line1, line2, buttons] as [NSView] {
+        for view in [intro, googleNote, aiNote, grid, line1, line2, line3, buttons] as [NSView] {
             view.widthAnchor.constraint(equalToConstant: width - 44).isActive = true
         }
         grid.column(at: 0).width = 72
@@ -180,6 +198,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         providerMenu.selectItem(at: providers.firstIndex { $0.id == config.providerID } ?? 0)
         urlField.stringValue = config.customURL
         defaultControl.selectedSegment = config.defaultEngine == .google ? 0 : 1
+        languageEditor.languages = config.targets
         setStatus("", color: .secondaryLabelColor)
         showProvider(keepModel: config.model)
         refreshEnabled()
@@ -221,6 +240,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         c.model = modelBox.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         c.customURL = urlField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         c.defaultEngine = defaultControl.selectedSegment == 1 ? .ai : .google
+        c.languageIDs = languageEditor.languages.map(\.id)
         return c
     }
 
@@ -287,7 +307,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         testTask = Task { [weak self] in
             var result = ""
             do {
-                let english = targets.first { $0.name == "English" } ?? targets[0]
+                let english = target(id: "en") ?? allTargets[0]
                 try await aiTranslate("Labdien! Kā jums klājas?", target: english, config: c, key: key) { _, text in result = text }
                 guard let self, !Task.isCancelled else { return }
                 self.setStatus("It works. “Labdien! Kā jums klājas?” → “\(result)”", color: .systemGreen)
@@ -318,6 +338,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     func windowWillClose(_ notification: Notification) {
         modelTask?.cancel()
         testTask?.cancel()
+        languageEditor.picker.popover.close()
         keyField.stringValue = ""
         (NSApp.delegate as? AppDelegate)?.handBack()  // back to the app you were in
     }

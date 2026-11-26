@@ -21,7 +21,7 @@ translator doesn't have, such as Latvian and Serbian.
   - **An AI model:** often better with context, names and tone. The answer streams in as it is written.
   - You choose which one a popup opens with; the other is a click away in the popup.
 - **The source language is detected** and shown ("Latvian → English").
-- **37 languages to translate into.** Your Mac's own languages are at the top of the menu, and the last one you used is remembered. Serbian comes in both Latin and Cyrillic script.
+- **Your own list of languages:** add any of the 249 languages Google Translate knows, as many or as few as you like. The list starts with your Mac's own languages, and the popup remembers the one you used last. Serbian comes in both Latin and Cyrillic script.
 - **Copy:** the copy button or ⌘C copies the translation (or the part you selected).
 - **Small:** one native app of under 1 MB, no Dock icon, no menu bar icon, under 30 MB of memory while it waits.
 
@@ -51,7 +51,10 @@ The setup window asks:
 2. **For the AI model:** the provider, the model and your API key.
    - The model menu fills with the provider's own list once the key is in.
    - **Test** sends one short sentence, so you know the key and model work before you save.
-3. **Which method BTranslate opens with**, when both are on.
+3. **Which languages to translate into:** press **+**, search the list (by English name or the language's own name) and click the ones you want. **−** removes the selected ones; drag rows to reorder. The popup's menu shows exactly this list.
+4. **Which method BTranslate opens with**, when both are on.
+
+![Adding a language](docs/languages.png)
 
 To change any of it later, open BTranslate from Spotlight or Finder, or click the gear in
 the popup.
@@ -104,15 +107,16 @@ Add `-s -- --keep-keys` after `bash` to leave the API keys in the Keychain.
 tests/run.sh      # no network or key needed; --live also uses the real Google and Keychain
 ```
 
-There is no Xcode project and there are no dependencies: `swiftc` compiles the five files in
+There is no Xcode project and there are no dependencies: `swiftc` compiles the files in
 `Sources/`.
 
 - **`tests/run.sh`:**
   - runs the app's own checks (`BTranslate --selftest`);
   - translates through `tests/mock_server.py`, which stands in for Anthropic, the OpenAI-style providers and Google;
-  - draws the popup and the settings window off screen, into `build/uitest/`.
+  - draws the popup, the settings window and the language picker off screen, into `build/uitest/`.
 - **The app's command line,** for trying things: `BTranslate --print --engine google --to Russian "Labdien"` prints a translation. `Sources/main.swift` lists the rest.
 - **The icon:** `swift tools/make-icon.swift` draws `Resources/AppIcon.icns`.
+- **The language list:** `python3 tools/update-languages.py` rewrites `Sources/Languages.swift` from Google's own list (one request), for when Google adds languages.
 
 ## How it works
 

@@ -41,7 +41,7 @@ final class Popup: NSObject, NSWindowDelegate {
     let source: String
     let config = Config.load()
     var engine: Engine
-    var target = lastTarget
+    var target: Target
 
     let panel = PopupPanel(contentRect: NSRect(x: 0, y: 0, width: Popup.width, height: 100),
                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -66,6 +66,7 @@ final class Popup: NSObject, NSWindowDelegate {
     init(text: String) {
         source = text
         engine = config.startEngine
+        target = config.startTarget
         super.init()
         build()
     }
@@ -99,9 +100,7 @@ final class Popup: NSObject, NSWindowDelegate {
 
         targetButton.controlSize = .small
         targetButton.font = .systemFont(ofSize: 12)
-        for t in preferredTargets { targetButton.addItem(withTitle: t.name) }
-        if !preferredTargets.isEmpty { targetButton.menu?.addItem(.separator()) }
-        for t in otherTargets { targetButton.addItem(withTitle: t.name) }
+        targetButton.addItems(withTitles: config.targets.map(\.name))  // the list from Settings
         targetButton.selectItem(withTitle: target.name)
         targetButton.target = self
         targetButton.action = #selector(targetChanged)
@@ -233,9 +232,9 @@ final class Popup: NSObject, NSWindowDelegate {
     var shownText: String { textView.string }
 
     @objc private func targetChanged() {
-        if let name = targetButton.titleOfSelectedItem, let t = targets.first(where: { $0.name == name }) {
+        if let name = targetButton.titleOfSelectedItem, let t = config.targets.first(where: { $0.name == name }) {
             target = t
-            lastTarget = t
+            Config.remember(t)
         }
         start()
     }
