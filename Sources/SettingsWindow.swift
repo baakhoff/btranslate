@@ -34,6 +34,9 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private var aiLabels: [NSTextField] = []
     private var urlRow: NSGridRow?  // shown for the Custom provider only
     private let languageEditor = LanguageListEditor(width: 436)
+    // The language the typing panel writes in: one of the list above it.
+    private let typingMenu = NSPopUpButton(frame: .zero, pullsDown: false)
+    private var typingID = ""  // as it was chosen; "" or gone from the list: the second default
     private let googleVoiceBox = NSButton(checkboxWithTitle: L("Read aloud with Google's voice where this Mac has none"), target: nil, action: nil)
     private let languageMenu = NSPopUpButton(frame: .zero, pullsDown: false)  // the language of BTranslate itself
     // The shortcut that brings BTranslate up from any app, and what it needs.
@@ -41,6 +44,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private let shortcutStatus = NSTextField(wrappingLabelWithString: "")
     private let accessNote = NSTextField(wrappingLabelWithString: "")
     private let accessButton = NSButton(title: L("Open System Settings…"), target: nil, action: nil)
+    private let screenNote = NSTextField(wrappingLabelWithString: "")
+    private let screenButton = NSButton(title: L("Open System Settings…"), target: nil, action: nil)
     private let loginBox = NSButton(checkboxWithTitle: L("Open BTranslate when I log in"), target: nil, action: nil)
     private var accessTimer: Timer?
     // Three pages, so the window fits a small screen: how to translate, into which languages, and the shortcut.
@@ -109,6 +114,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
 
     /// What the shortcut's page says about the permission (UI test).
     var accessText: String { accessNote.stringValue }
+    var screenText: String { screenNote.stringValue }
     var loginIsTicked: Bool { loginBox.state == .on }
 
     /// The "+" picker's content as it looks after typing `search` (UI test).
@@ -305,8 +311,16 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         translation.setCustomSpacing(14, after: packRow)
         translation.setCustomSpacing(12, after: line1)
         // Page 2: into which languages, reading aloud, and the language of BTranslate itself.
-        let languages = page([languagesLabel, languageEditor.view, googleVoiceBox, voiceNote, line3, ownLanguageRow])
-        languages.setCustomSpacing(16, after: languageEditor.view)
+        typingMenu.target = self
+        typingMenu.action = #selector(typingChanged)
+        let typingRow = NSStackView(views: [NSTextField(labelWithString: L("Write into text fields in:")), typingMenu])
+        typingRow.spacing = 8
+        let typingNote = caption(L("For the panel the shortcut opens in a text field: what you type there is written in this language. In the panel you can pick another for that one time."))
+        languageEditor.onChange = { [weak self] in self?.refreshTyping() }
+        let languages = page([languagesLabel, languageEditor.view, typingRow, typingNote, googleVoiceBox, voiceNote, line3, ownLanguageRow])
+        languages.setCustomSpacing(14, after: languageEditor.view)
+        languages.setCustomSpacing(2, after: typingRow)
+        languages.setCustomSpacing(14, after: typingNote)
         languages.setCustomSpacing(2, after: googleVoiceBox)
         languages.setCustomSpacing(14, after: voiceNote)
         languages.setCustomSpacing(12, after: line3)
@@ -320,15 +334,21 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         accessNote.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         accessButton.target = self
         accessButton.action = #selector(openAccessSettings)
+        screenNote.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        screenButton.target = self
+        screenButton.action = #selector(openScreenSettings)
         let loginNote = caption(L("The shortcut works only while BTranslate is running. The Services menu starts BTranslate by itself; the shortcut can't."))
         let line4 = NSBox(), line5 = NSBox()
         for line in [line4, line5] { line.boxType = .separator }
-        let shortcut = page([shortcutRow, shortcutStatus, shortcutNote, line4, accessNote, accessButton, line5, loginBox, loginNote])
+        let shortcut = page([shortcutRow, shortcutStatus, shortcutNote, line4, accessNote, accessButton, screenNote, screenButton, line5, loginBox, loginNote])
+        shortcut.setCustomSpacing(12, after: accessNote)
+        shortcut.setCustomSpacing(14, after: screenNote)
         shortcut.setCustomSpacing(4, after: shortcutRow)
         shortcut.setCustomSpacing(4, after: shortcutStatus)
         shortcut.setCustomSpacing(14, after: shortcutNote)
         shortcut.setCustomSpacing(12, after: line4)
-        shortcut.setCustomSpacing(14, after: accessButton)
+        shortcut.setCustomSpacing(12, after: accessButton)
+        shortcut.setCustomSpacing(14, after: screenButton)
         shortcut.setCustomSpacing(12, after: line5)
         shortcut.setCustomSpacing(2, after: loginBox)
         pages = [translation, languages, shortcut]
@@ -355,8 +375,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             content.widthAnchor.constraint(equalToConstant: width),
         ])
-        for view in [intro, googleNote, aiNote, deviceNote, packNote, voiceNote, grid, line1, line2, line3, buttons, translation, languages,
-                     shortcut, shortcutNote, shortcutStatus, accessNote, loginNote, line4, line5] as [NSView] {
+        for view in [intro, googleNote, aiNote, deviceNote, packNote, voiceNote, typingNote, grid, line1, line2, line3, buttons, translation, languages,
+                     shortcut, shortcutNote, shortcutStatus, accessNote, screenNote, loginNote, line4, line5] as [NSView] {
             view.widthAnchor.constraint(equalToConstant: inner).isActive = true
         }
         // The first column fits its widest label (they are longer in some languages) and the Test button.
@@ -382,7 +402,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         shortcutStatus.isHidden = true
         // Ticked from the first setup on: without it the shortcut is gone after a restart of the Mac.
         loginBox.state = LoginItem.isOn || !Config.isSetUp ? .on : .off
-        accessButton.isHidden = !Accessibility.isAllowed  // (refreshAccess goes by a change of it)
+        accessButton.isHidden = !Accessibility.isAllowed  // (refreshAccess goes by a change of these)
+        screenButton.isHidden = !ScreenAccess.isAllowed
         refreshAccess()
         AISetup.forget()  // a key may have come or gone since the window was last open
         googleBox.state = config.googleEnabled ? .on : .off
@@ -394,6 +415,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         providerMenu.selectItem(at: providers.firstIndex { $0.id == config.providerID } ?? 0)
         urlField.stringValue = config.customURL
         chosenDefault = config.defaultEngine
+        typingID = config.typingLanguageID
         languageEditor.languages = config.targets
         languageEditor.defaultID = config.startTarget.id
         languageEditor.secondID = config.secondTarget?.id ?? ""
@@ -530,6 +552,36 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     }
 
     /// The settings as the window shows them now.
+    // MARK: The language to write in
+
+    /// The menu's languages are the list's, as it stands in the window; the one shown is the
+    /// one chosen, or else the second default (see Config.typingTarget).
+    private func refreshTyping() {
+        let list = languageEditor.languages
+        typingMenu.removeAllItems()
+        typingMenu.addItems(withTitles: list.map(\.name))
+        let shown = list.first { $0.id == typingID } ?? languageEditor.secondLanguage ?? languageEditor.defaultLanguage
+        if let shown, let index = list.firstIndex(of: shown) { typingMenu.selectItem(at: index) }
+    }
+
+    @objc private func typingChanged() {
+        let list = languageEditor.languages
+        if list.indices.contains(typingMenu.indexOfSelectedItem) { typingID = list[typingMenu.indexOfSelectedItem].id }
+    }
+
+    /// The language to write in, as the menu shows it: at first, with the list's first language
+    /// chosen in the menu, and after that language is taken off the list (UI test). Nothing is saved.
+    func typingForTest() -> [String] {
+        var steps = [draft().typingLanguageID]
+        typingMenu.selectItem(at: 0)
+        typingChanged()
+        steps.append(draft().typingLanguageID)
+        languageEditor.select(row: 0)
+        languageEditor.removeSelected()
+        steps.append(draft().typingLanguageID)
+        return steps
+    }
+
     // MARK: The shortcut's page
 
     /// What the page says about the permission, as it stands now.
@@ -539,11 +591,21 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             ? L("✓ macOS lets BTranslate read the selected text of the app in front, and write into its text fields.")
             : L("The shortcut needs your permission. BTranslate reads the selected text of the app in front, and writes into its text fields, through macOS's Accessibility: turn BTranslate on in System Settings → Privacy & Security → Accessibility. If it is on there already and this still says so, take BTranslate off that list with “–” and add it again: macOS drops the permission when the app is updated.")
         accessNote.textColor = allowed ? .secondaryLabelColor : .labelColor
-        let hide = allowed
-        if accessButton.isHidden != hide {
-            accessButton.isHidden = hide
+        let screen = ScreenAccess.isAllowed
+        screenNote.stringValue = screen
+            ? L("✓ macOS lets BTranslate take the picture of a window you choose.")
+            : L("To translate a window, macOS needs one more permission, to record the screen: it asks the first time you choose a window. The switch is in System Settings → Privacy & Security → Screen & System Audio Recording. BTranslate takes a picture only of the window you choose, when you choose it.")
+        screenNote.textColor = screen ? .secondaryLabelColor : .labelColor
+        if accessButton.isHidden != allowed || screenButton.isHidden != screen {
+            accessButton.isHidden = allowed
+            screenButton.isHidden = screen
             if pageControl.selectedSegment == 2 { showPage(2) }  // the page's height has changed
         }
+    }
+
+    @objc private func openScreenSettings() {
+        ScreenAccess.ask()  // macOS puts BTranslate on its list, to be turned on there
+        ScreenAccess.openSystemSettings()
     }
 
     @objc private func openAccessSettings() {
@@ -574,6 +636,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         c.languageIDs = languageEditor.languages.map(\.id)
         c.defaultLanguageID = languageEditor.defaultLanguage?.id ?? ""
         c.secondLanguageID = languageEditor.secondLanguage?.id ?? ""
+        let listed = languageEditor.languages
+        c.typingLanguageID = listed.indices.contains(typingMenu.indexOfSelectedItem) ? listed[typingMenu.indexOfSelectedItem].id : ""
         c.googleVoice = googleVoiceBox.state == .on
         let chosen = languageMenu.indexOfSelectedItem - 1  // -1: the first item, "Same as the Mac"
         c.languageChoice = interfaceLanguages.indices.contains(chosen) ? interfaceLanguages[chosen].code : ""

@@ -637,6 +637,17 @@ func selfTest() -> [String] {
     alone.languageIDs = ["lv"]
     expect("second default: the first other language of the list, or the one chosen (\(firstOther ?? "none"), \(picked ?? "none"), \(notItself ?? "none"))",
            firstOther == "en" && picked == "lv" && notItself == "en")
+    var typing = Config()
+    typing.languageIDs = ["en", "ru", "lv"]
+    typing.defaultLanguageID = "ru"
+    let asSecond = typing.typingTarget.id
+    typing.typingLanguageID = "lv"
+    let asChosen = typing.typingTarget.id
+    typing.typingLanguageID = "de"  // not in the list (any more)
+    let gone = typing.typingTarget.id
+    typing.typingLanguageID = "ru"  // the default itself may be the one to write in
+    expect("language to write in: the second default, or the one chosen while it is in the list (\(asSecond), \(asChosen), \(gone))",
+           asSecond == "en" && asChosen == "lv" && gone == "en" && typing.typingTarget.id == "ru" && alone.typingTarget.id == "lv")
     expect("second default: not the default's other alphabet unless it is chosen; none with one language",
            pastTheOtherAlphabet == "en" && serbian.secondTarget?.id == "sr" && alone.secondTarget == nil)
     var own = Config()

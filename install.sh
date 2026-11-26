@@ -188,8 +188,8 @@ TEXT
     /System/Library/CoreServices/pbs -update
 
     # macOS makes its reader of pictures ready for an app the first time the app reads one,
-    # which takes some twenty seconds: have it done now, in the background, and not when
-    # the first window is translated.
+    # which can take a minute: have a start made now, in the background. (The app does the
+    # same when it starts: started by macOS, it is another case to macOS than started here.)
     ( "$APP/Contents/MacOS/BTranslate" --prepare-reading >/dev/null 2>&1 & )
 
     local first=1

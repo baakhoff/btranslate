@@ -195,13 +195,17 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         didSet {
             table.reloadData()
             refreshButtons()
+            onChange?()
         }
     }
+    /// Called when the list, the default or the second default has changed.
+    var onChange: (() -> Void)?
     /// The default as it was chosen; `defaultLanguage` is what holds if it left the list.
     var defaultID = "" {
         didSet {
             table.reloadData()
             refreshButtons()
+            onChange?()
         }
     }
     var defaultLanguage: Target? { languages.first { $0.id == defaultID } ?? languages.first }
@@ -210,6 +214,7 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         didSet {
             table.reloadData()
             refreshButtons()
+            onChange?()
         }
     }
     var secondLanguage: Target? {

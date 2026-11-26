@@ -91,11 +91,14 @@ enum PictureReader {
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else { return try lines(in: image, languages: languages) }
         let picture = data as Data
-        return try await Task.detached(priority: .userInitiated) {
-            signal(SIGPIPE, SIG_IGN)  // a reader that ends early must not take the app with it
-            let reader = Process()
-            reader.executableURL = program
-            reader.arguments = ["--read-picture", languages.isEmpty ? "-" : languages.joined(separator: ",")]
+        signal(SIGPIPE, SIG_IGN)  // a reader that ends early must not take the app with it
+        let reader = Process()
+        reader.executableURL = program
+        reader.arguments = ["--read-picture", languages.isEmpty ? "-" : languages.joined(separator: ",")]
+        // The app waits in the background, and macOS would have its helper go slowly too: this one is wanted now.
+        reader.qualityOfService = .userInitiated
+        return try await withTaskCancellationHandler {
+          try await Task.detached(priority: .userInitiated) {
             let input = Pipe(), output = Pipe()
             reader.standardInput = input
             reader.standardOutput = output
@@ -113,7 +116,24 @@ enum PictureReader {
                       let w = row["w"] as? Double, let h = row["h"] as? Double else { return nil }
                 return PictureLine(text: text, box: CGRect(x: x, y: y, width: w, height: h))
             }
-        }.value
+          }.value
+        } onCancel: {
+            if reader.isRunning { reader.terminate() }  // the window was closed: nobody waits for the reading
+        }
+    }
+
+    /// Has macOS make its reader of pictures ready for this app, in a process of its own and
+    /// at leisure. The first reading an app ever asks for can take a minute; after that a
+    /// window is read in a fraction of a second. Called when the app starts.
+    static func prepare() {
+        guard let program = Bundle.main.executableURL else { return }
+        let reader = Process()
+        reader.executableURL = program
+        reader.arguments = ["--prepare-reading"]
+        reader.qualityOfService = .utility
+        reader.standardOutput = FileHandle.nullDevice
+        reader.standardError = FileHandle.nullDevice
+        try? reader.run()
     }
 
     /// What `--read-picture` does: a picture from standard input, its lines as JSON to standard output.

@@ -5,8 +5,9 @@ import ScreenCaptureKit
 // the cursor, has you choose a window; its picture comes back with every text in one language.
 //
 // The window is chosen in macOS's own picker, the one screen sharing uses: it shows what can
-// be chosen, and BTranslate gets the one window that was, once. That choice is the
-// permission; BTranslate does not ask for the right to record the screen.
+// be chosen, and BTranslate gets the one window that was, once. macOS still wants the
+// permission to record the screen for it (System Settings → Privacy & Security → Screen &
+// System Audio Recording) and asks the first time: until it is given, the picture is refused.
 
 // MARK: - Choosing a window and taking its picture
 
@@ -102,7 +103,13 @@ enum WindowPicture {
                 PictureWindow.show(image: shot.image, scale: shot.scale, over: shot.frame)
             } catch {
                 Log.note("window: no picture: \(error)")
-                showNote(L("macOS did not hand over the window's picture: %@", error.localizedDescription))
+                if !ScreenAccess.isAllowed {
+                    // macOS refuses the picture until BTranslate may record the screen. It asks once by itself.
+                    ScreenAccess.ask()
+                    showNote(L("To translate a window, macOS needs your permission for BTranslate to record the screen: System Settings → Privacy & Security → Screen & System Audio Recording. Then press the shortcut again."))
+                } else {
+                    showNote(L("macOS did not hand over the window's picture: %@", error.localizedDescription))
+                }
             }
         }
     }
@@ -291,6 +298,11 @@ final class PictureWindow: NSObject, NSWindowDelegate {
             do {
                 if self.blocks == nil {
                     self.say(L("Reading the text in the picture…"))
+                    // The very first reading waits for macOS to make its reader ready: say so, so that it does not look stuck.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+                        guard let self, !self.closed, self.blocks == nil, !self.failed else { return }
+                        self.say(L("Reading the text in the picture… The first time, macOS makes its reader ready, which can take a minute."))
+                    }
                     let image = self.original
                     let expected = self.config.targets.map(\.google) + macLanguages()
                     let lines = try await PictureReader.linesApart(in: image, languages: expected)

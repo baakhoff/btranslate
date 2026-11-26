@@ -206,7 +206,9 @@
 
 /* Typing in another language (Sources/TypeIn.swift) */
 "Type in any language…" = "Пишите на любом языке…";
-"The language your text is written in there" = "Язык, на котором ваш текст записывается в поле";
+"The language your text is written in there. The one the panel opens with is set in BTranslate's settings, on the Languages page." = "Язык, на котором ваш текст записывается в поле. Язык, с которым панель открывается, задается в настройках BTranslate, на странице «Языки».";
+"Write into text fields in:" = "Язык для записи в текстовые поля:";
+"For the panel the shortcut opens in a text field: what you type there is written in this language. In the panel you can pick another for that one time." = "Для панели, которую сочетание клавиш открывает в текстовом поле: то, что вы в ней пишете, записывается на этом языке. В самой панели можно выбрать другой на один раз.";
 "The method that translates what you type. It is the one BTranslate opens with." = "Способ, которым переводится то, что вы пишете. Это способ, с которым открывается BTranslate.";
 "Translate a window instead" = "Перевести окно";
 "↩ done   ⎋ take it back" = "↩ готово   ⎋ убрать текст";
@@ -217,6 +219,10 @@
 "macOS could not read the text in the picture." = "macOS не удалось прочитать текст на снимке.";
 "The model left some texts out of its answer." = "Модель пропустила в ответе часть текстов.";
 "macOS did not hand over the window's picture: %@" = "macOS не передала снимок окна: %@";
+"To translate a window, macOS needs your permission for BTranslate to record the screen: System Settings → Privacy & Security → Screen & System Audio Recording. Then press the shortcut again." = "Чтобы перевести окно, macOS нужно ваше разрешение на запись экрана для BTranslate: Системные настройки → Конфиденциальность и безопасность → Запись экрана и системного звука. Затем нажмите сочетание клавиш еще раз.";
+"Reading the text in the picture… The first time, macOS makes its reader ready, which can take a minute." = "Читаю текст на снимке… В первый раз macOS готовит распознавание текста, это может занять минуту.";
+"✓ macOS lets BTranslate take the picture of a window you choose." = "✓ macOS разрешает BTranslate делать снимок окна, которое вы выбираете.";
+"To translate a window, macOS needs one more permission, to record the screen: it asks the first time you choose a window. The switch is in System Settings → Privacy & Security → Screen & System Audio Recording. BTranslate takes a picture only of the window you choose, when you choose it." = "Чтобы перевести окно, macOS нужно еще одно разрешение, на запись экрана: она спросит, когда вы в первый раз выберете окно. Переключатель находится в Системных настройках → Конфиденциальность и безопасность → Запись экрана и системного звука. BTranslate делает снимок только того окна, которое вы выбрали, и только в этот момент.";
 "Original" = "Оригинал";
 "Shows the window as it is, without the translations" = "Показывает окно как есть, без перевода";
 "Copies the picture" = "Копирует снимок";

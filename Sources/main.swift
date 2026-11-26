@@ -150,6 +150,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         buildMenu()
         HotkeyCenter.shared.onPress = { [weak self] in self?.shortcutPressed() }
         useShortcut()
+        // macOS makes its reader of pictures ready for an app the first time the app reads
+        // one, which can take a minute: have it done now, apart, and not when the first
+        // window is to be translated.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { PictureReader.prepare() }
         let args = CommandLine.arguments
         if args.contains("--restart-check") {
             restart()  // a check of restart(): the app started anew has no such argument
@@ -210,6 +214,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
         var focus = Focus.read()
         Task { @MainActor in
+            // An app built with Electron shows its text fields to other apps only once it is
+            // asked, and takes a moment over it: read again until it has, for up to a second.
+            var tries = 0
+            while focus.waking, focus.selection == nil, focus.field == nil, tries < 10 {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                tries += 1
+                let again = Focus.read()
+                if again.selection != nil || again.field != nil || !again.waking { focus = again }
+            }
             if focus.selection == nil, focus.field == nil, let app = focus.app {
                 // The app does not say what is selected: its own Copy command does.
                 if let copied = await Focus.copiedSelection(of: app) {
@@ -372,6 +385,8 @@ func runUITest(into dir: String) {
     // The list's buttons: the last language up one place, made the default, the first one down.
     let steps = SettingsController.shared.reorderForTest()
     print("list buttons: \(steps.joined(separator: " → "))")
+    // The language to write in: the second default until one is chosen, and again when the chosen one leaves the list.
+    print("language to write in: \(SettingsController.shared.typingForTest().joined(separator: " → "))")
     if let content = SettingsController.shared.currentContent {
         snapshot(content, to: dir + "/settings-reordered.png")
         print("settings pages are \(Int(SettingsController.shared.pageHeights.0)) and \(Int(SettingsController.shared.pageHeights.1)) points tall")

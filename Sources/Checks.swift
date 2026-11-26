@@ -27,6 +27,7 @@ func runShortcutCheck() -> Int32 {
     HotkeyCenter.shared.use(nil)
     print("and lets it go: \(HotkeyCenter.shared.current == nil ? "yes" : "NO")")
     print("permission to read the app in front: \(Accessibility.isAllowed ? "yes" : "no")")
+    print("permission to take a window's picture: \(ScreenAccess.isAllowed ? "yes" : "no")")
     print("opens at login: \(LoginItem.isOn ? "yes" : "no")")
     return taken ? 0 : 1
 }
@@ -41,6 +42,7 @@ func runShortcutPageCheck() -> Int32 {
     guard let content = settings.preparedContent(page: 2) else { return 1 }
     print("the page shows: \(settings.shortcutField.title)")
     print("permission: \(settings.accessText.hasPrefix("✓") ? "given" : "asked for")\(settings.accessText.isEmpty ? " (NO TEXT)" : "")")
+    print("permission for a window's picture: \(settings.screenText.hasPrefix("✓") ? "given" : "asked for")\(settings.screenText.isEmpty ? " (NO TEXT)" : "")")
     print("opens at login: \(settings.loginIsTicked ? "ticked" : "not ticked")")
     func draw(_ name: String) {
         guard let dir = argument(after: "--picture") else { return }
@@ -111,7 +113,6 @@ func runTypeCheck(_ text: String) async -> Int32 {
     let field = FakeField(takes: kind == "live" ? .max : kind == "stuck" ? 1 : 0)
     let panel = TypePanel(sink: field)
     panel.pause = 0.05
-    panel.remembers = false
     var copied: String?
     panel.copy = { copied = $0 }  // a check leaves the clipboard alone
     var closed = false

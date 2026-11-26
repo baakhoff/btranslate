@@ -29,7 +29,7 @@ export BTRANSLATE_OFFLINE=mock
 # opens at login. Both are stood in for here (neither is there, unless a check says so): no
 # check reads another app, asks macOS for a permission, changes the login items or touches
 # the clipboard.
-export BTRANSLATE_ACCESSIBILITY=off BTRANSLATE_LOGIN=off
+export BTRANSLATE_ACCESSIBILITY=off BTRANSLATE_LOGIN=off BTRANSLATE_SCREEN=off
 DEAD="http://127.0.0.1:9"  # nothing listens there: a request ends as it does without internet
 # The language pack (NLLB-200) is kept in a folder of the tests' own: empty, unless a test
 # installs the miniature pack of the mock server there. A pack you have installed is not touched.
@@ -149,7 +149,7 @@ check "Speech: a voice of this Mac, without sound" "mac voice en-" "$BIN" --spee
 
 # -key value arguments override the saved settings for this run only.
 UI_OUT="$(env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --uitest build/uitest \
-    -googleEnabled YES -defaultEngine google -languages '(en, ru, lv)' -defaultLanguage ru 2>&1 || true)"
+    -googleEnabled YES -defaultEngine google -languages '(en, ru, lv)' -defaultLanguage ru -secondLanguage none -typingLanguage none 2>&1 || true)"
 check "UI, off screen: the popup stays where it was moved" "popup stays where it was moved: yes" echo "$UI_OUT"
 check "UI, off screen: the picker adds a language" "picker adds a language to the list: yes" echo "$UI_OUT"
 check "UI, off screen: the pencil's picker searches" "source picker finds: ltg, la, lv" echo "$UI_OUT"
@@ -158,6 +158,7 @@ check "UI, off screen: the popup opens with the default language" "popup text: R
 check "UI, off screen: several languages at once" "several languages at once: yes (ru, en, lv)" echo "$UI_OUT"
 check "UI, off screen: the list's arrows, Make Default and Make Second" \
     "list buttons: en,ru,lv,sr-Latn default=ru second=en → en,ru,sr-Latn,lv default=ru second=en → en,ru,sr-Latn,lv default=sr-Latn second=en → ru,en,sr-Latn,lv default=sr-Latn second=en → ru,en,sr-Latn,lv default=sr-Latn second=lv" echo "$UI_OUT"
+check "UI, off screen: the language to write in follows the list" "language to write in: lv → ru → lv" echo "$UI_OUT"
 check "UI, off screen: pictures written" "source-picker.png" ls build/uitest
 check "UI, off screen: every text of the settings window fits" "settings window, every text fits: yes" echo "$UI_OUT"
 check "UI, off screen: the menu of BTranslate's own language" "language menu: the Mac's, en, ru" echo "$UI_OUT"
@@ -300,8 +301,9 @@ check "Shortcut's page: asks for the permission while there is none" "permission
 check "Shortcut's page: a click and three keys record one" 'recorded: ⌃⌥⇧K (kept as "control+option+shift+40")' echo "$PAGE"
 check "Shortcut's page: a letter alone is not taken, and ⌫ takes the shortcut away" $'a letter alone: still waiting\nafter ⌫: None' echo "$PAGE"
 check "Shortcut's page: every text fits" "every text of the page fits: yes" echo "$PAGE"
-check "Shortcut's page: with the permission, and opening at login" $'permission: given\nopens at login: ticked' \
-    env BTRANSLATE_ACCESSIBILITY=on BTRANSLATE_LOGIN=on "$BIN" "${T[@]}" --shortcut-page
+check "Shortcut's page: with the permissions, and opening at login" $'permission: given\npermission for a window\'s picture: given\nopens at login: ticked' \
+    env BTRANSLATE_ACCESSIBILITY=on BTRANSLATE_SCREEN=on BTRANSLATE_LOGIN=on "$BIN" "${T[@]}" --shortcut-page
+check "Shortcut's page: asks for the permission to record the screen too" "permission for a window's picture: asked for" echo "$PAGE"
 check "Shortcut's page: on a first setup, opening at login is ticked" "opens at login: ticked" "$BIN" "${T[@]}" -setupDone NO --shortcut-page
 check "Login item: read and set (a stand-in for macOS's list)" "opens at login: yes" "$BIN" --login on
 check "Shortcut's page, in Russian: every text fits" "every text of the page fits: yes" \
@@ -316,6 +318,8 @@ check "Typing: Return keeps it" "after Return: panel closed, in the field: EN:A 
 check "Typing: a finished sentence is translated once" "1" grep -c '"q": "A sentence of its own."' "$LOG"
 check "Typing: every text of the panel fits" "every text of the panel fits: yes" echo "$TYPED"
 check "Typing: the language chosen in the panel" "in the field: LV:Hello" typing --to Latvian --type-check "Hello"
+check "Typing: the panel opens with the language of the settings" "writes in: lv" typing -typingLanguage lv --type-check "Hello"
+check "Typing: and with the second default while none is set" "writes in: en" typing --type-check "Hello"
 check "Typing: Esc takes it back out" "after Esc: panel closed, in the field: (nothing)" typing --esc --type-check "Good morning."
 NOFIELD="$(typing --field none --type-check "Good morning." --picture build/uitest)"
 check "Typing: a field that can't be written into: the panel shows the translation" "in the field: (nothing); the panel shows: EN:Good morning.; atEnd" echo "$NOFIELD"

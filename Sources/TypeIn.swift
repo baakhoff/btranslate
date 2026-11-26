@@ -100,14 +100,11 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
     var shownHint: String { hint.stringValue }
     /// The wait after the last key before a translation is asked for.
     var pause: Double
-    /// Whether the language chosen in the panel is kept for the next time (a check keeps nothing).
-    var remembers = true
 
     init(sink: TextSink) {
         self.sink = sink
         engine = config.startEngine
-        let remembered = UserDefaults.standard.string(forKey: "typingLanguage")
-        target = config.targets.first { $0.id == remembered } ?? config.secondTarget ?? config.startTarget
+        target = config.typingTarget  // set on the Languages page of the settings; the menu here is for this time only
         pause = engine == .ai ? 0.8 : 0.35
         super.init()
         build()
@@ -127,7 +124,7 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
         menu.selectItem(at: config.targets.firstIndex(of: target) ?? 0)
         menu.target = self
         menu.action = #selector(targetChanged)
-        menu.toolTip = L("The language your text is written in there")
+        menu.toolTip = L("The language your text is written in there. The one the panel opens with is set in BTranslate's settings, on the Languages page.")
         methodLabel.stringValue = engine == .google ? "Google" : engine == .ai ? L("AI") : L("Offline")
         methodLabel.font = .systemFont(ofSize: 10)
         methodLabel.textColor = .secondaryLabelColor
@@ -298,7 +295,6 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
     @objc private func targetChanged() {
         guard config.targets.indices.contains(menu.indexOfSelectedItem) else { return }
         target = config.targets[menu.indexOfSelectedItem]
-        if remembers { UserDefaults.standard.set(target.id, forKey: "typingLanguage") }
         layout()
         schedule(after: 0)
     }

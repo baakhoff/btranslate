@@ -33,6 +33,28 @@ enum Accessibility {
     }
 }
 
+/// The permission to take a window's picture: System Settings → Privacy & Security → Screen &
+/// System Audio Recording. macOS asks for it the first time a window is chosen.
+@MainActor
+enum ScreenAccess {
+    /// For tests: BTRANSLATE_SCREEN=on|off stands for macOS's answer.
+    private static let forced = ProcessInfo.processInfo.environment["BTRANSLATE_SCREEN"]
+
+    static var isAllowed: Bool { forced.map { $0 == "on" } ?? CGPreflightScreenCaptureAccess() }
+
+    /// Has macOS show its request, which it does once, and put BTranslate on its list.
+    static func ask() {
+        guard Accessibility.mayAsk, forced == nil else { return }
+        _ = CGRequestScreenCaptureAccess()
+    }
+
+    static func openSystemSettings() {
+        guard Accessibility.mayAsk, forced == nil,
+              let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else { return }
+        NSWorkspace.shared.open(url)
+    }
+}
+
 // MARK: - A note of what the shortcut did
 
 /// ~/Library/Logs/BTranslate.log: which of its three things the shortcut did and what stood
@@ -158,6 +180,7 @@ struct Focus {
     var selection: String?  // the selected text ("": none); nil: the app does not say
     var place: NSRect?      // where the selection, or the cursor, is on the screen
     var field: AXField?     // the text field the cursor is in
+    var waking = false      // the app kept its interface to itself and has just been asked for it: it answers in a moment
 
     /// Apps where the place to type is not a text field to macOS, and yet text can be pasted.
     private static let terminals: Set<String> = [
@@ -179,7 +202,7 @@ struct Focus {
             if element == nil { element = made.child(kAXFocusedUIElementAttribute) }
         }
         guard let element else {
-            appElement?.set("AXManualAccessibility", kCFBooleanTrue)
+            focus.waking = appElement?.set("AXManualAccessibility", kCFBooleanTrue) ?? false
             return focus
         }
         AXUIElementSetMessagingTimeout(element, 0.5)
@@ -201,8 +224,8 @@ struct Focus {
             focus.field = AXField(element: element, app: focus.app, writable: writable)
         } else if focus.selection == nil {
             // Apps built with Electron keep all this to themselves until they are asked; the
-            // answer is there a moment later (the caller reads once more).
-            appElement?.set("AXManualAccessibility", kCFBooleanTrue)
+            // answer is there a moment later (the caller reads again).
+            focus.waking = appElement?.set("AXManualAccessibility", kCFBooleanTrue) ?? false
         }
         return focus
     }

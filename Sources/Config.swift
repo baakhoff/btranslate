@@ -56,6 +56,7 @@ struct Config {
     var defaultLanguageID = ""      // the language a popup opens with; "" or gone from the list: the first one
     var secondLanguageID = ""       // the one it turns to for a text that is in the default language already;
                                     // "" or gone from the list: the first other language of the list
+    var typingLanguageID = ""       // the language the typing panel writes in; "" or gone from the list: the second default
     var googleVoice = true          // read aloud with Google's voice where the Mac has none
     var languageChoice = ""         // BTranslate's own language: "en", "ru", or "" to follow the Mac
     var shortcut: Shortcut? = .standard  // brings BTranslate up from any app; nil: none
@@ -105,6 +106,11 @@ struct Config {
             ?? targets.first { !OnDevice.same($0.google, first.google) }
     }
 
+    /// The language the typing panel opens with (Sources/TypeIn.swift): the one chosen in
+    /// Settings, or else the second default, which is what one mostly writes to others in;
+    /// with one language in the list, that one.
+    var typingTarget: Target { targets.first { $0.id == typingLanguageID } ?? secondTarget ?? startTarget }
+
     static var isSetUp: Bool { UserDefaults.standard.bool(forKey: "setupDone") }
 
     static func load() -> Config {
@@ -126,6 +132,7 @@ struct Config {
             c.defaultLanguageID = c.targets.first { $0.id == last || $0.english == last }?.id ?? ""
         }
         c.secondLanguageID = d.string(forKey: "secondLanguage") ?? ""
+        c.typingLanguageID = d.string(forKey: "typingLanguage") ?? ""
         c.googleVoice = d.bool(forKey: "googleVoice")
         c.languageChoice = chosenInterfaceLanguage()
         // "" is "none"; a shortcut that can't be read is the standard one.
@@ -153,6 +160,7 @@ struct Config {
         d.set(languageIDs, forKey: "languages")
         d.set(startTarget.id, forKey: "defaultLanguage")
         d.set(secondTarget?.id ?? "", forKey: "secondLanguage")
+        d.set(typingTarget.id, forKey: "typingLanguage")
         d.set(googleVoice, forKey: "googleVoice")
         d.set(shortcut?.saved ?? "", forKey: "shortcut")
         if languageChoice != chosenInterfaceLanguage() { chooseInterfaceLanguage(languageChoice) }
