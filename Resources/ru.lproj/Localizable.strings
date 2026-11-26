@@ -47,7 +47,7 @@
 
 /* The settings window */
 "BTranslate Settings" = "Настройки BTranslate";
-"Select text in any app, right-click it and choose Services → BTranslate." = "Выделите текст в любом приложении, нажмите на него правой кнопкой мыши и выберите «Службы» → «BTranslate».";
+"Select text in any app and press the shortcut, or right-click it and choose Services → BTranslate." = "Выделите текст в любом приложении и нажмите сочетание клавиш, или нажмите на него правой кнопкой мыши и выберите «Службы» → «BTranslate».";
 "Translation" = "Перевод";
 "Languages" = "Языки";
 "Save" = "Сохранить";
@@ -187,3 +187,41 @@
 "Select All" = "Выбрать все";
 "Window" = "Окно";
 "Close" = "Закрыть";
+
+/* The shortcut (Sources/Hotkey.swift, Sources/SettingsWindow.swift) */
+"Space" = "Пробел";
+"Press the keys…" = "Нажмите клавиши…";
+"None" = "Нет";
+"Click, then press the keys of the shortcut. Esc leaves it as it is, ⌫ takes it away." = "Щелкните и нажмите клавиши сочетания. Esc оставит прежнее, ⌫ уберет его.";
+"Shortcut" = "Клавиши";
+"Shortcut:" = "Сочетание клавиш:";
+"Press it in any app. With text selected, BTranslate translates it in its popup. With the cursor in a text field and nothing selected, it opens a small panel to type in: what you type there, in any language, is written into the field in the language you choose. Otherwise it has you choose a window, and shows it with every text translated." = "Нажмите его в любом приложении. Если выделен текст, BTranslate переведет его в окне перевода. Если курсор стоит в текстовом поле и ничего не выделено, откроется небольшая панель для ввода: то, что вы в ней пишете, на любом языке, записывается в поле на выбранном вами языке. В остальных случаях BTranslate предложит выбрать окно и покажет его со всеми текстами в переводе.";
+"The shortcut works only while BTranslate is running. The Services menu starts BTranslate by itself; the shortcut can't." = "Сочетание клавиш работает, только пока BTranslate запущен. Меню «Службы» запускает BTranslate само, сочетание клавиш этого не может.";
+"Open BTranslate when I log in" = "Открывать BTranslate при входе в систему";
+"Open System Settings…" = "Открыть Системные настройки…";
+"✓ macOS lets BTranslate read the selected text of the app in front, and write into its text fields." = "✓ macOS разрешает BTranslate читать выделенный текст в активном приложении и писать в его текстовые поля.";
+"The shortcut needs your permission. BTranslate reads the selected text of the app in front, and writes into its text fields, through macOS's Accessibility: turn BTranslate on in System Settings → Privacy & Security → Accessibility. If it is on there already and this still says so, take BTranslate off that list with “–” and add it again: macOS drops the permission when the app is updated." = "Сочетанию клавиш нужно ваше разрешение. BTranslate читает выделенный текст в активном приложении и пишет в его текстовые поля через «Универсальный доступ» macOS: включите BTranslate в Системных настройках → Конфиденциальность и безопасность → Универсальный доступ. Если он там уже включен, а здесь по-прежнему написано это, уберите BTranslate из списка кнопкой «–» и добавьте снова: macOS сбрасывает разрешение при обновлении приложения.";
+"macOS would not have %@ as a shortcut. Choose another one." = "macOS не принимает сочетание %@. Выберите другое.";
+"macOS did not change the login items: %@" = "macOS не изменила объекты входа: %@";
+
+/* Typing in another language (Sources/TypeIn.swift) */
+"Type in any language…" = "Пишите на любом языке…";
+"The language your text is written in there" = "Язык, на котором ваш текст записывается в поле";
+"The method that translates what you type. It is the one BTranslate opens with." = "Способ, которым переводится то, что вы пишете. Это способ, с которым открывается BTranslate.";
+"Translate a window instead" = "Перевести окно";
+"↩ done   ⎋ take it back" = "↩ готово   ⎋ убрать текст";
+"This app can't be written into while you type: ↩ puts the translation in." = "В это приложение нельзя писать по ходу ввода: ↩ вставит перевод.";
+"The app stopped taking the text: ↩ copies the translation." = "Приложение перестало принимать текст: ↩ скопирует перевод.";
+
+/* A window, translated (Sources/Picture.swift, Sources/PictureWindow.swift) */
+"macOS could not read the text in the picture." = "macOS не удалось прочитать текст на снимке.";
+"The model left some texts out of its answer." = "Модель пропустила в ответе часть текстов.";
+"macOS did not hand over the window's picture: %@" = "macOS не передала снимок окна: %@";
+"Original" = "Оригинал";
+"Shows the window as it is, without the translations" = "Показывает окно как есть, без перевода";
+"Copies the picture" = "Копирует снимок";
+"Reading the text in the picture…" = "Читаю текст на снимке…";
+"No text was found in this window." = "В этом окне не найдено текста.";
+"Translating… %ld of %ld" = "Перевод… %ld из %ld";
+"Not translated: %ld." = "Не переведено: %ld.";
+"Translation into %@" = "Перевод на %@";

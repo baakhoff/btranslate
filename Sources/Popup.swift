@@ -113,7 +113,9 @@ final class Popup: NSObject, NSWindowDelegate {
     private let container = FlippedView()
     private(set) var sections: [TranslationSection] = []
 
-    private let anchor = NSEvent.mouseLocation
+    /// What the popup opens by: the pointer, or the selected text where its place is known
+    /// (the shortcut knows it at times; the Services menu never does).
+    private let anchor: NSRect
     private var placed = false    // false until the first layout puts the panel by the pointer
     private var growsUp = false   // near the screen's bottom the panel sits above the pointer and grows upward
     private var detectedSource: String?  // the code of the language the translation found the original to be in
@@ -138,9 +140,11 @@ final class Popup: NSObject, NSWindowDelegate {
     /// Where the first translation's speaker button is on the screen (UI test).
     var speakerFrame: NSRect? { sections.first.map { panel.convertToScreen($0.speakButton.convert($0.speakButton.bounds, to: nil)) } }
 
-    init(text: String) {
+    init(text: String, by place: NSRect? = nil) {
         source = text
         engine = config.startEngine
+        // By the pointer the popup keeps a little distance, for the pointer's own size.
+        anchor = place ?? NSRect(origin: NSEvent.mouseLocation, size: .zero).insetBy(dx: 0, dy: -8)
         super.init()
         build()
         addSection(config.startTarget).opensWithDefault = true
@@ -944,12 +948,12 @@ final class Popup: NSObject, NSWindowDelegate {
 
         var frame: NSRect
         if !placed {
-            let visible = (NSScreen.screens.first { NSMouseInRect(anchor, $0.frame, false) } ?? NSScreen.main)?.visibleFrame
+            let visible = (NSScreen.screens.first { $0.frame.intersects(anchor.insetBy(dx: -1, dy: -1)) } ?? NSScreen.main)?.visibleFrame
                 ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-            let x = min(max(anchor.x - 16, visible.minX + 6), visible.maxX - W - 6)
-            let roomBelow = anchor.y - 14 - visible.minY, roomAbove = visible.maxY - anchor.y - 14
+            let x = min(max(anchor.minX - 16, visible.minX + 6), visible.maxX - W - 6)
+            let roomBelow = anchor.minY - 6 - visible.minY, roomAbove = visible.maxY - anchor.maxY - 6
             growsUp = roomBelow < 240 && roomAbove > roomBelow
-            frame = NSRect(x: x, y: growsUp ? anchor.y + 14 : anchor.y - 14 - H, width: W, height: H)
+            frame = NSRect(x: x, y: growsUp ? anchor.maxY + 6 : anchor.minY - 6 - H, width: W, height: H)
             placed = true
         } else {
             let now = panel.frame
@@ -986,12 +990,12 @@ final class Popup: NSObject, NSWindowDelegate {
 }
 
 @MainActor
-func showPopup(_ text: String) {
+func showPopup(_ text: String, by place: NSRect? = nil) {
     if let delegate = NSApp.delegate as? AppDelegate {
         delegate.handBackUntil = max(delegate.handBackUntil, Date().addingTimeInterval(1.5))
     }
     Popup.current?.close()
-    let popup = Popup(text: text)
+    let popup = Popup(text: text, by: place)
     Popup.current = popup
     popup.show()
 }

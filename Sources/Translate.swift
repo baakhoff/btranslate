@@ -342,13 +342,13 @@ func userMessage(_ text: String, target: Target, source: Target? = nil) -> Strin
 
 /// Anthropic's Messages API. `lowEffort` asks for a quick answer (translation is a simple
 /// task); models from before the effort setting reject it, and the caller then retries without.
-private func anthropicRequest(_ text: String, target: Target, source: Target?, config: Config, key: String, lowEffort: Bool) throws -> URLRequest {
+private func anthropicRequest(system: String, user: String, config: Config, key: String, lowEffort: Bool) throws -> URLRequest {
     var body: [String: Any] = [
         "model": config.model,
         "max_tokens": 32000,
         "stream": true,
-        "system": systemPrompt(target, source: source),
-        "messages": [["role": "user", "content": userMessage(text, target: target, source: source)]],
+        "system": system,
+        "messages": [["role": "user", "content": user]],
     ]
     if lowEffort { body["output_config"] = ["effort": "low"] }
     guard let url = URL(string: config.baseURL + "/messages") else { throw TranslateError.noServer }
@@ -363,12 +363,12 @@ private func anthropicRequest(_ text: String, target: Target, source: Target?, c
 }
 
 /// Chat completions, as OpenAI, Gemini, DeepSeek, OpenRouter and local servers speak it.
-private func openAIRequest(_ text: String, target: Target, source: Target?, config: Config, key: String, noReasoning: Bool) throws -> URLRequest {
+private func openAIRequest(system: String, user: String, config: Config, key: String, noReasoning: Bool) throws -> URLRequest {
     var body: [String: Any] = [
         "model": config.model,
         "stream": true,
-        "messages": [["role": "system", "content": systemPrompt(target, source: source)],
-                     ["role": "user", "content": userMessage(text, target: target, source: source)]],
+        "messages": [["role": "system", "content": system],
+                     ["role": "user", "content": user]],
     ]
     if noReasoning { body["reasoning"] = ["enabled": false] }  // OpenRouter: answer straight away
     guard let url = URL(string: config.baseURL + "/chat/completions") else { throw TranslateError.noServer }
@@ -406,24 +406,29 @@ func splitCode(_ raw: String) -> (code: String?, body: String, ready: Bool) {
     return (code.lowercased(), String(body), true)
 }
 
+/// `system` and `user`, when given, are the two messages as they are sent, in place of the
+/// ones for a single text (many short texts at once: Sources/Picture.swift).
 @MainActor
 func aiTranslate(_ text: String, target: Target, source: Target? = nil, config: Config, key: String,
+                 system: String? = nil, user: String? = nil,
                  update: @MainActor (_ source: String?, _ translation: String) -> Void) async throws {
     let api = config.provider.api
+    let system = system ?? systemPrompt(target, source: source)
+    let user = user ?? userMessage(text, target: target, source: source)
     let bytes: URLSession.AsyncBytes
     switch api {
     case .anthropic:
         do {
-            bytes = try await openStream(anthropicRequest(text, target: target, source: source, config: config, key: key, lowEffort: true))
+            bytes = try await openStream(anthropicRequest(system: system, user: user, config: config, key: key, lowEffort: true))
         } catch TranslateError.http(400, _) {
-            bytes = try await openStream(anthropicRequest(text, target: target, source: source, config: config, key: key, lowEffort: false))
+            bytes = try await openStream(anthropicRequest(system: system, user: user, config: config, key: key, lowEffort: false))
         }
     case .openAI:
         let viaOpenRouter = config.providerID == "openrouter"
         do {
-            bytes = try await openStream(openAIRequest(text, target: target, source: source, config: config, key: key, noReasoning: viaOpenRouter))
+            bytes = try await openStream(openAIRequest(system: system, user: user, config: config, key: key, noReasoning: viaOpenRouter))
         } catch TranslateError.http(400, _) where viaOpenRouter {
-            bytes = try await openStream(openAIRequest(text, target: target, source: source, config: config, key: key, noReasoning: false))
+            bytes = try await openStream(openAIRequest(system: system, user: user, config: config, key: key, noReasoning: false))
         }
     }
 
@@ -710,5 +715,6 @@ func selfTest() -> [String] {
     expect("BTranslate's languages: each has its texts", interfaceLanguages.map(\.code) == ["en", "ru"]
         && interfaceLanguages.dropFirst().allSatisfy { Bundle.main.path(forResource: $0.code, ofType: "lproj") != nil })
     expect("key check", Keychain.isValid("sk-ant-abc_123") && !Keychain.isValid("two words") && !Keychain.isValid("a\"b"))
+    failures += shortcutSelfTest()
     return failures
 }

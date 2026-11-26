@@ -6,6 +6,10 @@
 // the mouse pointer, and the app you are in stays in front. Esc, ⌘W or a click anywhere
 // else closes the panel.
 //
+// The same from any app with a shortcut (⌃⌥T unless another is set): with text selected, its
+// translation; in a text field, a panel to type in another language; otherwise a window of
+// your choice, translated as a picture. See Sources/Hotkey.swift and Sources/Focus.swift.
+//
 // Open BTranslate itself (Spotlight, Finder) for its settings: the translation methods, the
 // AI provider, model and API key, and the method a popup opens with.
 //
@@ -55,6 +59,31 @@
 //                                                                   report what a still picture can't:
 //                                                                   which app stays in front, and that
 //                                                                   typing reaches the pencil's search
+//   BTranslate --shortcut-check                                     the shortcut as the settings keep
+//                                                                   it, and whether macOS takes one
+//   BTranslate --shortcut-page [--picture DIR]                      the settings' page for it, off
+//                                                                   screen: a shortcut recorded, the
+//                                                                   permission and login item shown
+//   BTranslate --type-check "text" [--field live|none|stuck] [--to LANGUAGE] [--esc] [--picture DIR]
+//                                                                   the panel for typing in another
+//                                                                   language, off screen, with a
+//                                                                   stand-in for the text field
+//   BTranslate --picture-make FILE                                  draw a picture that stands for a window
+//   BTranslate --picture-check FILE [--engine …] [--to …] [--boxes] [--picture DIR]
+//                                                                   read a picture as a window's is
+//                                                                   read, translate its texts, print
+//                                                                   them, and paint the result into DIR
+//   BTranslate --picture-window-check FILE [--picture DIR]          the window that shows it, off screen
+//   BTranslate --read-picture LANGUAGES                             (the app's own helper) a picture on
+//                                                                   standard input, its lines as JSON
+//   BTranslate --prepare-reading                                    have macOS make its reader of
+//                                                                   pictures ready (the installer does)
+//   open -n -g BTranslate.app --stdout FILE --args --ax-check appkit|textarea|editable
+//                                                                   write into a real text field of
+//                                                                   another process (a small window of
+//                                                                   BTranslate's own, shown for a few
+//                                                                   seconds), and read its selection:
+//                                                                   needs the Accessibility permission
 //   BTranslate --models                                             print the provider's models
 //   BTranslate --selftest                                           checks that need no network
 //   BTranslate --prompts                                            how an AI model is told each language
@@ -70,6 +99,8 @@
 //                                                                   window into DIR as PNGs, off screen
 //   Env: BTRANSLATE_KEYCHAIN=off is a Mac without saved API keys, BTRANSLATE_CONNECTION=off one
 //        without a network (for the download of the language pack);
+//        BTRANSLATE_ACCESSIBILITY=on|off stands for macOS's answer about the permission, and
+//        BTRANSLATE_LOGIN=on|off for its login items: neither is then asked or changed;
 //        BTRANSLATE_PROVIDER, BTRANSLATE_MODEL, BTRANSLATE_BASE_URL, BTRANSLATE_API_KEY,
 //        BTRANSLATE_GOOGLE_URL override the saved settings; BTRANSLATE_LANGUAGE=en|ru sets
 //        the language of BTranslate's own texts (and of what these modes print from them);
@@ -102,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var servedRequest = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        LoginItem.noteStart()
         remember(NSWorkspace.shared.frontmostApplication)
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
@@ -115,6 +147,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = Connection.shared  // it starts watching the network now, to know later whether there is one
         NSRegisterServicesProvider(provider, "BTranslate")  // = NSPortName in Info.plist
         buildMenu()
+        HotkeyCenter.shared.onPress = { [weak self] in self?.shortcutPressed() }
+        useShortcut()
         let args = CommandLine.arguments
         if args.contains("--restart-check") {
             restart()  // a check of restart(): the app started anew has no such argument
@@ -123,6 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if args.contains("--settings") {
             showSettings()
         } else if !args.contains("--background"),
+                  !LoginItem.startedThisRun,
                   notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool ?? true {
             // Started by you, not by the Services menu: show the settings. (A moment's wait
             // makes sure no translation request came with the launch.)
@@ -143,6 +178,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         handBackUntil = .distantPast
         Popup.current?.close()
         SettingsController.shared.show()
+    }
+
+    /// Listens for the shortcut of the settings. false: macOS would not have it.
+    @discardableResult
+    func useShortcut() -> Bool {
+        let shortcut = Config.load().shortcut
+        let taken = HotkeyCenter.shared.use(shortcut)
+        if !taken { Log.note("shortcut: macOS would not have \(shortcut?.saved ?? "")") }
+        return taken
+    }
+
+    /// The shortcut, pressed in whatever app is in front. With text selected there: its
+    /// translation in a popup. In a text field with nothing selected: the panel to type in
+    /// another language. Otherwise: a window of your choice, translated as a picture.
+    /// Pressed while one of those is showing, it puts it away.
+    func shortcutPressed() {
+        if let popup = Popup.current { popup.close(); return }
+        if let typing = TypePanel.current { typing.finish(); return }
+        if WindowShot.shared.isChoosing { WindowShot.shared.cancel(); return }
+        if let picture = PictureWindow.current, picture.panel.isKeyWindow { picture.close(); return }
+        // What is selected, and where the cursor is, macOS tells only with your permission.
+        guard Accessibility.isAllowed else {
+            Log.note("shortcut: no permission to read the app in front")
+            showSettings()
+            SettingsController.shared.showPage(2)
+            Accessibility.ask()
+            return
+        }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+        var focus = Focus.read()
+        Task { @MainActor in
+            if focus.selection == nil, focus.field == nil, let app = focus.app {
+                // The app does not say what is selected: its own Copy command does.
+                if let copied = await Focus.copiedSelection(of: app) {
+                    focus.selection = copied
+                } else {
+                    let again = Focus.read()  // an app that keeps its interface to itself until asked has answered by now
+                    if again.selection != nil || again.field != nil { focus = again }
+                }
+            }
+            let text = focus.selection?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let app = focus.app?.bundleIdentifier ?? "?"
+            if !text.isEmpty {
+                Log.note("shortcut: \(text.count) characters selected in \(app) (\(focus.role))")
+                self.servedRequest = true
+                showPopup(text, by: focus.place)
+            } else if let field = focus.field {
+                Log.note("shortcut: a text field in \(app) (\(focus.role))")
+                showTypePanel(for: field)
+            } else {
+                Log.note("shortcut: nothing selected and no text field in \(app) (\(focus.role))")
+                WindowPicture.start()
+            }
+        }
     }
 
     func remember(_ app: NSRunningApplication?) {
@@ -268,6 +357,9 @@ func runUITest(into dir: String) {
     if let content = SettingsController.shared.preparedContent(page: 1) {
         snapshot(content, to: dir + "/settings-languages.png")
     }
+    if let content = SettingsController.shared.preparedContent(page: 2) {
+        snapshot(content, to: dir + "/settings-shortcut.png")
+    }
     snapshot(SettingsController.shared.preparedPicker(search: "ser"), to: dir + "/languages.png")
     // Add a language through the picker: it joins the list and leaves the picker.
     let before = Config.load().targets.map(\.id)
@@ -285,7 +377,7 @@ func runUITest(into dir: String) {
     }
     // A translation can be longer than the English text the window was laid out for.
     var cut: [String] = []
-    for page in 0...1 {
+    for page in 0...2 {
         if let content = SettingsController.shared.preparedContent(page: page) {
             content.layoutSubtreeIfNeeded()
             cut += cutOffTexts(in: content)
@@ -865,6 +957,57 @@ if arguments.contains("--selftest") {
             print("ERROR: \(describe(error))")
             return 1
         }
+    }
+} else if let languages = argument(after: "--read-picture") {
+    exit(PictureReader.readForTheApp(languages: languages))
+} else if arguments.contains("--prepare-reading") {
+    // macOS makes its reader of pictures ready for a program the first time that program
+    // reads one, which takes some twenty seconds. The installer has it done here, in the
+    // background, so that the first window you have translated does not wait for it.
+    MainActor.assumeIsolated {
+        let made = NSTemporaryDirectory() + "btranslate-prepare-\(ProcessInfo.processInfo.processIdentifier).png"
+        defer { try? FileManager.default.removeItem(atPath: made) }
+        guard makeTestPicture(at: made), let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: made) as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { exit(1) }
+        let start = Date()
+        let lines = (try? PictureReader.lines(in: image, languages: [])) ?? []
+        print(String(format: "reading is ready: %d lines in %.1f s", lines.count, Date().timeIntervalSince(start)))
+        exit(lines.isEmpty ? 1 : 0)
+    }
+} else if arguments.contains("--shortcut-check") {
+    runHeadless { runShortcutCheck() }
+} else if arguments.contains("--shortcut-page") {
+    MainActor.assumeIsolated {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        exit(runShortcutPageCheck())
+    }
+} else if let text = argument(after: "--type-check") {
+    runHeadless { await runTypeCheck(text) }
+} else if let file = argument(after: "--picture-make") {
+    runHeadless { makeTestPicture(at: file) ? 0 : 1 }
+} else if let file = argument(after: "--picture-check") {
+    runHeadless { await runPictureCheck(file) }
+} else if let file = argument(after: "--picture-window-check") {
+    MainActor.assumeIsolated {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        runPictureWindowCheck(file)
+        app.run()
+    }
+} else if let kind = argument(after: "--ax-target") {
+    MainActor.assumeIsolated {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        AXTarget.shared = AXTarget(kind: kind, file: arguments.last ?? "")
+        app.run()
+    }
+} else if let kind = argument(after: "--ax-check") {
+    MainActor.assumeIsolated {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        Task { @MainActor in exit(await runAXCheck(kind)) }
+        app.run()
     }
 } else if arguments.contains("--screen-check") {
     MainActor.assumeIsolated {

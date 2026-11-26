@@ -25,6 +25,11 @@ export BTRANSLATE_LANGUAGE=en
 # French and Spanish "need a download", and it translates "Tag" from German into Russian as
 # "OFFLINE de>ru: Tag".
 export BTRANSLATE_OFFLINE=mock
+# The shortcut needs macOS's permission to read the app in front, and works while BTranslate
+# opens at login. Both are stood in for here (neither is there, unless a check says so): no
+# check reads another app, asks macOS for a permission, changes the login items or touches
+# the clipboard.
+export BTRANSLATE_ACCESSIBILITY=off BTRANSLATE_LOGIN=off
 DEAD="http://127.0.0.1:9"  # nothing listens there: a request ends as it does without internet
 # The language pack (NLLB-200) is kept in a folder of the tests' own: empty, unless a test
 # installs the miniature pack of the mock server there. A pack you have installed is not touched.
@@ -283,6 +288,66 @@ check "Language pack: the Languages page marks its languages" "lv installed" \
     "$BIN" --offline-uitest settings -googleEnabled YES -deviceEnabled YES -languages '(en, lv)' build/uitest
 check "Language pack: removed" "language pack: removed" "$BIN" --pack-remove
 check "Language pack: gone again" "language pack: not installed" "$BIN" --pack
+
+# The shortcut: as the settings keep it, and its page of the settings.
+T=(-googleEnabled YES -defaultEngine google -languages '(en, ru, lv)' -defaultLanguage ru -typingLanguage none)
+check "Shortcut: ⌃⌥T unless another is set" 'shortcut: ⌃⌥T (kept as "control+option+17")' "$BIN" --shortcut-check
+check "Shortcut: macOS takes one and lets it go" $'macOS takes a shortcut: yes (⌃⌥⇧⌘F19)\nand lets it go: yes' "$BIN" --shortcut-check
+check "Shortcut: another one from the settings" "shortcut: ⌃⌥⇧K" "$BIN" -shortcut "control+option+shift+40" --shortcut-check
+check "Shortcut: none" "shortcut: none" "$BIN" -shortcut "" --shortcut-check
+PAGE="$("$BIN" "${T[@]}" --shortcut-page --picture build/uitest 2>&1 || true)"
+check "Shortcut's page: asks for the permission while there is none" "permission: asked for" echo "$PAGE"
+check "Shortcut's page: a click and three keys record one" 'recorded: ⌃⌥⇧K (kept as "control+option+shift+40")' echo "$PAGE"
+check "Shortcut's page: a letter alone is not taken, and ⌫ takes the shortcut away" $'a letter alone: still waiting\nafter ⌫: None' echo "$PAGE"
+check "Shortcut's page: every text fits" "every text of the page fits: yes" echo "$PAGE"
+check "Shortcut's page: with the permission, and opening at login" $'permission: given\nopens at login: ticked' \
+    env BTRANSLATE_ACCESSIBILITY=on BTRANSLATE_LOGIN=on "$BIN" "${T[@]}" --shortcut-page
+check "Shortcut's page, in Russian: every text fits" "every text of the page fits: yes" \
+    env BTRANSLATE_LANGUAGE=ru "$BIN" "${T[@]}" --shortcut-page --picture build/uitest-ru
+
+# Typing in another language: the panel off screen, with a stand-in for the other app's text
+# field. The text is typed in two goes, its first sentence and then all of it.
+typing() { env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" "$@" 2>&1 || true; }
+TYPED="$(typing --type-check "A sentence of its own. And a second one?" --picture build/uitest)"
+check "Typing: written into the field while it is typed" $'typed: A sentence of its own. \n   in the field: EN:A sentence of its own. ; the panel shows: (nothing); live' echo "$TYPED"
+check "Typing: Return keeps it" "after Return: panel closed, in the field: EN:A sentence of its own. EN:And a second one?, pasted: (nothing)" echo "$TYPED"
+check "Typing: a finished sentence is translated once" "1" grep -c '"q": "A sentence of its own."' "$LOG"
+check "Typing: every text of the panel fits" "every text of the panel fits: yes" echo "$TYPED"
+check "Typing: the language chosen in the panel" "in the field: LV:Hello" typing --to Latvian --type-check "Hello"
+check "Typing: Esc takes it back out" "after Esc: panel closed, in the field: (nothing)" typing --esc --type-check "Good morning."
+NOFIELD="$(typing --field none --type-check "Good morning." --picture build/uitest)"
+check "Typing: a field that can't be written into: the panel shows the translation" "in the field: (nothing); the panel shows: EN:Good morning.; atEnd" echo "$NOFIELD"
+check "Typing: and Return pastes it" "after Return: panel closed, in the field: (nothing), pasted: EN:Good morning." echo "$NOFIELD"
+check "Typing: a field that stops taking text: Return copies the translation" "copied: EN:Good morning. EN:How are you?" \
+    typing --field stuck --type-check "Good morning. How are you?"
+check "Typing: without a translation the panel says why, and Return does not close it" \
+    $'the panel shows: No internet connection.; live\nhint: ↩ done   ⎋ take it back\nafter Return: panel STILL OPEN' \
+    env BTRANSLATE_GOOGLE_URL="$DEAD" "$BIN" "${T[@]}" -deviceEnabled NO --type-check "Good morning."
+check "Typing, in Russian: every text of the panel fits" "every text of the panel fits: yes" \
+    env BTRANSLATE_LANGUAGE=ru BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" --field none --type-check "Good morning." --picture build/uitest-ru
+
+# A window, translated: a picture that stands for a window (a heading, a paragraph, a list on
+# a dark side bar, buttons, lines in Latvian, Serbian and Russian) is read by macOS,
+# translated and painted over. The mock translator takes Cyrillic letters for Russian.
+"$BIN" --picture-make build/uitest/window.png
+PICTURE="$(typing --picture-check build/uitest/window.png --picture build/uitest)"
+check "Picture: a paragraph's lines are read as one text" "lines) The quick brown fox" echo "$PICTURE"
+check "Picture: the rows of a list are texts of their own" $'\n   Bearbeiten → RU2:Bearbeiten\n' echo "$PICTURE"
+check "Picture: a text already in that language stays as it is" "Сегодня хорошая погода = stays" echo "$PICTURE"
+check "Picture: numbers and signs are left alone" "= no words" echo "$PICTURE"
+check "Picture: the translations are painted over the originals" "texts painted over" echo "$PICTURE"
+logged "Picture: all its texts go to Google in one request" '"q": \["'
+check "Picture: by an AI model, as numbered lines; a text the model leaves out is counted" \
+    "not translated: 1 (The model left some texts out of its answer.)" \
+    env BTRANSLATE_PROVIDER=anthropic BTRANSLATE_BASE_URL="$MOCK/anthropic" BTRANSLATE_API_KEY=test-key \
+    "$BIN" "${T[@]}" --picture-check build/uitest/window.png --engine ai
+WINDOW="$(typing --picture-window-check build/uitest/window.png --picture build/uitest)"
+check "Picture: its window, read in a process of its own" "the bar says: Translation into Russian" echo "$WINDOW"
+check "Picture: every text of its window fits" "every text of the window fits: yes" echo "$WINDOW"
+check "Picture: no connection is said in its window" "the bar says: No internet connection." \
+    env BTRANSLATE_GOOGLE_URL="$DEAD" "$BIN" "${T[@]}" --picture-window-check build/uitest/window.png
+check "Picture, in Russian: its window" "the bar says: Перевод на русский" \
+    env BTRANSLATE_LANGUAGE=ru BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" --picture-window-check build/uitest/window.png --picture build/uitest-ru
 
 if [ "${1:-}" = "--live" ]; then
     check "Google, live" "source: Latvian" "$BIN" --print --engine google "Labdien! Kā jums klājas?"

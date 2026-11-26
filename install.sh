@@ -179,6 +179,11 @@ TEXT
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP"
     /System/Library/CoreServices/pbs -update
 
+    # macOS makes its reader of pictures ready for an app the first time the app reads one,
+    # which takes some twenty seconds: have it done now, in the background, and not when
+    # the first window is translated.
+    ( "$APP/Contents/MacOS/BTranslate" --prepare-reading >/dev/null 2>&1 & )
+
     local first=1
     [ "$(defaults read "$BUNDLE_ID" setupDone 2>/dev/null || true)" = 1 ] && first=
     local hint=""
@@ -200,20 +205,29 @@ TEXT
 (Приложение, которое уже было открыто, возможно, придется перезапустить, чтобы
 в нем появился этот пункт меню.)
 
-Настройки (способы перевода, провайдер ИИ, модель, ключ API, языки): откройте
-BTranslate через Spotlight или Finder либо нажмите на шестеренку в окне перевода.
-Сочетание клавиш: «Системные настройки» → «Клавиатура» → «Сочетания клавиш…»
-→ «Службы» → «Текст» → «BTranslate».
+Сочетание клавиш ⌃⌥T в любом приложении: перевод выделенного текста; в текстовом
+поле — панель, чтобы писать на другом языке; иначе — перевод окна целиком.
+Ему нужно ваше разрешение: «Системные настройки» → «Конфиденциальность и
+безопасность» → «Универсальный доступ» → BTranslate. После обновления BTranslate
+уберите его из этого списка кнопкой «–» и добавьте снова.
+
+Настройки (способы перевода, провайдер ИИ, модель, ключ API, языки, сочетание
+клавиш): откройте BTranslate через Spotlight или Finder либо нажмите на
+шестеренку в окне перевода.
 TEXT
     else
         cat <<'TEXT'
 Select text in any app, right-click it and choose Services → BTranslate.
 (An app that was already open may need a restart before the menu item shows.)
 
-Settings (methods, AI provider, model, API key, languages): open BTranslate from
-Spotlight or Finder, or click the gear in the popup.
-Keyboard shortcut: System Settings → Keyboard → Keyboard Shortcuts… → Services
-→ Text → BTranslate.
+The shortcut ⌃⌥T in any app: selected text is translated; in a text field it opens
+a panel to type in another language; otherwise it translates a whole window.
+It needs your permission: System Settings → Privacy & Security → Accessibility →
+BTranslate. After an update of BTranslate, take it off that list with "–" and add
+it again.
+
+Settings (methods, AI provider, model, API key, languages, the shortcut): open
+BTranslate from Spotlight or Finder, or click the gear in the popup.
 TEXT
     fi
     if [ -n "$hint" ]; then printf '\n%s\n' "$hint"; fi

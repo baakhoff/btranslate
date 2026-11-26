@@ -25,6 +25,15 @@ import hashlib
 from urllib.parse import parse_qs, urlparse
 
 PIECES = ["[", "lv", "]\n", "Hello! ", "How are ", "you?\nSecond line."]
+
+
+def pieces(asked):
+    """What the AI stand-in answers. Asked for many short texts at once (numbered lines:
+    "3| Open file"), it answers each as "3| AI:Open file", and leaves number 2 out."""
+    lines = [line for line in asked.split("\n") if re.match(r"\d+\| ", line)]
+    if not lines:
+        return PIECES
+    return [re.sub(r"^(\d+)\| ", r"\1| AI:", line) + "\n" for line in lines if not line.startswith("2| ")]
 CUT_OFF = {}  # "googleflaky2-x" → how many requests it has cut off so far
 # The miniature language pack: no models, so installing it is downloading and checking only.
 PACK = {"nllb200-v1-tokens.tsv": "<s>\t\n<pad>\t\n</s>\t\n<unk>\t\n▁a\t-0.0\nb\t-1.0\n".encode(),
@@ -92,8 +101,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         if "/translate_a/" in self.path:
-            text = parse_qs(raw.decode()).get("q", [""])[0]
-            self.record({"q": text})
+            texts = parse_qs(raw.decode()).get("q", [""])
+            text = texts[0]
+            self.record({"q": text} if len(texts) == 1 else {"q": texts})
             first = self.path.split("/")[1]
             flaky = re.match(r"googleflaky(\d+)", first)
             if flaky and CUT_OFF.get(first, 0) < int(flaky.group(1)):
@@ -107,6 +117,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(429, b"<html><title>Sorry...</title></html>", "text/html")
             elif "/translate_a/single" in self.path:
                 self.reply(200, [[[into + ":" + text, text]], None, "lv" if given == "auto" else given])
+            elif len(texts) > 1:
+                # Several texts in one request (a window's picture): each gets its own answer and its
+                # own language: Russian for Cyrillic letters, Latvian for the rest. A text in the
+                # language asked for comes back as it is.
+                def one(t):
+                    code = "ru" if re.search("[\u0400-\u04ff]", t) else "lv"
+                    return [t if code.upper() == into else into + "2:" + t, code]
+                self.reply(200, [one(t) for t in texts])
             elif given == "auto":
                 self.reply(200, [[into + "2:" + text, "lv"]])
             else:  # with the source language given, the second endpoint answers with the text alone
@@ -140,7 +158,8 @@ class Handler(BaseHTTPRequestHandler):
                           ("content_block_stop", {"type": "content_block_stop", "index": 0}),
                           ("ping", {"type": "ping"}),
                           ("content_block_start", {"type": "content_block_start", "index": 1, "content_block": {"type": "text", "text": ""}})]
-                events += [("content_block_delta", {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": p}}) for p in PIECES]
+                events += [("content_block_delta", {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": p}})
+                           for p in pieces(body["messages"][-1]["content"])]
                 events += [("content_block_stop", {"type": "content_block_stop", "index": 1}),
                            ("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 9}}),
                            ("message_stop", {"type": "message_stop"})]
@@ -150,7 +169,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(400, {"error": {"message": "reasoning is not supported"}})
             else:
                 events = [(None, {"choices": [{"delta": {"role": "assistant", "content": ""}}]})]
-                events += [(None, {"choices": [{"delta": {"content": p}}]}) for p in PIECES]
+                events += [(None, {"choices": [{"delta": {"content": p}}]}) for p in pieces(body["messages"][-1]["content"])]
                 events += [(None, {"choices": [{"delta": {}, "finish_reason": "stop"}]}), (None, "[DONE]")]
                 self.sse(events)
         else:

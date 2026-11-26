@@ -58,6 +58,7 @@ struct Config {
                                     // "" or gone from the list: the first other language of the list
     var googleVoice = true          // read aloud with Google's voice where the Mac has none
     var languageChoice = ""         // BTranslate's own language: "en", "ru", or "" to follow the Mac
+    var shortcut: Shortcut? = .standard  // brings BTranslate up from any app; nil: none
 
     var provider: Provider { providers.first { $0.id == providerID } ?? providers[0] }
 
@@ -127,6 +128,8 @@ struct Config {
         c.secondLanguageID = d.string(forKey: "secondLanguage") ?? ""
         c.googleVoice = d.bool(forKey: "googleVoice")
         c.languageChoice = chosenInterfaceLanguage()
+        // "" is "none"; a shortcut that can't be read is the standard one.
+        if let saved = d.string(forKey: "shortcut") { c.shortcut = saved.isEmpty ? nil : (Shortcut(saved: saved) ?? .standard) }
         // For tests: BTRANSLATE_PROVIDER / BTRANSLATE_MODEL override the saved settings.
         let env = ProcessInfo.processInfo.environment
         if let p = env["BTRANSLATE_PROVIDER"], providers.contains(where: { $0.id == p }) {
@@ -151,6 +154,7 @@ struct Config {
         d.set(startTarget.id, forKey: "defaultLanguage")
         d.set(secondTarget?.id ?? "", forKey: "secondLanguage")
         d.set(googleVoice, forKey: "googleVoice")
+        d.set(shortcut?.saved ?? "", forKey: "shortcut")
         if languageChoice != chosenInterfaceLanguage() { chooseInterfaceLanguage(languageChoice) }
         d.set(true, forKey: "setupDone")
     }

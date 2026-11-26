@@ -1,7 +1,9 @@
 # BTranslate
 
-Translate selected text in **any Mac app** from the right-click menu. The translation shows in
-a small popup next to the mouse pointer, and the app you are in stays in front. It uses
+Translate selected text in **any Mac app** with a shortcut or from the right-click menu. The
+translation shows in a small popup next to the text, and the app you are in stays in front.
+The same shortcut lets you **type in another language** straight into any text field, and
+shows a **whole window translated**. It uses
 **Google Translate** (free, no key) or an **AI model** with your own API key (Claude, GPT,
 Gemini, DeepSeek, OpenRouter or a local server), so it also covers languages Apple's built-in
 translator doesn't have, such as Latvian and Serbian. Without internet it translates on the
@@ -18,7 +20,11 @@ the Neural Engine for the languages Apple lacks.
 
 ## What you get
 
-- **A right-click menu item:** select text, right-click it and choose **Services → BTranslate**. You can also give it a keyboard shortcut.
+- **One shortcut, ⌃⌥T (yours to change), that does what fits where you are:**
+  - **Text is selected:** its translation, in the popup.
+  - **The cursor is in a text field, nothing selected:** a small panel opens under the cursor. What you type there, in any language, is written into the field in the language you choose, while you type. Return keeps it, Esc takes it out again.
+  - **Neither:** you choose a window, and get it back as a picture with every text in one language, whatever languages it was in.
+- **A right-click menu item** for the first of those: select text, right-click it and choose **Services → BTranslate**. It needs no permission at all.
 - **A popup, not another app:** the translation appears by the pointer. Esc, ⌘W or a click anywhere else closes it. Drag it if it's in the way.
 - **Three ways to translate, one click apart:**
   - **Google Translate:** free and instant, no account.
@@ -44,9 +50,16 @@ the Neural Engine for the languages Apple lacks.
   - The list starts with your Mac's own languages.
 - **Copy:** the copy button or ⌘C copies a translation (or the part you selected).
 - **In English and in Russian:** BTranslate's own windows, messages and language names follow your Mac's language, or the one you pick in the setup window. The installer does too.
-- **Small:** one native app of under 1 MB, no Dock icon, no menu bar icon, under 30 MB of memory while it waits.
+- **Small:** one native app of under 2 MB, no Dock icon, no menu bar icon. What reads a window's picture runs in a process of its own and is gone when it is done.
 
 ![Without internet](docs/popup-offline.png)
+
+A window in four languages, and the same window after the shortcut (here into Russian). The
+line that was in Russian already, and the numbers, are left as they were:
+
+![A window as it was](docs/window-before.png)
+
+![The same window, translated](docs/window-after.png)
 
 ## The language pack
 
@@ -94,7 +107,7 @@ From a checkout, run `./install.sh`.
 
 ![The setup window, Translation page](docs/settings.png)
 
-The setup window has two pages.
+The setup window has three pages.
 
 **Translation** asks:
 
@@ -123,15 +136,42 @@ The same page in Russian. A language is found by its Russian name, its English n
 
 ![Adding a language](docs/languages.png)
 
+**Shortcut** asks:
+
+1. **Which shortcut:** click the field and press the keys. ⌫ takes the shortcut away.
+2. **For your permission,** once: the shortcut reads what is selected in the app in front, and writes into its text fields, through macOS's Accessibility. **Open System Settings…** takes you to the switch.
+3. **Whether BTranslate opens when you log in.** The shortcut works only while BTranslate runs.
+
+![The setup window, Shortcut page](docs/settings-shortcut.png)
+
 To change any of it later, open BTranslate from Spotlight or Finder, or click the gear in
 the popup.
 
-### Keyboard shortcut
+### The shortcut
 
-System Settings → Keyboard → Keyboard Shortcuts… → Services → Text → **BTranslate**.
+**⌃⌥T** unless you choose another. It is a key by its place on the keyboard, so it is the
+same key in the Russian layout.
 
-If the menu item is missing in an app that was already open during the install, restart
-that app.
+- **What it needs:** your permission under System Settings → Privacy & Security → Accessibility, and BTranslate running (tick **Open BTranslate when I log in**). Until the permission is there, the shortcut opens the Shortcut page instead.
+- **After an update the permission has to be given again:** take BTranslate off the Accessibility list with **–** and add it again. macOS ties the permission to the exact build of an app that has no developer signature, and the installer builds a new one each time. With a signing identity of your own (`BTRANSLATE_SIGN_IDENTITY`) it stays.
+- **Typing in another language:**
+  - The panel remembers the language you chose. The method is the one BTranslate opens with.
+  - A finished sentence is translated once and stays as it is; only the one you are typing changes.
+  - With a keyboard layout that is one language's own (Russian, Ukrainian, Greek…) the text is taken for that language. With Latin letters the translator finds out itself.
+  - Some apps do not let another app write into their fields. There the panel shows the translation itself, and Return pastes it (the clipboard is put back as it was).
+  - Password fields are left alone.
+- **A window, translated:**
+  - You choose the window in macOS's own picker, the one screen sharing uses. BTranslate gets that one window, once, and never asks for the right to record the screen.
+  - The picture's texts are read on your Mac; only the texts go to the translation method, never the picture.
+  - macOS reads print in about 30 languages well. Others in Latin or Cyrillic letters (Latvian, Serbian) come out right for the most part; handwriting and tiny print may not.
+  - The first window after an install takes some twenty seconds longer: macOS makes its reader ready, once.
+  - The language menu under the picture translates it into another language; **Original** shows it as it was; **Copy** or ⌘C copies the picture.
+- **Where an app hides its text fields** (some browsers built on Chromium do, until an assistive app asks), the shortcut can't tell that the cursor is in one, and offers the window instead. Selected text still works there: it is taken with the app's own Copy command, and your clipboard is put back.
+- **Pressed again** while its popup, panel or picker is showing, the shortcut puts it away.
+
+The right-click menu item can have a shortcut of its own, from macOS: System Settings →
+Keyboard → Keyboard Shortcuts… → Services → Text → **BTranslate**. If the menu item is
+missing in an app that was already open during the install, restart that app.
 
 ## AI providers
 
@@ -150,6 +190,10 @@ fraction of a cent. You can type any other model name the provider offers.
 ## Privacy
 
 - **The text you translate** goes to the method you use for that popup: Google, or the AI provider you picked. With the Offline method it goes nowhere: macOS translates it on your Mac. Nothing else leaves your Mac, and BTranslate has no server, account or analytics of its own.
+- **The shortcut** looks at the app in front only at the moment you press it: at what is selected, and at whether the cursor is in a text field. Nothing is watched in between, and no key you press elsewhere is seen.
+- **What you type in the panel** goes to the method BTranslate opens with, sentence by sentence, as any text you translate does.
+- **A window's picture** stays on your Mac. macOS reads its texts there, and only those texts go to the translation method.
+- **A log of the shortcut,** `~/Library/Logs/BTranslate.log`, says which of its three things it did in which app, to find a fault by. It never holds a text: only its length.
 - **Reading aloud** uses your Mac's voices and sends nothing anywhere. Only when you press a speaker button for a language your Mac has no voice for, and Google's voice is turned on in the setup window, is that text sent to Google.
 - **The language pack** is downloaded from this project's releases on GitHub, and nothing is sent when it translates.
 - **Your API key** is stored in your Mac's login Keychain and is sent only to its provider.
@@ -191,7 +235,10 @@ There is no Xcode project and there are no dependencies: `swiftc` compiles the f
   - makes popups off screen (`BTranslate --popup-check`) and checks what they turn to: the second default, the methods on offer with and without an API key, the offer of the language pack and its download;
   - runs the installer's question about the language pack, with each answer;
   - takes the connection away (Google's address stops answering) and checks that the popup goes over to the Offline method, waits where it must, and translates when the connection is back. A stand-in answers for Apple's translation, so this runs on any Mac;
-  - makes speech with a Mac voice without playing it.
+  - makes speech with a Mac voice without playing it;
+  - checks the shortcut as the settings keep it, and its page of the setup window, where a click and three keys record one;
+  - types into the panel off screen, with a stand-in for the other app's text field: one that takes every writing, one that takes none, one that stops;
+  - draws a picture that stands for a window, has macOS read it, translates it through the mock server and checks which lines were put together, what was left alone, and the window that shows the result.
 - **The app's command line,** for trying things: `BTranslate --print --engine google --from lv --to Russian "Labdien"` prints a translation, and `BTranslate --speech-check lv "Labdien"` says which voice would read a text and plays it at volume zero, and `BTranslate --detect "Labdien"` shows what the language pack's detector, the Mac's recognizer and both together take a text for. `Sources/main.swift` lists the rest.
 - **The icon:** `swift tools/make-icon.swift` draws `Resources/AppIcon.icns`.
 - **The language list:** `python3 tools/update-languages.py` rewrites `Sources/Languages.swift` from Google's own list, in English and in Russian (one request each), for when Google adds languages.
@@ -203,6 +250,10 @@ There is no Xcode project and there are no dependencies: `swiftc` compiles the f
 ## How it works
 
 - **The menu item** is a macOS Service the app declares in its `Info.plist`. macOS hands it the selected text; no accessibility or screen permission is involved.
+- **The shortcut** is a hot key macOS itself listens for and tells the app about; that part needs no permission either.
+  - What is selected, and whether the cursor is in a text field, the app asks of the app in front through the Accessibility interface, with half a second's patience. Where an app does not say what is selected, its own Copy command is chosen in its menu (never a key press), and the clipboard is put back.
+  - **Typing** writes into the field through the same interface: the text before is selected and replaced, and only from the first letter that differs. The app then checks that it arrived. `BTranslate --ax-check` does this against a window of its own, with a Mac text view, a web page's `<textarea>` and an editable `<div>`.
+  - **A window's picture** comes from `SCContentSharingPicker`, the picker of ScreenCaptureKit: the choice is the permission. Vision reads the lines; lines of a paragraph are put together (a full line of several words, with the next right under it), while the rows of a list stay apart. All texts go to Google in one request, each from its own language; an AI model gets them as numbered lines. Each translation is painted over its original in letters of the same size (judged by the line's width, which macOS gives exactly) and colour, on the colour that was behind it.
 - **The popup** is a panel that does not activate its app, so your app keeps the front. The app stays running in the background after its first use, so later popups open at once.
 - **The Offline method** is Apple's Translation framework, which translates on the Mac, and the language pack for what Apple lacks.
   - Apple has about 25 languages, and not Latvian, Serbian or Croatian: those need the language pack (or an AI model of your own on the Mac: the Custom provider with Ollama, LM Studio or oMLX runs without internet too).

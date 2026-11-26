@@ -36,8 +36,15 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private let languageEditor = LanguageListEditor(width: 436)
     private let googleVoiceBox = NSButton(checkboxWithTitle: L("Read aloud with Google's voice where this Mac has none"), target: nil, action: nil)
     private let languageMenu = NSPopUpButton(frame: .zero, pullsDown: false)  // the language of BTranslate itself
-    // Two pages, so the window fits a small screen: how to translate, and into which languages.
-    private let pageControl = NSSegmentedControl(labels: [L("Translation"), L("Languages")], trackingMode: .selectOne, target: nil, action: nil)
+    // The shortcut that brings BTranslate up from any app, and what it needs.
+    let shortcutField = ShortcutField()
+    private let shortcutStatus = NSTextField(wrappingLabelWithString: "")
+    private let accessNote = NSTextField(wrappingLabelWithString: "")
+    private let accessButton = NSButton(title: L("Open System Settings…"), target: nil, action: nil)
+    private let loginBox = NSButton(checkboxWithTitle: L("Open BTranslate when I log in"), target: nil, action: nil)
+    private var accessTimer: Timer?
+    // Three pages, so the window fits a small screen: how to translate, into which languages, and the shortcut.
+    private let pageControl = NSSegmentedControl(labels: [L("Translation"), L("Languages"), L("Shortcut")], trackingMode: .selectOne, target: nil, action: nil)
     private var pages: [NSView] = []
 
     private var modelTask: Task<Void, Never>?
@@ -56,9 +63,14 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         NSApp.activate(ignoringOtherApps: true)
         window?.center()
         window?.makeKeyAndOrderFront(nil)
+        // The permission is given in System Settings, while this window is open: it shows it when it is.
+        accessTimer?.invalidate()
+        accessTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshAccess() }
+        }
     }
 
-    /// Shows one of the two pages; the window keeps its top edge and takes the page's height.
+    /// Shows one of the pages; the window keeps its top edge and takes the page's height.
     func showPage(_ index: Int) {
         guard pages.indices.contains(index) else { return }
         pageControl.selectedSegment = index
@@ -94,6 +106,10 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         showPage(1)
         return (first, window?.contentView?.fittingSize.height ?? 0)
     }
+
+    /// What the shortcut's page says about the permission (UI test).
+    var accessText: String { accessNote.stringValue }
+    var loginIsTicked: Bool { loginBox.state == .on }
 
     /// The "+" picker's content as it looks after typing `search` (UI test).
     func preparedPicker(search: String) -> NSView {
@@ -156,7 +172,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         let title = NSTextField(labelWithString: "BTranslate")
         title.font = .systemFont(ofSize: 20, weight: .bold)
         let intro = NSTextField(wrappingLabelWithString:
-            L("Select text in any app, right-click it and choose Services → BTranslate."))
+            L("Select text in any app and press the shortcut, or right-click it and choose Services → BTranslate."))
         pageControl.target = self
         pageControl.action = #selector(pageChanged)
 
@@ -294,9 +310,30 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         languages.setCustomSpacing(2, after: googleVoiceBox)
         languages.setCustomSpacing(14, after: voiceNote)
         languages.setCustomSpacing(12, after: line3)
-        pages = [translation, languages]
+        // Page 3: the shortcut, the permission it needs, and starting with the Mac.
+        let shortcutRow = NSStackView(views: [NSTextField(labelWithString: L("Shortcut:")), shortcutField])
+        shortcutRow.spacing = 8
+        shortcutField.onChange = { [weak self] in self?.shortcutChanged() }
+        let shortcutNote = caption(L("Press it in any app. With text selected, BTranslate translates it in its popup. With the cursor in a text field and nothing selected, it opens a small panel to type in: what you type there, in any language, is written into the field in the language you choose. Otherwise it has you choose a window, and shows it with every text translated."))
+        shortcutStatus.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        shortcutStatus.textColor = .systemRed
+        accessNote.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        accessButton.target = self
+        accessButton.action = #selector(openAccessSettings)
+        let loginNote = caption(L("The shortcut works only while BTranslate is running. The Services menu starts BTranslate by itself; the shortcut can't."))
+        let line4 = NSBox(), line5 = NSBox()
+        for line in [line4, line5] { line.boxType = .separator }
+        let shortcut = page([shortcutRow, shortcutStatus, shortcutNote, line4, accessNote, accessButton, line5, loginBox, loginNote])
+        shortcut.setCustomSpacing(4, after: shortcutRow)
+        shortcut.setCustomSpacing(4, after: shortcutStatus)
+        shortcut.setCustomSpacing(14, after: shortcutNote)
+        shortcut.setCustomSpacing(12, after: line4)
+        shortcut.setCustomSpacing(14, after: accessButton)
+        shortcut.setCustomSpacing(12, after: line5)
+        shortcut.setCustomSpacing(2, after: loginBox)
+        pages = [translation, languages, shortcut]
 
-        let stack = NSStackView(views: [title, intro, pageControl, translation, languages, line2, buttons])
+        let stack = NSStackView(views: [title, intro, pageControl, translation, languages, shortcut, line2, buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
@@ -304,6 +341,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         stack.setCustomSpacing(16, after: pageControl)
         stack.setCustomSpacing(16, after: translation)
         stack.setCustomSpacing(16, after: languages)
+        stack.setCustomSpacing(16, after: shortcut)
         stack.setCustomSpacing(14, after: line2)
         stack.edgeInsets = NSEdgeInsets(top: 20, left: 22, bottom: 18, right: 22)
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -317,7 +355,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             content.widthAnchor.constraint(equalToConstant: width),
         ])
-        for view in [intro, googleNote, aiNote, deviceNote, packNote, voiceNote, grid, line1, line2, line3, buttons, translation, languages] as [NSView] {
+        for view in [intro, googleNote, aiNote, deviceNote, packNote, voiceNote, grid, line1, line2, line3, buttons, translation, languages,
+                     shortcut, shortcutNote, shortcutStatus, accessNote, loginNote, line4, line5] as [NSView] {
             view.widthAnchor.constraint(equalToConstant: inner).isActive = true
         }
         // The first column fits its widest label (they are longer in some languages) and the Test button.
@@ -338,6 +377,12 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     // MARK: Showing the saved settings
 
     private func fill() {
+        shortcutField.shortcut = config.shortcut
+        shortcutStatus.stringValue = ""
+        shortcutStatus.isHidden = true
+        loginBox.state = LoginItem.isOn ? .on : .off
+        accessButton.isHidden = !Accessibility.isAllowed  // (refreshAccess goes by a change of it)
+        refreshAccess()
         AISetup.forget()  // a key may have come or gone since the window was last open
         googleBox.state = config.googleEnabled ? .on : .off
         aiBox.state = config.aiEnabled ? .on : .off
@@ -484,8 +529,40 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     }
 
     /// The settings as the window shows them now.
+    // MARK: The shortcut's page
+
+    /// What the page says about the permission, as it stands now.
+    private func refreshAccess() {
+        let allowed = Accessibility.isAllowed
+        accessNote.stringValue = allowed
+            ? L("✓ macOS lets BTranslate read the selected text of the app in front, and write into its text fields.")
+            : L("The shortcut needs your permission. BTranslate reads the selected text of the app in front, and writes into its text fields, through macOS's Accessibility: turn BTranslate on in System Settings → Privacy & Security → Accessibility. If it is on there already and this still says so, take BTranslate off that list with “–” and add it again: macOS drops the permission when the app is updated.")
+        accessNote.textColor = allowed ? .secondaryLabelColor : .labelColor
+        let hide = allowed
+        if accessButton.isHidden != hide {
+            accessButton.isHidden = hide
+            if pageControl.selectedSegment == 2 { showPage(2) }  // the page's height has changed
+        }
+    }
+
+    @objc private func openAccessSettings() {
+        Accessibility.ask()  // macOS puts BTranslate on its list, to be turned on there
+        Accessibility.openSystemSettings()
+    }
+
+    private func shortcutChanged() {
+        if let wanted = shortcutField.shortcut, !HotkeyCenter.shared.isFree(wanted) {
+            shortcutStatus.stringValue = L("macOS would not have %@ as a shortcut. Choose another one.", wanted.text)
+        } else {
+            shortcutStatus.stringValue = ""
+        }
+        shortcutStatus.isHidden = shortcutStatus.stringValue.isEmpty
+        if pageControl.selectedSegment == 2 { showPage(2) }
+    }
+
     private func draft() -> Config {
         var c = config
+        c.shortcut = shortcutField.shortcut
         c.googleEnabled = googleBox.state == .on
         c.aiEnabled = aiBox.state == .on
         if OnDevice.isAvailable { c.deviceEnabled = deviceBox.state == .on }
@@ -596,10 +673,23 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             setStatus(L("The key could not be saved to the Keychain."), color: .systemRed)
             return
         }
+        if let wanted = c.shortcut, !HotkeyCenter.shared.isFree(wanted) {
+            showPage(2)
+            shortcutChanged()
+            return
+        }
+        if (loginBox.state == .on) != LoginItem.isOn, let why = LoginItem.set(loginBox.state == .on) {
+            showPage(2)
+            shortcutStatus.stringValue = L("macOS did not change the login items: %@", why)
+            shortcutStatus.isHidden = false
+            showPage(2)
+            return
+        }
         AISetup.forget()
         let languageChanged = c.languageChoice != config.languageChoice
         c.save()
         config = c
+        (NSApp.delegate as? AppDelegate)?.useShortcut()
         window?.close()
         // The app takes its language when it starts: start it anew, in the background.
         if languageChanged { (NSApp.delegate as? AppDelegate)?.restart() }
@@ -610,6 +700,9 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     }
 
     func windowWillClose(_ notification: Notification) {
+        accessTimer?.invalidate()
+        accessTimer = nil
+        shortcutField.stop()
         modelTask?.cancel()
         testTask?.cancel()
         languageEditor.picker.popover.close()
