@@ -79,7 +79,7 @@
 //                                                                   standard input, its lines as JSON
 //   BTranslate --prepare-reading                                    have macOS make its reader of
 //                                                                   pictures ready (the installer does)
-//   open -n -g BTranslate.app --stdout FILE --args --ax-check appkit|textarea|editable
+//   open -n -g BTranslate.app --stdout FILE --args --ax-check appkit|input|textarea[-empty]|editable[-full]
 //                                                                   write into a real text field of
 //                                                                   another process (a small window of
 //                                                                   BTranslate's own, shown for a few
@@ -1026,6 +1026,13 @@ if arguments.contains("--selftest") {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         AXTarget.shared = AXTarget(kind: kind, file: arguments.last ?? "")
+        app.run()
+    }
+} else if let kind = argument(after: "--ax-probe") {
+    MainActor.assumeIsolated {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        Task { @MainActor in exit(await runAXProbe(kind)) }
         app.run()
     }
 } else if let kind = argument(after: "--ax-check") {

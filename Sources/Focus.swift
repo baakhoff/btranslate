@@ -336,9 +336,20 @@ final class AXField: TextSink {
     let element: AXUIElement
     let app: NSRunningApplication?
     private let writable: Bool
+
+    /// How this field takes text. Found out with the first writing.
+    private enum Way {
+        case selection  // what was written before is selected and replaced: a Mac's own text fields
+        case whole      // the field's whole text is set anew: the way text fields of web pages take it
+    }
+    private var way: Way?
     private var start: Int?      // where the written text begins, in UTF-16 units
     private(set) var written = ""
     private var length: Int?     // the field's whole length after the last writing, if it says
+    // The field's text around the cursor as it was found (for the `whole` way); nil: the field does not say.
+    private var around: (before: String, after: String)?
+    /// A writing that was not seen to arrive in time. A slow app may have taken it all the same.
+    private var unseen: (text: String, whole: String)?
 
     init(element: AXUIElement, app: NSRunningApplication?, writable: Bool = true) {
         self.element = element
@@ -366,10 +377,69 @@ final class AXField: TextSink {
         return NSRect(x: frame.minX, y: frame.minY, width: 0, height: frame.height)
     }
 
+    /// A text field of a web page (in a browser, or in an app made of web pages): those
+    /// answer to questions about "text markers", which a Mac's own fields do not know.
+    private lazy var isWeb: Bool = {
+        var names: CFArray?
+        AXUIElementCopyParameterizedAttributeNames(element, &names)
+        return ((names as? [String]) ?? []).contains("AXStringForTextMarkerRange")
+    }()
+
+    /// Texts alike but for their blanks: a web page turns spaces into no-break spaces and drops some at an end.
+    nonisolated static func alike(_ a: String?, _ b: String) -> Bool {
+        func plain(_ text: String) -> String {
+            text.replacingOccurrences(of: "\u{a0}", with: " ").split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+        guard let a else { return false }
+        return plain(a) == plain(b)
+    }
+
     func write(_ text: String) async -> Bool {
         if text == written { return true }
-        guard writable, let caret = element.range(kAXSelectedTextRangeAttribute) else { return false }
-        if start == nil { start = caret.location }
+        guard writable else { return false }
+        if let way {
+            switch way {
+            case .selection: return await writeOverSelection(text)
+            case .whole: return await writeWhole(text)
+            }
+        }
+        if arrivedLate() { return await writeWhole(text) }
+        guard unseen == nil, let caret = element.range(kAXSelectedTextRangeAttribute) else { return false }
+        if start == nil {
+            start = caret.location
+            if let whole = element.text(kAXValueAttribute) as NSString?, caret.location + caret.length <= whole.length {
+                around = (whole.substring(to: caret.location), whole.substring(from: caret.location + caret.length))
+            }
+        }
+        // A Mac's own field takes a replaced selection. A web page's field says yes to that and
+        // does nothing (or worse): there the whole text is set, where that can do no harm.
+        let kind = "\(element.text(kAXRoleAttribute) ?? "?")\(isWeb ? ", a web page's" : "")"
+        if !isWeb, await writeOverSelection(text) {
+            way = .selection
+            Log.note("typing: written over the selection (\(kind))")
+            return true
+        }
+        if written.isEmpty, mayWriteWhole, await writeWhole(text) {
+            way = .whole
+            Log.note("typing: written as the field's whole text (\(kind))")
+            return true
+        }
+        Log.note("typing: not written while typed (\(kind), \(mayWriteWhole ? "it did not take it" : "it has a text in it already, or does not let its text be set"))")
+        return false
+    }
+
+    /// Setting a field's whole text makes plain text of it. That loses nothing in a field of
+    /// plain text; in an editor of a web page it would flatten what is written there already,
+    /// so there it is done only when nothing is.
+    private var mayWriteWhole: Bool {
+        guard let around, element.canSet(kAXValueAttribute) else { return false }
+        if !isWeb { return true }
+        let role = element.text(kAXRoleAttribute) ?? ""
+        if role == kAXTextFieldRole || role == kAXComboBoxRole { return true }  // one line: plain by nature
+        return (around.before + around.after).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func writeOverSelection(_ text: String) async -> Bool {
         guard let start else { return false }
         var old = (written as NSString).length
         // Has the app changed the field since (a correction of its own)? Then its length says by how much.
@@ -385,11 +455,11 @@ final class AXField: TextSink {
         let rest = (text as NSString).substring(from: keep)
         guard element.select(CFRange(location: start + keep, length: old - keep)),
               element.set(kAXSelectedTextAttribute, rest as CFString) else { return false }
-        // Has it arrived? The cursor is then right behind it. (A web page takes it a moment later.)
+        // Has it arrived? The cursor is then right behind it, and the field holds it.
         let end = start + (text as NSString).length
         for attempt in 0..<8 {
-            if element.range(kAXSelectedTextRangeAttribute)?.location == end
-                || element.string(in: CFRange(location: start, length: end - start)) == text && !text.isEmpty {
+            let there = element.string(in: CFRange(location: start, length: end - start))
+            if element.range(kAXSelectedTextRangeAttribute)?.location == end, there == nil || there == text {
                 written = text
                 length = element.raw(kAXNumberOfCharactersAttribute) as? Int
                 return true
@@ -397,6 +467,32 @@ final class AXField: TextSink {
             if attempt < 7 { try? await Task.sleep(nanoseconds: 30_000_000) }
         }
         return false
+    }
+
+    private func writeWhole(_ text: String) async -> Bool {
+        guard let start, let around else { return false }
+        let whole = around.before + text + around.after
+        guard element.set(kAXValueAttribute, whole as CFString) else { return false }
+        for attempt in 0..<14 {  // a web page takes it a moment later
+            if AXField.alike(element.text(kAXValueAttribute), whole) {
+                written = text
+                unseen = nil
+                element.select(CFRange(location: start + (text as NSString).length, length: 0))  // the cursor behind what was written
+                return true
+            }
+            if attempt < 13 { try? await Task.sleep(nanoseconds: 50_000_000) }
+        }
+        unseen = (text, whole)
+        return false
+    }
+
+    /// Whether a writing that was not seen to arrive has arrived after all.
+    private func arrivedLate() -> Bool {
+        guard let unseen, AXField.alike(element.text(kAXValueAttribute), unseen.whole) else { return false }
+        written = unseen.text
+        way = .whole
+        self.unseen = nil
+        return true
     }
 
     /// How many UTF-16 units two texts begin alike with, never cutting a letter in two.
@@ -411,6 +507,8 @@ final class AXField: TextSink {
 
     func paste(_ text: String) async {
         guard !text.isEmpty else { return }
+        // A slow app may have taken a writing after all: then pasting would put the text there twice.
+        if arrivedLate(), await writeWhole(text) { return }
         let kept = Clipboard.contents()
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()

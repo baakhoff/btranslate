@@ -301,12 +301,18 @@ func runPictureWindowCheck(_ file: String) {
 
 /// A small window with a text field in it, for --ax-check to write into: it stands for
 /// another app. Every tenth of a second it writes what its field holds into FILE.
-///   appkit     a Mac text view
-///   textarea   a web page's <textarea>
-///   editable   a web page's editable <div>, as chat pages have
+///   appkit           a Mac text view
+///   input            a web page's one-line <input>
+///   textarea-empty   a web page's <textarea>, empty
+///   textarea         the same with a text in it already
+///   editable         a web page's editable <div>, as chat pages have, empty
+///   editable-full    the same with a text in it already
+/// Those that are not empty hold "before -- after", with the cursor between the dashes.
 @MainActor
 final class AXTarget: NSObject {
     static var shared: AXTarget?
+    static let text = "before -- after"
+    static let cursor = 8
     private let window = NSPanel(contentRect: NSRect(x: 40, y: 80, width: 380, height: 110),
                                  styleMask: [.titled, .nonactivatingPanel], backing: .buffered, defer: false)
     private let kind: String
@@ -324,16 +330,22 @@ final class AXTarget: NSObject {
         if kind == "appkit" {
             text.frame = content.bounds.insetBy(dx: 10, dy: 10)
             text.font = .systemFont(ofSize: 14)
-            text.string = "before  after"
-            text.setSelectedRange(NSRange(location: 7, length: 0))
+            text.string = AXTarget.text
+            text.setSelectedRange(NSRange(location: AXTarget.cursor, length: 0))
             content.addSubview(text)
             window.contentView = content
             window.makeFirstResponder(text)
         } else {
             let page = WKWebView(frame: content.bounds.insetBy(dx: 10, dy: 10))
-            let field = kind == "textarea"
-                ? "<textarea id=t style='width:330px;height:70px;font:14px -apple-system'>before  after</textarea>"
-                : "<div id=t contenteditable style='width:330px;height:70px;font:14px -apple-system;border:1px solid #999'>before  after</div>"
+            let look = "width:330px;font:14px -apple-system"
+            let field: String
+            switch kind {
+            case "textarea": field = "<textarea id=t style='\(look);height:70px'>\(AXTarget.text)</textarea>"
+            case "textarea-empty": field = "<textarea id=t style='\(look);height:70px'></textarea>"
+            case "input": field = "<input id=t style='\(look)' value='\(AXTarget.text)'>"
+            case "editable": field = "<div id=t contenteditable style='\(look);height:70px;border:1px solid #999'></div>"
+            default: field = "<div id=t contenteditable style='\(look);height:70px;border:1px solid #999'>\(AXTarget.text)</div>"
+            }
             page.loadHTMLString("<html><body style='margin:0'>\(field)<script>var t=document.getElementById('t');t.focus();</script></body></html>", baseURL: nil)
             content.addSubview(page)
             window.contentView = content
@@ -364,6 +376,11 @@ final class AXTarget: NSObject {
 /// It needs the Accessibility permission, which belongs to the installed app:
 ///   open -n -g ~/Applications/BTranslate.app --stdout FILE --args --ax-check appkit
 /// Without the permission it says so and does nothing.
+///
+/// What is right: a Mac's field, a web page's one-line field and its boxes that are empty take
+/// each writing, and hold just that between what was there. A web page's box with a text in
+/// it (`textarea`, `editable-full`) must refuse and keep its text as it was: the two can't be
+/// told apart, and writing would flatten what an editor holds.
 @MainActor
 func runAXCheck(_ kind: String) async -> Int32 {
     beginCheck()
@@ -410,35 +427,146 @@ func runAXCheck(_ kind: String) async -> Int32 {
         return 1
     }
     await pause(0.3)
+    let empty = kind == "editable" || kind == "textarea-empty", refuses = kind == "editable-full" || kind == "textarea"
+    let whole = AXTarget.text as NSString
+    let before = empty ? "" : whole.substring(to: AXTarget.cursor), after = empty ? "" : whole.substring(from: AXTarget.cursor)
     print("field: \(element.text(kAXRoleAttribute) ?? "?"), holds \"\(held())\"")
+    if arguments.contains("--describe") {  // what the field says of itself: to tell kinds of fields apart by
+        var names: CFArray?
+        AXUIElementCopyAttributeNames(element, &names)
+        print("   attributes: \(((names as? [String]) ?? []).sorted().joined(separator: " "))")
+        print("   subrole: \(element.text(kAXSubroleAttribute) ?? "none"); described as: \(element.text(kAXRoleDescriptionAttribute) ?? "none"); "
+              + "children: \(element.children().map { $0.text(kAXRoleAttribute) ?? "?" }.joined(separator: ", "))")
+        for name in ["AXEditableAncestor", "AXHighestEditableAncestor", "AXDOMClassList", "AXARIARole", "AXHasDocumentRoleAncestor", "AXIsMultiline", "AXTextInputMarkedRange"] {
+            if let value = element.raw(name) { print("   \(name): \(CFGetTypeID(value) == AXUIElementGetTypeID() ? "an element" : "\(value)")") }
+        }
+    }
     var failures = 0
 
     // What is selected, as the shortcut reads it.
-    element.select(CFRange(location: 0, length: 6))
-    await pause(0.2)
-    let selection = element.text(kAXSelectedTextAttribute)
-    print("selected text read: \(selection ?? "nothing") \(selection == "before" ? "(right)" : "(WRONG)")")
-    if selection != "before" { failures += 1 }
-    let place = element.range(kAXSelectedTextRangeAttribute).flatMap { element.frame(of: $0) }
-    print("its place on the screen: \(place.map { "\(Int($0.minX)), \(Int($0.minY)), \(Int($0.width))x\(Int($0.height))" } ?? "not told")")
+    if !empty {
+        element.select(CFRange(location: 0, length: 6))
+        await pause(0.2)
+        let selection = element.text(kAXSelectedTextAttribute)
+        print("selected text read: \(selection ?? "nothing") \(selection == "before" ? "(right)" : "(WRONG)")")
+        if selection != "before" { failures += 1 }
+        let place = element.range(kAXSelectedTextRangeAttribute).flatMap { element.frame(of: $0) }
+        print("its place on the screen: \(place.map { "\(Int($0.minX)), \(Int($0.minY)), \(Int($0.width))x\(Int($0.height))" } ?? "not told")")
+    }
 
     // Writing at the cursor, as the typing panel does: each text takes the place of the one before.
-    element.select(CFRange(location: 7, length: 0))
+    element.select(CFRange(location: empty ? 0 : AXTarget.cursor, length: 0))
     await pause(0.2)
     let field = AXField(element: element, app: NSRunningApplication(processIdentifier: target.processIdentifier),
                         writable: element.canSet(kAXValueAttribute) || element.canSet(kAXSelectedTextAttribute))
     print("the cursor's place: \(field.place.map { "\(Int($0.minX)), \(Int($0.minY))" } ?? "not told")")
-    for text in ["Hello", "Hello, wor", "Hello, world!", "Hello, world! Привет 👋", "Hello", ""] {
+    for text in ["Hello", "Hello, wor", "Hello, world!", "Hello, world! Привет 👋", "Hello. Second sentence", ""] {
         let taken = await field.write(text)
         await pause(0.25)
-        let now = held().replacingOccurrences(of: "\u{a0}", with: " ").trimmingCharacters(in: .newlines)
-        let right = now == "before \(text) after"
-        print("write \"\(text)\": \(taken ? "taken" : "NOT taken"); the field holds \"\(now)\" \(right ? "(right)" : "(WRONG)")")
-        if !taken || !right { failures += 1 }
+        let now = held()
+        let right = refuses ? !taken && AXField.alike(now, AXTarget.text) : taken && AXField.alike(now, before + text + after)
+        let cursor = element.range(kAXSelectedTextRangeAttribute)?.location
+        let behind = refuses || cursor == (before as NSString).length + (text as NSString).length
+        print("write \"\(text)\": \(taken ? "taken" : "not taken"); the field holds \"\(now.trimmingCharacters(in: .newlines))\" "
+              + "\(right ? "(right)" : "(WRONG)")\(behind ? "" : ", the cursor is not behind it (WRONG: at \(cursor.map(String.init) ?? "?"))")")
+        if !right || !behind { failures += 1 }
+        if refuses { break }  // the panel asks no more of a field that refused
     }
     print("app in front before and after: \(front) / \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "?")")
     print(failures == 0 ? "ax-check \(kind): ok" : "ax-check \(kind): \(failures) FAILED")
     return failures == 0 ? 0 : 1
+}
+
+/// Tries each way macOS has of writing into a text field on a window of BTranslate's own
+/// (see AXTarget), a fresh one for each way, and prints what the field held afterwards: to
+/// find out which way a kind of field takes. Run like --ax-check; needs the permission.
+@MainActor
+func runAXProbe(_ kind: String) async -> Int32 {
+    beginCheck()
+    guard AXIsProcessTrusted() else {
+        print("skipped: this copy of BTranslate has no Accessibility permission")
+        return 2
+    }
+    func pause(_ seconds: Double) async { try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+    func find(_ element: AXUIElement, depth: Int = 0) -> AXUIElement? {
+        let role = element.text(kAXRoleAttribute) ?? ""
+        if [kAXTextAreaRole, kAXTextFieldRole].contains(role) { return element }
+        guard depth < 14 else { return nil }
+        for child in element.children() {
+            if let found = find(child, depth: depth + 1) { return found }
+        }
+        return nil
+    }
+    func value(_ range: CFRange) -> AXValue {
+        var range = range
+        return AXValueCreate(.cfRange, &range)!
+    }
+    // Each way: put "Hello" at the cursor, then "Hello, world!" in its place, then take it out.
+    typealias Way = (name: String, write: (AXUIElement, CFRange, String) -> Bool)
+    let ways: [Way] = [
+        ("select, then set the selected text", { element, range, text in
+            element.select(range) && element.set(kAXSelectedTextAttribute, text as CFString)
+        }),
+        ("AXReplaceRangeWithText", { element, range, text in
+            element.answer("AXReplaceRangeWithText", ["AXRange": value(range), "AXString": text] as CFDictionary) != nil
+        }),
+        ("select, then AXInsertText", { element, range, text in
+            element.select(range) && element.answer("AXInsertText", text as CFString) != nil
+        }),
+        ("set the whole value", { element, range, text in
+            guard let whole = element.text(kAXValueAttribute) else { return false }
+            let made = (whole as NSString).replacingCharacters(in: NSRange(location: range.location, length: range.length), with: text)
+            return element.set(kAXValueAttribute, made as CFString)
+        }),
+    ]
+    for (number, way) in ways.enumerated() {
+        let file = NSTemporaryDirectory() + "btranslate-probe-\(ProcessInfo.processInfo.processIdentifier)-\(number).txt"
+        let target = Process()
+        target.executableURL = Bundle.main.executableURL
+        target.arguments = ["--ax-target", kind, file]
+        guard (try? target.run()) != nil else { continue }
+        defer {
+            target.terminate()
+            try? FileManager.default.removeItem(atPath: file)
+        }
+        func held() -> String {
+            ((try? String(contentsOfFile: file, encoding: .utf8)) ?? "?").replacingOccurrences(of: "\u{a0}", with: " ").trimmingCharacters(in: .newlines)
+        }
+        let app = AXUIElementCreateApplication(target.processIdentifier)
+        AXUIElementSetMessagingTimeout(app, 1)
+        var element: AXUIElement?
+        for _ in 0..<50 where element == nil {
+            await pause(0.1)
+            element = app.children(kAXWindowsAttribute).lazy.compactMap { find($0) }.first
+        }
+        guard let element else {
+            print("\(way.name): no text field found")
+            continue
+        }
+        await pause(0.3)
+        if number == 0 {
+            var names: CFArray?
+            AXUIElementCopyParameterizedAttributeNames(element, &names)
+            print("the field answers to: \(((names as? [String]) ?? []).joined(separator: ", "))")
+            print("it lets these be set: \(["AXValue", "AXSelectedText", "AXSelectedTextRange"].filter { element.canSet($0) }.joined(separator: ", "))")
+        }
+        element.select(CFRange(location: AXTarget.cursor, length: 0))
+        await pause(0.2)
+        var steps: [String] = []
+        let at = AXTarget.cursor
+        for (range, text) in [(CFRange(location: at, length: 0), "Hello"), (CFRange(location: at, length: 5), "Hello, world!"), (CFRange(location: at, length: 13), "")] {
+            let said = way.write(element, range, text)
+            await pause(0.35)
+            let caret = element.range(kAXSelectedTextRangeAttribute)
+            steps.append("\(said ? "ok" : "refused") → \"\(held())\" (cursor \(caret.map { "\($0.location)+\($0.length)" } ?? "?"), value \"\(element.text(kAXValueAttribute) ?? "?")\")")
+        }
+        print("\(way.name):")
+        for step in steps { print("   \(step)") }
+        target.terminate()
+        await pause(0.2)
+    }
+    print("ax-probe \(kind): done")
+    return 0
 }
 
 // MARK: - Checks that need nothing (part of --selftest)
@@ -477,6 +605,9 @@ func shortcutSelfTest() -> [String] {
     expect("field: nothing alike", AXField.sharedStart("abc", "xbc") == 0)
     expect("field: counted in UTF-16 units, a letter never cut in two",
            AXField.sharedStart("Привет 👋 мир", "Привет 👋🏽 мир") == 7 && AXField.sharedStart("e\u{301}a", "eb") == 0)
+
+    expect("field: texts alike but for their blanks", AXField.alike("Hello,\u{a0}world \n", "Hello, world") && !AXField.alike("Hello world", "Helloworld")
+           && !AXField.alike(nil, ""))
 
     // A model's answer to many texts at once.
     let answer = parseNumbered("1| Привет\n 2 |  Открыть файл\nnoise\n4| a | b\n")
