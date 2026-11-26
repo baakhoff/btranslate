@@ -16,6 +16,15 @@
 //   BTranslate --offline [FROM TO]                                  say whether this Mac has the Offline
 //                                                                   method, its languages, and whether
 //                                                                   a pair of them is downloaded
+//   BTranslate --pack                                               say whether the NLLB-200 language
+//                                                                   pack is installed, and where
+//   BTranslate --pack-install | --pack-remove                       download and install it (from
+//                                                                   BTRANSLATE_PACK_URL if set), or remove it
+//   BTranslate --pack-check FILE                                    check the pack's tokenizer against
+//                                                                   Meta's (tests/nllb-tokens.json), and
+//                                                                   that the model is let go after a translation
+//   BTranslate --pack-languages                                     which of Google's languages the pack
+//                                                                   has, and under which of its codes
 //   BTranslate --download-check                                     the Download button's way to macOS,
 //                                                                   without a download: for English and
 //                                                                   German, if both are there already,
@@ -47,7 +56,8 @@
 //   Env: BTRANSLATE_PROVIDER, BTRANSLATE_MODEL, BTRANSLATE_BASE_URL, BTRANSLATE_API_KEY,
 //        BTRANSLATE_GOOGLE_URL override the saved settings; BTRANSLATE_LANGUAGE=en|ru sets
 //        the language of BTranslate's own texts (and of what these modes print from them);
-//        BTRANSLATE_OFFLINE=mock stands in for Apple's translation (Sources/OnDevice.swift).
+//        BTRANSLATE_OFFLINE=mock stands in for Apple's translation (Sources/OnDevice.swift);
+//        BTRANSLATE_PACK_DIR is where the language pack is kept instead of Application Support.
 
 import Cocoa
 
@@ -517,6 +527,75 @@ if arguments.contains("--selftest") {
     let ok = russian && theMacs && chosenInterfaceLanguage() == was
     print(ok ? "language choice: ok" : "language choice FAILED (Russian chosen: \(russian), the Mac's again: \(theMacs))")
     exit(ok ? 0 : 1)
+} else if arguments.contains("--pack-languages") {
+    for (code, name) in googleLanguages {
+        print("\(code)\t\(NLLBLanguage.code(code) ?? "-")\t\(name)")
+    }
+    exit(0)
+} else if arguments.contains("--pack") {
+    if let pack = LanguagePack.installed() {
+        print("language pack: installed, version \(pack.version), \(pack.languages.count) languages, sentences of up to \(pack.length) tokens")
+    } else {
+        print("language pack: not installed")
+    }
+    print("folder: \(LanguagePack.folder.path)")
+    exit(0)
+} else if arguments.contains("--pack-remove") {
+    LanguagePack.remove()
+    print("language pack: removed")
+    exit(0)
+} else if arguments.contains("--pack-install") {
+    runHeadless {
+        let installer = PackInstaller.shared
+        var said = ""
+        installer.onChange = {
+            var line = ""
+            switch installer.state {
+            case .downloading(let done, let total): line = total > 0 ? "downloading: \(done * 10 / total * 10)%" : ""
+            case .preparing: line = "preparing the model for the Neural Engine"
+            default: break
+            }
+            if !line.isEmpty, line != said { print(line); said = line }
+        }
+        installer.start()
+        while installer.isBusy { try? await Task.sleep(nanoseconds: 100_000_000) }
+        switch installer.state {
+        case .installed: print("language pack: installed"); return 0
+        case .failed(let why): print("language pack: FAILED: \(why)"); return 1
+        default: print("language pack: not installed (\(installer.state))"); return 1
+        }
+    }
+} else if let file = argument(after: "--pack-check") {
+    runHeadless {
+        struct Case: Decodable { let text: String; let ids: [Int32]; let back: String }
+        guard let manifest = LanguagePack.installed() else { print("pack check: skipped (the language pack is not installed)"); return 0 }
+        guard let cases = (try? Data(contentsOf: URL(fileURLWithPath: file))).flatMap({ try? JSONDecoder().decode([Case].self, from: $0) }) else {
+            print("pack check: can't read \(file)"); return 1
+        }
+        do {
+            let started = Date()
+            let tokenizer = try NLLBTokenizer(file: LanguagePack.folder.appendingPathComponent("tokens.tsv"), unknown: manifest.unknown)
+            let loaded = Date().timeIntervalSince(started)
+            var wrong = 0
+            for item in cases {
+                let ids = tokenizer.encode(item.text), back = tokenizer.decode(item.ids)
+                if ids != item.ids || back != item.back {
+                    wrong += 1
+                    print("DIFFERENT: \(item.text.debugDescription)\n   mine \(ids)\n   Meta \(item.ids)\n   back \(back.debugDescription) / \(item.back.debugDescription)")
+                }
+            }
+            print(String(format: "tokenizer: %d of %d texts as Meta's tokenizer has them (vocabulary read in %.2f s)", cases.count - wrong, cases.count, loaded))
+            // A translation, and then the model must be gone again.
+            let started2 = Date()
+            let text = try await NLLBEngine.shared.translate("Sveiki! Vai jūs varētu pateikt, cikos rīt sākas sapulce?", from: "lvs_Latn", to: "rus_Cyrl") { _ in }
+            print(String(format: "translation (%.1f s): %@", Date().timeIntervalSince(started2), text))
+            print("model let go after the translation: \(NLLBEngine.shared.isLoaded ? "NO" : "yes")")
+            return wrong == 0 && !NLLBEngine.shared.isLoaded && !text.isEmpty ? 0 : 1
+        } catch {
+            print("pack check: FAILED: \(describe(error))")
+            return 1
+        }
+    }
 } else if arguments.contains("--offline") {
     runHeadless {
         guard OnDevice.isAvailable else {

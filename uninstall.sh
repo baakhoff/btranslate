@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Removes BTranslate: the app, its Services menu item, its settings and its saved API keys.
+# Removes BTranslate: the app, its Services menu item, its settings, its language pack and
+# its saved API keys.
 #   ./uninstall.sh              remove everything
 #   ./uninstall.sh --keep-keys  leave the API keys in the Keychain
 set -euo pipefail
@@ -27,6 +28,11 @@ if [ -d "$APP" ]; then
 fi
 /System/Library/CoreServices/pbs -update
 defaults delete "$BUNDLE_ID" 2>/dev/null && t "Removed the settings" "Настройки удалены" || true
+SUPPORT="$HOME/Library/Application Support/BTranslate"
+if [ -d "$SUPPORT" ]; then
+    rm -rf "$SUPPORT"
+    t "Removed the language pack" "Языковой пакет удален"
+fi
 
 if [ "${1:-}" != "--keep-keys" ]; then
     for provider in anthropic openai gemini deepseek openrouter custom; do

@@ -11,6 +11,9 @@
                         when there is no connection; after that it is /google. "x" is any
                         name: each name counts its own requests
   /speech/...           Google Translate's voice (the page's own batchexecute call)
+  /pack/...             a miniature language pack: its list of files and two small files,
+                        with checksums; a request for part of a file ("Range") gets that part
+  /pack-damaged/...     the same, but one file is not what the list says
 Every request is logged as one JSON line on stdout.
 """
 import json
@@ -18,10 +21,17 @@ import re
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import base64
+import hashlib
 from urllib.parse import parse_qs, urlparse
 
 PIECES = ["[", "lv", "]\n", "Hello! ", "How are ", "you?\nSecond line."]
 CUT_OFF = {}  # "googleflaky2-x" → how many requests it has cut off so far
+# The miniature language pack: no models, so installing it is downloading and checking only.
+PACK = {"nllb200-v1-tokens.tsv": "<s>\t\n<pad>\t\n</s>\t\n<unk>\t\n▁a\t-0.0\nb\t-1.0\n".encode(),
+        "nllb200-v1-note.txt": b"A stand-in for a model's weights. " * 400}
+PACK_LIST = {"version": 1, "length": 64, "pad": 1, "end": 2, "unknown": 3, "languages": ["eng_Latn", "rus_Cyrl"],
+             "files": [{"name": name, "path": name.replace("nllb200-v1-", ""), "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+                       for name, data in PACK.items()]}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -55,8 +65,24 @@ class Handler(BaseHTTPRequestHandler):
         }, sort_keys=True, ensure_ascii=False), flush=True)
 
     def do_GET(self):
-        self.record(None)
-        if self.path.startswith("/anthropic/models"):
+        self.record({"range": self.headers.get("Range")} if self.path.startswith("/pack") else None)
+        name = self.path.rsplit("/", 1)[-1]
+        if self.path.startswith("/pack") and name == "nllb200-v1-pack.json":
+            self.reply(200, PACK_LIST)
+        elif self.path.startswith("/pack") and name in PACK:
+            data = PACK[name]
+            if self.path.startswith("/pack-damaged") and name.endswith("note.txt"):
+                data = data[:-1] + b"!"  # the right length, the wrong content
+            start = int((self.headers.get("Range") or "bytes=0-")[6:].split("-")[0])
+            if start >= len(data):
+                self.send_response(416)
+                self.end_headers()
+                return
+            self.send_response(206 if start else 200)
+            self.send_header("Content-Length", str(len(data) - start))
+            self.end_headers()
+            self.wfile.write(data[start:])
+        elif self.path.startswith("/anthropic/models"):
             self.reply(200, {"data": [{"id": "claude-haiku-5-5"}, {"id": "claude-sonnet-5-5"}]})
         elif self.path.startswith("/openai/models"):
             self.reply(200, {"data": [{"id": "models/zeta"}, {"id": "alpha"}]})

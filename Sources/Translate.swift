@@ -39,13 +39,20 @@ func describe(_ error: Error) -> String {
     case TranslateError.other(let s):
         return s
     case OfflineError.needsNewerMac:
-        return L("Offline translation needs macOS 26 or later.")
+        return L("Offline translation needs macOS 26 or later, or the NLLB-200 language pack (Settings, Translation page).")
+    case OfflineError.needsPack(let from, let to):
+        return L("This offline translation needs the NLLB-200 language pack (%@ → %@). Download it in Settings, on the Translation page.",
+                 languageName(from, inText: true), languageName(to, inText: true))
+    case NLLBError.notInstalled:
+        return L("The NLLB-200 language pack is not installed.")
+    case NLLBError.broken(let what):
+        return L("The language pack could not translate this: %@", what)
     case OfflineError.unknownLanguage:
         return L("Can't tell which language this text is in. Set it with the pencil above.")
     case OfflineError.noLanguage(let code):
-        return L("Apple's offline translation has no %@.", languageName(code, inText: true))
+        return L("The Offline method has no %@.", languageName(code, inText: true))
     case OfflineError.noPair(let from, let to):
-        return L("Apple's offline translation does not go between these two languages (%@ → %@).",
+        return L("The Offline method does not go between these two languages (%@ → %@).",
                  languageName(from, inText: true), languageName(to, inText: true))
     case OfflineError.notDownloaded(let from, let to):
         return L("The languages for this offline translation are not downloaded yet (%@ → %@). Download them in Settings, on the Languages page.",
@@ -492,7 +499,7 @@ func listModels(config: Config, key: String) async throws -> [String] {
 /// the detected (or given) language's code with each piece of the translation.
 @MainActor
 func translate(_ text: String, engine: Engine, target: Target, source: Target? = nil, config: Config,
-               update: @MainActor (_ source: String?, _ translation: String) -> Void) async throws {
+               update: @escaping @MainActor (_ source: String?, _ translation: String) -> Void) async throws {
     switch engine {
     case .google:
         let (t, detected) = try await googleTranslate(text, from: source?.google ?? "auto", to: target.google)
@@ -516,7 +523,15 @@ func translate(_ text: String, engine: Engine, target: Target, source: Target? =
             throw TranslateError.other(L("The AI server at %@ is not answering. Is it running?", address))
         }
     case .device:
-        let (translation, from) = try await OnDevice.translate(text, from: source, to: target)
+        // The language pack sends what it has after each sentence; nothing of that may arrive after the end.
+        final class Progress: @unchecked Sendable { var over = false }
+        let progress = Progress()
+        let (translation, from) = try await OnDevice.translate(text, from: source, to: target) { code, soFar in
+            Task { @MainActor in
+                if !progress.over { update(code, soFar) }
+            }
+        }
+        progress.over = true
         update(from, translation)
     }
 }
@@ -598,6 +613,39 @@ func selfTest() -> [String] {
     expect("offline: Serbian in Latin letters, which the Mac calls Croatian", OnDevice.asTheUserMeans("hr", list: ["en", "sr-Latn"], recent: []) == "sr"
         && OnDevice.asTheUserMeans("hr", list: ["en"], recent: ["sr"]) == "sr" && OnDevice.asTheUserMeans("hr", list: ["en", "ru"], recent: []) == "hr"
         && OnDevice.asTheUserMeans("hr", list: ["hr", "sr"], recent: []) == "hr" && OnDevice.asTheUserMeans("de", list: ["sr"], recent: []) == "de")
+    expect("language pack: its codes for Google's languages", NLLBLanguage.code("lv") == "lvs_Latn" && NLLBLanguage.code("ru") == "rus_Cyrl"
+        && NLLBLanguage.code("en") == "eng_Latn" && NLLBLanguage.code("sr") == "srp_Cyrl" && NLLBLanguage.code("sr-Latn") == "srp_Cyrl"
+        && NLLBLanguage.code("zh-CN") == "zho_Hans" && NLLBLanguage.code("iw") == "heb_Hebr" && NLLBLanguage.code("uk") == "ukr_Cyrl"
+        && NLLBLanguage.code("ab") == nil && nllbLanguages.count == 202)
+    expect("language pack: Serbian in Latin letters is read as Croatian", NLLBLanguage.source("sr", text: "Dobar dan, kako ste?") == "hrv_Latn"
+        && NLLBLanguage.source("sr", text: "Добар дан, како сте?") == "srp_Cyrl" && NLLBLanguage.source("lv", text: "Labdien") == "lvs_Latn")
+    expect("offline: languages told by their own letters and words", OnDevice.bySigns("Rīt es būšu birojā no deviņiem līdz pieciem.") == "lv"
+        && OnDevice.bySigns("Sveiki") == "lv" && OnDevice.bySigns("Paldies par vēstuli") == "lv" && OnDevice.bySigns("Ačiū, labai gerai") == "lt"
+        && OnDevice.bySigns("Tere! Aitäh, väga hea.") == "et" && OnDevice.bySigns("Јуче смо били на пијаци.") == "sr"
+        && OnDevice.bySigns("Ќе дојдам утре.") == "mk" && OnDevice.bySigns("Їжак і ґанок") == "uk" && OnDevice.bySigns("Ён быў тут") == "be")
+    expect("offline: no such sign in the big languages", OnDevice.bySigns("Hello there, how are you today?") == nil
+        && OnDevice.bySigns("Привет! Как дела?") == nil && OnDevice.bySigns("Dzień dobry, proszę bardzo, dziękuję się") == nil
+        && OnDevice.bySigns("Guten Tag, wie geht es Ihnen?") == nil && OnDevice.bySigns("Dobar dan, kako ste?") == nil)
+    // The pack's tokenizer, on a vocabulary of its own: ▁a and ▁ab outrank bc, and "x" is unknown.
+    let vocabulary = FileManager.default.temporaryDirectory.appendingPathComponent("btranslate-selftest-\(ProcessInfo.processInfo.processIdentifier).tsv")
+    try? "<s>\t\n<pad>\t\n</s>\t\n<unk>\t\n▁a\t-0.0\nb\t-1.0\n▁ab\t-2.0\nc\t-3.0\n▁\t-4.0\na\t-5.0\nbc\t-6.0\nxxx_Latn\t\n"
+        .write(to: vocabulary, atomically: true, encoding: .utf8)
+    if let tokenizer = try? NLLBTokenizer(file: vocabulary, unknown: 3) {
+        expect("language pack tokenizer: the highest-ranked pair is joined first", tokenizer.encode("abc") == [6, 7] && tokenizer.encode("a  abc\u{00a0}ab") == [4, 6, 7, 6])
+        expect("language pack tokenizer: unknown characters, special tokens", tokenizer.encode("xy") == [8, 3] && tokenizer.encode("xxx_Latn").contains(11) == false
+            && tokenizer.number(of: "xxx_Latn") == 11 && tokenizer.count == 12)
+        expect("language pack tokenizer: back to text", tokenizer.decode([2, 11, 6, 7, 4, 2]) == "abc a")
+    } else {
+        expect("language pack tokenizer: reads its vocabulary", false)
+    }
+    try? FileManager.default.removeItem(at: vocabulary)
+    expect("language pack: the text as the tokenizer sees it", NLLBTokenizer.normalize("ﬁn\u{200b}al\tx²") == "fin al x2")
+    expect("language pack: a long sentence is cut at a comma near its middle", NLLBText.halves("one two three, four five six seven")?.0 == "one two three,"
+        && NLLBText.halves("one two three four five")?.1 == "four five" && NLLBText.halves("word") == nil)
+    var work: [Float] = []
+    let top = [Float](arrayLiteral: 0, 3, 1, 2).withUnsafeBufferPointer { bestTokens($0, count: 2, scratch: &work) }
+    expect("language pack: the best tokens, as log-probabilities", top.map(\.token) == [1, 3] && abs(top[0].score - (3 - log(exp(0) + exp(3) + exp(1) + exp(2)))) < 1e-4
+        && top[1].score < top[0].score)
     // BTranslate's own language. The AI is told languages in English whatever it is (the checks above).
     switch interfaceLanguage {
     case "ru":

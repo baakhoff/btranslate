@@ -26,6 +26,10 @@ export BTRANSLATE_LANGUAGE=en
 # "OFFLINE de>ru: Tag".
 export BTRANSLATE_OFFLINE=mock
 DEAD="http://127.0.0.1:9"  # nothing listens there: a request ends as it does without internet
+# The language pack (NLLB-200) is kept in a folder of the tests' own: empty, unless a test
+# installs the miniature pack of the mock server there. A pack you have installed is not touched.
+export BTRANSLATE_PACK_DIR="$PWD/build/test-pack"
+rm -rf "$BTRANSLATE_PACK_DIR"
 PORT="${BTRANSLATE_TEST_PORT:-18766}"
 MOCK="http://127.0.0.1:$PORT"
 LOG=build/mock.log
@@ -120,8 +124,12 @@ check "Offline method: a translation, the language told on the Mac" $'source: Ge
     "$BIN" --print --engine device --to ru "Guten Tag! Wie geht es Ihnen heute?"
 check "Offline method: the original's language given, line breaks kept" $'OFFLINE de>en: Eins\n\nOFFLINE de>en: Zwei' \
     "$BIN" --print --engine device --from de --to en $'Eins\n\nZwei'
-check "Offline method: a language Apple has not got" "Apple's offline translation has no Latvian." \
-    "$BIN" --print --engine device --from de --to lv "Guten Tag"
+check "Offline method: a language neither macOS nor the language pack has" "The Offline method has no Abkhaz." \
+    "$BIN" --print --engine device --from de --to ab "Guten Tag"
+check "Offline method: a language only the language pack has, and it is not installed" \
+    "needs the NLLB-200 language pack (German → Latvian). Download it in Settings" "$BIN" --print --engine device --from de --to lv "Guten Tag"
+check "Offline method: Latvian is told by its own letters" "needs the NLLB-200 language pack (Latvian → Russian)" \
+    "$BIN" --print --engine device --to ru "Rīt es būšu birojā no deviņiem līdz pieciem."
 check "Offline method: a language that needs a download" "are not downloaded yet (German → French). Download them in Settings" \
     "$BIN" --print --engine device --from de --to fr "Guten Tag"
 check "Offline method: already in that language" $'source: German | updates: 1\nGuten Tag' \
@@ -164,8 +172,8 @@ OFF=(-googleEnabled YES -aiEnabled NO -defaultEngine google -defaultLanguage ru)
 OFF_OUT="$(env BTRANSLATE_GOOGLE_URL="$MOCK/googleflaky1-switch" "$BIN" --offline-uitest switch "${OFF[@]}" -deviceEnabled YES -languages '(ru, lv)' build/uitest 2>&1 || true)"
 check "No connection: the popup goes over to the Offline method" \
     "switch, without a connection: method device, no connection shown: yes, texts: OFFLINE de>ru: Guten Tag!" echo "$OFF_OUT"
-check "No connection: a language the Offline method has not got waits" \
-    "Apple's offline translation has no Latvian. / No internet connection. BTranslate will translate as soon as it is back." echo "$OFF_OUT"
+check "No connection: a language the Offline method can't do here waits" \
+    "Download it in Settings, on the Translation page. / No internet connection. BTranslate will translate as soon as it is back." echo "$OFF_OUT"
 check "No connection: the first method takes over again when the connection is back" \
     "switch, the connection is back: method google, no connection shown: no, texts: RU:Guten Tag! Ich bin morgen von neun bis fünf im Büro. | LV:Guten Tag!" echo "$OFF_OUT"
 WAIT_OUT="$(env BTRANSLATE_GOOGLE_URL="$MOCK/googleflaky1-wait" "$BIN" --offline-uitest wait "${OFF[@]}" -deviceEnabled NO -languages '(ru)' build/uitest 2>&1 || true)"
@@ -177,11 +185,25 @@ STAY_OUT="$(env BTRANSLATE_GOOGLE_URL="$DEAD" "$BIN" --offline-uitest switch "${
 check "No connection: what was translated offline stays when the connection is back" \
     "switch, the connection is back: method device, no connection shown: no, texts: OFFLINE de>ru: Guten Tag! Ich bin morgen von neun bis fünf im Büro. | OFFLINE de>en: Guten Tag!" echo "$STAY_OUT"
 SET_OUT="$("$BIN" --offline-uitest settings -googleEnabled YES -deviceEnabled YES -languages '(en, ru, fr, lv)' -defaultLanguage ru build/uitest 2>&1 || true)"
-check "Settings: which languages work without internet" "offline marks: en installed, ru installed, fr downloadable, lv unavailable" echo "$SET_OUT"
-check "Settings: Download is offered for the language that needs it" "Download offered: en no, ru no, fr yes, lv no" echo "$SET_OUT"
+check "Settings: which languages work without internet" "offline marks: en installed, ru installed, fr downloadable, lv downloadable" echo "$SET_OUT"
+check "Settings: Download is offered for the languages that need one" "Download offered: en no, ru no, fr yes, lv yes" echo "$SET_OUT"
 check "Settings, with the offline marks: every text fits" "settings window, every text fits: yes" echo "$SET_OUT"
 SET_RU="$(env BTRANSLATE_LANGUAGE=ru "$BIN" --offline-uitest settings -AppleLanguages '(ru)' -googleEnabled YES -deviceEnabled YES -languages '(en, ru, fr, lv)' build/uitest-ru 2>&1 || true)"
 check "Settings in Russian, with the offline marks: every text fits" "settings window, every text fits: yes" echo "$SET_RU"
+
+# The language pack: downloaded from the mock server (a miniature one), checked and installed.
+pack() { env BTRANSLATE_PACK_URL="$MOCK/$1" "$BIN" "${@:2}"; }
+check "Language pack: not there to begin with" "language pack: not installed" "$BIN" --pack
+check "Language pack: a damaged file is refused" "the file nllb200-v1-note.txt arrived damaged" pack pack-damaged --pack-install
+check "Language pack: nothing at the address" "not at its address (HTTP 404)" pack nothing --pack-install
+mkdir -p "$BTRANSLATE_PACK_DIR/incoming" && printf '<s>\t\n<pa' > "$BTRANSLATE_PACK_DIR/incoming/tokens.tsv"  # a download that stopped early
+check "Language pack: downloaded, checked and installed" "language pack: installed" pack pack --pack-install
+logged "Language pack: an unfinished file is gone on with, not begun anew" '"range": "bytes=8-".*nllb200-v1-tokens.tsv'
+check "Language pack: there now" "language pack: installed, version 1, 2 languages" "$BIN" --pack
+check "Language pack: the Languages page marks its languages" "lv installed" \
+    "$BIN" --offline-uitest settings -googleEnabled YES -deviceEnabled YES -languages '(en, lv)' build/uitest
+check "Language pack: removed" "language pack: removed" "$BIN" --pack-remove
+check "Language pack: gone again" "language pack: not installed" "$BIN" --pack
 
 if [ "${1:-}" = "--live" ]; then
     check "Google, live" "source: Latvian" "$BIN" --print --engine google "Labdien! Kā jums klājas?"
@@ -193,6 +215,18 @@ if [ "${1:-}" = "--live" ]; then
         check "Offline method, live: the Download button's way to macOS" "download check: ok" env -u BTRANSLATE_OFFLINE "$BIN" --download-check
     else
         echo "skip  Offline method, live (this Mac has not got German and English for it)"
+    fi
+    # The real language pack, if you have installed it: its tokenizer against Meta's, and one
+    # translation on the Neural Engine, after which the model must be gone from memory.
+    if env -u BTRANSLATE_PACK_DIR "$BIN" --pack | grep -q "language pack: installed"; then
+        PACK_OUT="$(env -u BTRANSLATE_PACK_DIR -u BTRANSLATE_OFFLINE "$BIN" --pack-check tests/nllb-tokens.json 2>&1 || true)"
+        check "Language pack, live: the tokenizer agrees with Meta's" "tokenizer: 60 of 60 texts" echo "$PACK_OUT"
+        check "Language pack, live: a translation on the Neural Engine" "Здравствуйте" echo "$PACK_OUT"
+        check "Language pack, live: the model is let go after the translation" "model let go after the translation: yes" echo "$PACK_OUT"
+        check "Language pack, live: Serbian through the Offline method" "source: Serbian" \
+            env -u BTRANSLATE_PACK_DIR -u BTRANSLATE_OFFLINE "$BIN" --print --engine device --to ru "Јуче смо били на пијаци и купили свеже воће."
+    else
+        echo "skip  Language pack, live (it is not installed on this Mac)"
     fi
 fi
 

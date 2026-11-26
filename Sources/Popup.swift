@@ -160,7 +160,7 @@ final class Popup: NSObject, NSWindowDelegate {
                 engineControl.setToolTip("\(config.provider.name): \(config.model)", forSegment: i)
             case .device:
                 engineControl.setLabel(L("Offline"), forSegment: i)
-                engineControl.setToolTip(L("Apple's translation on this Mac: works without internet"), forSegment: i)
+                engineControl.setToolTip(L("Translated on this Mac: works without internet"), forSegment: i)
             }
         }
         selectEngine()

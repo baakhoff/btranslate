@@ -101,21 +101,42 @@
 
 /* Without internet: the Offline method (the translation built into macOS), and waiting */
 "Offline" = "Офлайн";
-"Apple's translation on this Mac: works without internet" = "Перевод Apple на этом Mac: работает без интернета";
+"Translated on this Mac: works without internet" = "Перевод на этом Mac: работает без интернета";
 "No internet connection" = "Нет подключения к интернету";
 "No internet connection." = "Нет подключения к интернету.";
 "No internet connection. BTranslate will translate as soon as it is back." = "Нет подключения к интернету. BTranslate переведет, как только оно появится.";
-"Offline translation needs macOS 26 or later." = "Для офлайн-перевода нужна macOS 26 или новее.";
+"Offline translation needs macOS 26 or later, or the NLLB-200 language pack (Settings, Translation page)." = "Для офлайн-перевода нужна macOS 26 или новее либо языковой пакет NLLB-200 (настройки, страница «Перевод»).";
 "Can't tell which language this text is in. Set it with the pencil above." = "Не удалось определить язык этого текста. Укажите его кнопкой с карандашом вверху.";
 /* %@: a language as a sentence has it, "латышский" */
-"Apple's offline translation has no %@." = "В офлайн-переводе Apple нет этого языка (%@).";
-"Apple's offline translation does not go between these two languages (%@ → %@)." = "Офлайн-перевод Apple не работает между этими двумя языками (%@ → %@).";
+"The Offline method has no %@." = "В способе «Офлайн» нет этого языка (%@).";
+"The Offline method does not go between these two languages (%@ → %@)." = "Способ «Офлайн» не переводит между этими двумя языками (%@ → %@).";
 "The languages for this offline translation are not downloaded yet (%@ → %@). Download them in Settings, on the Languages page." = "Языки для этого офлайн-перевода еще не загружены (%@ → %@). Загрузите их в настройках, на странице «Языки».";
 /* %@: an address, "127.0.0.1:8000" */
 "The AI server at %@ is not answering. Is it running?" = "Сервер ИИ по адресу %@ не отвечает. Он запущен?";
 "Offline, on this Mac" = "Офлайн, на этом Mac";
-"Apple's translation, built into macOS. It works without internet, and BTranslate turns to it by itself when there is none. The text stays on your Mac. Fewer languages than Google: the Languages page marks them." = "Перевод Apple, встроенный в macOS. Работает без интернета, и BTranslate сам переходит на него, когда интернета нет. Текст не покидает ваш Mac. Языков меньше, чем у Google: они отмечены на странице «Языки».";
-"Apple's translation, built into macOS, works without internet. BTranslate can use it on macOS 26 or later." = "Перевод Apple, встроенный в macOS, работает без интернета. BTranslate может использовать его в macOS 26 и новее.";
+"Translation on the Mac itself, without internet: BTranslate turns to it by itself when there is none, and the text stays on your Mac. macOS has about 25 languages for it (macOS 26 or later)." = "Перевод на самом Mac, без интернета: BTranslate сам переходит на него, когда интернета нет, и текст не покидает ваш Mac. В macOS для этого около 25 языков (macOS 26 и новее).";
+
+/* The language pack: NLLB-200, an optional download for the Offline method */
+/* %@: a size, "886 МБ" */
+"Language pack NLLB-200 (Meta AI): about 140 more languages for it, Latvian and Serbian among them, on the Neural Engine. %@; non-commercial use only." = "Языковой пакет NLLB-200 (Meta AI): еще около 140 языков, в том числе латышский и сербский, на Neural Engine. %@; только для некоммерческого использования.";
+"Downloading the language pack: %@ of %@." = "Загрузка языкового пакета: %@ из %@.";
+"%ld MB" = "%ld МБ";
+"macOS is preparing the language pack for the Neural Engine. This takes up to a minute, once." = "macOS готовит языковой пакет для Neural Engine. Это занимает до минуты и нужно только один раз.";
+"Language pack NLLB-200 is installed: about 140 more languages. It runs on the Neural Engine and leaves memory after each translation." = "Языковой пакет NLLB-200 установлен: еще около 140 языков. Работает на Neural Engine и выгружается из памяти после каждого перевода.";
+"Remove" = "Удалить";
+"The language pack is not at its address (HTTP 404). It may not be published yet." = "Языкового пакета нет по его адресу (HTTP 404). Возможно, он еще не опубликован.";
+/* %@: what went wrong, one of the five lines after this one */
+"The language pack could not be installed: %@" = "Не удалось установить языковой пакет: %@";
+"The language pack could not translate this: %@" = "Языковой пакет не смог это перевести: %@";
+"its list of files can't be read" = "не удалось прочитать список его файлов";
+"the file %@ arrived damaged" = "файл %@ загрузился с повреждениями";
+"macOS could not load the model (%@)" = "macOS не смогла загрузить модель (%@)";
+"the model gave no answer" = "модель не дала ответа";
+/* %@, %@: the model's own codes of two languages, "lvs_Latn" */
+"it has not got one of the two languages (%@, %@)" = "в нем нет одного из двух языков (%@, %@)";
+"The NLLB-200 language pack is not installed." = "Языковой пакет NLLB-200 не установлен.";
+/* %@ → %@: two languages as a sentence has them */
+"This offline translation needs the NLLB-200 language pack (%@ → %@). Download it in Settings, on the Translation page." = "Для этого офлайн-перевода нужен языковой пакет NLLB-200 (%@ → %@). Загрузите его в настройках, на странице «Перевод».";
 "Works without internet" = "Работает без интернета";
 "Works without internet after a download" = "Работает без интернета после загрузки";
 "Download" = "Загрузить";

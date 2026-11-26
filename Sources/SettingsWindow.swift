@@ -14,6 +14,10 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private let googleBox = NSButton(checkboxWithTitle: L("Google Translate"), target: nil, action: nil)
     private let aiBox = NSButton(checkboxWithTitle: L("AI model"), target: nil, action: nil)
     private let deviceBox = NSButton(checkboxWithTitle: L("Offline, on this Mac"), target: nil, action: nil)
+    // The language pack (NLLB.swift): what it is or how its download stands, and the button for it.
+    private let packNote = NSTextField(wrappingLabelWithString: "")
+    private let packButton = NSButton(title: L("Download"), target: nil, action: nil)
+    private let packProgress = NSProgressIndicator()
     private let providerMenu = NSPopUpButton(frame: .zero, pullsDown: false)
     private let modelBox = NSComboBox()
     private let urlLabel = NSTextField(labelWithString: L("Server:"))
@@ -150,15 +154,39 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             box.target = self
             box.action = #selector(methodsChanged)
         }
-        let deviceNote = caption(OnDevice.isAvailable
-            ? L("Apple's translation, built into macOS. It works without internet, and BTranslate turns to it by itself when there is none. The text stays on your Mac. Fewer languages than Google: the Languages page marks them.")
-            : L("Apple's translation, built into macOS, works without internet. BTranslate can use it on macOS 26 or later."))
+        let deviceNote = caption(L("Translation on the Mac itself, without internet: BTranslate turns to it by itself when there is none, and the text stays on your Mac. macOS has about 25 languages for it (macOS 26 or later)."))
+        packNote.font = .systemFont(ofSize: 11)
+        packNote.textColor = .secondaryLabelColor
+        packNote.isSelectable = true
+        packButton.bezelStyle = .rounded
+        packButton.controlSize = .small
+        packButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        packButton.target = self
+        packButton.action = #selector(packButtonClicked)
+        packProgress.style = .bar
+        packProgress.controlSize = .small
+        packProgress.minValue = 0
+        packProgress.maxValue = 1
+        packProgress.translatesAutoresizingMaskIntoConstraints = false
+        packProgress.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        let packRow = NSStackView(views: [packButton, packProgress])
+        packRow.spacing = 10
+        PackInstaller.shared.onChange = { [weak self] in self?.refreshPack() }
         languageEditor.onDownload = { [weak self] language in
             guard let self, let window = self.window else { return }
-            // macOS downloads languages in pairs: English goes with another language of the list.
-            let others = self.languageEditor.languages.filter { $0.id != language.id && self.languageEditor.offline[$0.id] != .unavailable }
-            let partner = language.google == "en" ? (others.first?.google ?? "es") : "en"
-            OnDevice.download(language.id, with: partner, in: window) { [weak self] in self?.refreshOffline() }
+            Task { [weak self] in
+                guard let self else { return }
+                if await OnDevice.needsPack(language.id) {
+                    // Apple has not got this language: the language pack has. Its download shows on the first page.
+                    self.showPage(0)
+                    PackInstaller.shared.start()
+                    return
+                }
+                // macOS downloads languages in pairs: English goes with another language of the list.
+                let others = self.languageEditor.languages.filter { $0.id != language.id && self.languageEditor.offline[$0.id] != .unavailable }
+                let partner = language.google == "en" ? (others.first?.google ?? "es") : "en"
+                OnDevice.download(language.id, with: partner, in: window) { [weak self] in self?.refreshOffline() }
+            }
         }
         let googleNote = caption(L("Free, no key needed. The selected text goes to Google."))
         let aiNote = caption(L("Your own API key. Often better with context, names and tone. The selected text goes to the provider you pick."))
@@ -238,14 +266,16 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             return page
         }
         // Page 1: how to translate.
-        let translation = page([googleBox, googleNote, aiBox, aiNote, grid, deviceBox, deviceNote, line1, defaultRow])
+        let translation = page([googleBox, googleNote, aiBox, aiNote, grid, deviceBox, deviceNote, packNote, packRow, line1, defaultRow])
         translation.setCustomSpacing(2, after: googleBox)
         translation.setCustomSpacing(12, after: googleNote)
         translation.setCustomSpacing(2, after: aiBox)
         translation.setCustomSpacing(12, after: aiNote)
         translation.setCustomSpacing(14, after: grid)
         translation.setCustomSpacing(2, after: deviceBox)
-        translation.setCustomSpacing(14, after: deviceNote)
+        translation.setCustomSpacing(8, after: deviceNote)
+        translation.setCustomSpacing(6, after: packNote)
+        translation.setCustomSpacing(14, after: packRow)
         translation.setCustomSpacing(12, after: line1)
         // Page 2: into which languages, reading aloud, and the language of BTranslate itself.
         let languages = page([languagesLabel, languageEditor.view, googleVoiceBox, voiceNote, line3, ownLanguageRow])
@@ -276,7 +306,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             content.widthAnchor.constraint(equalToConstant: width),
         ])
-        for view in [intro, googleNote, aiNote, deviceNote, voiceNote, grid, line1, line2, line3, buttons, translation, languages] as [NSView] {
+        for view in [intro, googleNote, aiNote, deviceNote, packNote, voiceNote, grid, line1, line2, line3, buttons, translation, languages] as [NSView] {
             view.widthAnchor.constraint(equalToConstant: inner).isActive = true
         }
         // The first column fits its widest label (they are longer in some languages) and the Test button.
@@ -301,6 +331,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         aiBox.state = config.aiEnabled ? .on : .off
         deviceBox.isEnabled = OnDevice.isAvailable
         deviceBox.state = config.deviceEnabled && OnDevice.isAvailable ? .on : .off
+        refreshPack()
         refreshOffline()
         providerMenu.selectItem(at: providers.firstIndex { $0.id == config.providerID } ?? 0)
         urlField.stringValue = config.customURL
@@ -339,6 +370,61 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             defaultControl.selectedSegment = on.firstIndex(of: true) ?? 0
         }
         defaultControl.isEnabled = on.filter { $0 }.count > 1
+    }
+
+    /// The language pack's line and button, as its installer stands now.
+    private func refreshPack() {
+        func megabytes(_ bytes: Int) -> String { L("%ld MB", bytes / 1_000_000) }
+        var note = "", button = L("Download"), color = NSColor.secondaryLabelColor
+        packProgress.isHidden = true
+        packProgress.stopAnimation(nil)
+        packButton.isHidden = false
+        switch PackInstaller.shared.state {
+        case .absent:
+            note = L("Language pack NLLB-200 (Meta AI): about 140 more languages for it, Latvian and Serbian among them, on the Neural Engine. %@; non-commercial use only.",
+                     megabytes(LanguagePack.megabytes * 1_000_000))
+        case .downloading(let done, let total):
+            note = L("Downloading the language pack: %@ of %@.", megabytes(done), megabytes(total))
+            button = L("Cancel")
+            packProgress.isHidden = false
+            packProgress.isIndeterminate = false
+            packProgress.doubleValue = total > 0 ? Double(done) / Double(total) : 0
+        case .preparing:
+            note = L("macOS is preparing the language pack for the Neural Engine. This takes up to a minute, once.")
+            packButton.isHidden = true
+            packProgress.isHidden = false
+            packProgress.isIndeterminate = true
+            packProgress.startAnimation(nil)
+        case .installed:
+            note = L("Language pack NLLB-200 is installed: about 140 more languages. It runs on the Neural Engine and leaves memory after each translation.")
+            button = L("Remove")
+        case .failed(let why):
+            note = why
+            color = .systemRed
+        }
+        packNote.stringValue = note
+        packNote.textColor = color
+        packButton.title = button
+        // With the pack a Mac has an Offline method even where macOS has none of its own.
+        let was = deviceBox.isEnabled
+        deviceBox.isEnabled = OnDevice.isAvailable
+        if deviceBox.isEnabled != was { deviceBox.state = deviceBox.isEnabled && config.deviceEnabled ? .on : .off }
+        refreshEnabled()
+        refreshOffline()
+        if let window, let content = window.contentView, pageControl.selectedSegment == 0, window.isVisible {
+            let top = NSPoint(x: window.frame.minX, y: window.frame.maxY)  // the text's height may have changed
+            window.setContentSize(content.fittingSize)
+            window.setFrameTopLeftPoint(top)
+        }
+    }
+
+    @objc private func packButtonClicked() {
+        switch PackInstaller.shared.state {
+        case .downloading: PackInstaller.shared.cancel()
+        case .installed: PackInstaller.shared.remove()
+        case .preparing: break
+        default: PackInstaller.shared.start()
+        }
     }
 
     /// Asks which languages the Offline method has, for the marks in the language lists.
