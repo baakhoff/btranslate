@@ -7,16 +7,21 @@
   /openrouter-strict/.. chat completions that reject the "reasoning" field
   /google/...           Google's first endpoint
   /google429/...        the first endpoint says 429; the second one answers
+  /googleflaky2-x/...   the first 2 requests (any number) are cut off without an answer, as
+                        when there is no connection; after that it is /google. "x" is any
+                        name: each name counts its own requests
   /speech/...           Google Translate's voice (the page's own batchexecute call)
 Every request is logged as one JSON line on stdout.
 """
 import json
+import re
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import base64
 from urllib.parse import parse_qs, urlparse
 
 PIECES = ["[", "lv", "]\n", "Hello! ", "How are ", "you?\nSecond line."]
+CUT_OFF = {}  # "googleflaky2-x" → how many requests it has cut off so far
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -63,6 +68,12 @@ class Handler(BaseHTTPRequestHandler):
         if "/translate_a/" in self.path:
             text = parse_qs(raw.decode()).get("q", [""])[0]
             self.record({"q": text})
+            first = self.path.split("/")[1]
+            flaky = re.match(r"googleflaky(\d+)", first)
+            if flaky and CUT_OFF.get(first, 0) < int(flaky.group(1)):
+                CUT_OFF[first] = CUT_OFF.get(first, 0) + 1
+                self.close_connection = True  # no answer at all: the connection just ends
+                return
             query = parse_qs(urlparse(self.path).query)
             given = query.get("sl", ["auto"])[0]
             into = query.get("tl", ["en"])[0].upper()  # the "translation" is the text with this in front

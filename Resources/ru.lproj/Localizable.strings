@@ -99,6 +99,29 @@
 "BTranslate's language:" = "Язык BTranslate:";
 "Same as the Mac" = "Как в системе";
 
+/* Without internet: the Offline method (the translation built into macOS), and waiting */
+"Offline" = "Офлайн";
+"Apple's translation on this Mac: works without internet" = "Перевод Apple на этом Mac: работает без интернета";
+"No internet connection" = "Нет подключения к интернету";
+"No internet connection." = "Нет подключения к интернету.";
+"No internet connection. BTranslate will translate as soon as it is back." = "Нет подключения к интернету. BTranslate переведет, как только оно появится.";
+"Offline translation needs macOS 26 or later." = "Для офлайн-перевода нужна macOS 26 или новее.";
+"Can't tell which language this text is in. Set it with the pencil above." = "Не удалось определить язык этого текста. Укажите его кнопкой с карандашом вверху.";
+/* %@: a language as a sentence has it, "латышский" */
+"Apple's offline translation has no %@." = "В офлайн-переводе Apple нет этого языка (%@).";
+"Apple's offline translation does not go between these two languages (%@ → %@)." = "Офлайн-перевод Apple не работает между этими двумя языками (%@ → %@).";
+"The languages for this offline translation are not downloaded yet (%@ → %@). Download them in Settings, on the Languages page." = "Языки для этого офлайн-перевода еще не загружены (%@ → %@). Загрузите их в настройках, на странице «Языки».";
+/* %@: an address, "127.0.0.1:8000" */
+"The AI server at %@ is not answering. Is it running?" = "Сервер ИИ по адресу %@ не отвечает. Он запущен?";
+"Offline, on this Mac" = "Офлайн, на этом Mac";
+"Apple's translation, built into macOS. It works without internet, and BTranslate turns to it by itself when there is none. The text stays on your Mac. Fewer languages than Google: the Languages page marks them." = "Перевод Apple, встроенный в macOS. Работает без интернета, и BTranslate сам переходит на него, когда интернета нет. Текст не покидает ваш Mac. Языков меньше, чем у Google: они отмечены на странице «Языки».";
+"Apple's translation, built into macOS, works without internet. BTranslate can use it on macOS 26 or later." = "Перевод Apple, встроенный в macOS, работает без интернета. BTranslate может использовать его в macOS 26 и новее.";
+"Works without internet" = "Работает без интернета";
+"Works without internet after a download" = "Работает без интернета после загрузки";
+"Download" = "Загрузить";
+"Download this language, to translate it without internet" = "Загрузить этот язык, чтобы переводить без интернета";
+"An arrow in a circle marks a language the Offline method has. Filled: it works without internet. Empty: it does after a download; select the language and click Download. macOS keeps these downloads in System Settings → General → Language & Region → Translation Languages." = "Стрелка в круге отмечает языки, которые есть в способе «Офлайн». Закрашенная: язык работает без интернета. Незакрашенная: заработает после загрузки; выберите язык и нажмите «Загрузить». Эти загрузки хранит macOS: «Системные настройки» → «Основные» → «Язык и регион» → «Языки перевода».";
+
 /* What can go wrong with a translation. %@ at the end: the server's own message. */
 "No text is selected." = "Текст не выделен.";
 /* %@: the provider, "Anthropic (Claude)" */

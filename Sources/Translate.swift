@@ -38,8 +38,20 @@ func describe(_ error: Error) -> String {
         return L("The server answered HTTP %ld: %@", code, serverMessage(body))
     case TranslateError.other(let s):
         return s
+    case OfflineError.needsNewerMac:
+        return L("Offline translation needs macOS 26 or later.")
+    case OfflineError.unknownLanguage:
+        return L("Can't tell which language this text is in. Set it with the pencil above.")
+    case OfflineError.noLanguage(let code):
+        return L("Apple's offline translation has no %@.", languageName(code, inText: true))
+    case OfflineError.noPair(let from, let to):
+        return L("Apple's offline translation does not go between these two languages (%@ → %@).",
+                 languageName(from, inText: true), languageName(to, inText: true))
+    case OfflineError.notDownloaded(let from, let to):
+        return L("The languages for this offline translation are not downloaded yet (%@ → %@). Download them in Settings, on the Languages page.",
+                 languageName(from, inText: true), languageName(to, inText: true))
     default:
-        return error.localizedDescription
+        return isConnectionError(error) ? L("No internet connection.") : error.localizedDescription
     }
 }
 
@@ -492,10 +504,20 @@ func translate(_ text: String, engine: Engine, target: Target, source: Target? =
         guard !config.baseURL.isEmpty else { throw TranslateError.noServer }
         let key = Keychain.read(config.providerID) ?? ""
         if key.isEmpty && config.providerID != "custom" { throw TranslateError.noKey(config.provider.name) }
-        try await aiTranslate(text, target: target, source: source, config: config, key: key) { detected, translation in
-            // Models call Serbian in Latin letters "sh" (Serbo-Croatian) at times: it is Serbian here.
-            update(source?.google ?? (detected == "sh" ? "sr" : detected), translation)
+        do {
+            try await aiTranslate(text, target: target, source: source, config: config, key: key) { detected, translation in
+                // Models call Serbian in Latin letters "sh" (Serbo-Croatian) at times: it is Serbian here.
+                update(source?.google ?? (detected == "sh" ? "sr" : detected), translation)
+            }
+        } catch let error where isConnectionError(error) && isLocalAddress(config.baseURL) {
+            // A server on this Mac or in its network: not the internet's fault.
+            let url = URL(string: config.baseURL)
+            let address = [url?.host, url?.port.map(String.init)].compactMap { $0 }.joined(separator: ":")
+            throw TranslateError.other(L("The AI server at %@ is not answering. Is it running?", address))
         }
+    case .device:
+        let (translation, from) = try await OnDevice.translate(text, from: source, to: target)
+        update(from, translation)
     }
 }
 
@@ -559,6 +581,23 @@ func selfTest() -> [String] {
         && findTarget("lv", in: sourceLanguages)?.english == "Latvian" && sourceLanguages.count == googleLanguages.count)
     expect("AI is told a language set by hand", systemPrompt(allTargets[0], source: findTarget("lv", in: sourceLanguages)).contains("The text is written in Latvian (latviešu)")
         && userMessage("x", target: target(id: "ru")!, source: findTarget("lv", in: sourceLanguages)).hasPrefix("Translate from Latvian (latviešu) into Russian (русский):"))
+    expect("no connection: which errors mean it", isConnectionError(URLError(.notConnectedToInternet)) && isConnectionError(URLError(.cannotConnectToHost))
+        && isConnectionError(URLError(.networkConnectionLost)) && !isConnectionError(URLError(.badServerResponse)) && !isConnectionError(TranslateError.noServer))
+    expect("no connection: a server on this Mac or in its network is not the internet", isLocalAddress("http://127.0.0.1:8000/v1")
+        && isLocalAddress("http://localhost:11434/v1") && isLocalAddress("http://192.168.1.20:1234") && isLocalAddress("http://172.20.0.5")
+        && isLocalAddress("http://studio.local:8000") && !isLocalAddress("https://api.anthropic.com/v1") && !isLocalAddress("http://172.40.0.1")
+        && !isLocalAddress(""))
+    expect("offline: language codes", OnDevice.language("iw").languageCode?.identifier == "he" && OnDevice.language("zh-TW").script?.identifier == "Hant"
+        && OnDevice.googleCode("nb") == "no" && OnDevice.googleCode("zh-Hans") == "zh-CN" && OnDevice.same("pt", "pt-PT")
+        && !OnDevice.same("zh-CN", "zh-TW") && !OnDevice.same("en", "ru") && Engine(rawValue: "device") == .device)
+    let apple: Set<String> = ["en", "ru", "de", "uk", "fr", "es", "pl", "fi", "zh"]
+    let latvian = OnDevice.recognize("Labdien! Kā jums klājas? Rīt es būšu birojā no deviņiem līdz pieciem.", among: apple)
+    expect("offline: the language of a text, told on the Mac", OnDevice.recognize("Guten Tag! Ich bin morgen von neun bis fünf im Büro.", among: apple) == "de"
+        && OnDevice.recognize("Привет! Как дела? Завтра я буду в офисе с девяти до пяти.", among: apple) == "ru")
+    expect("offline: Latvian is not taken for a language Apple has (\(latvian ?? "can't tell"))", latvian.map { !apple.contains($0) } ?? true)
+    expect("offline: Serbian in Latin letters, which the Mac calls Croatian", OnDevice.asTheUserMeans("hr", list: ["en", "sr-Latn"], recent: []) == "sr"
+        && OnDevice.asTheUserMeans("hr", list: ["en"], recent: ["sr"]) == "sr" && OnDevice.asTheUserMeans("hr", list: ["en", "ru"], recent: []) == "hr"
+        && OnDevice.asTheUserMeans("hr", list: ["hr", "sr"], recent: []) == "hr" && OnDevice.asTheUserMeans("de", list: ["sr"], recent: []) == "de")
     // BTranslate's own language. The AI is told languages in English whatever it is (the checks above).
     switch interfaceLanguage {
     case "ru":

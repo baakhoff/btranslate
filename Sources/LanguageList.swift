@@ -1,9 +1,10 @@
 import Cocoa
 
 /// A table row that names a language: "Russian" and, in grey, its own name "русский"; the
-/// default language of the list is marked as that.
+/// default language of the list is marked as that. At the right end, an arrow in a circle
+/// for a language the Offline method has: filled when it is there, empty when it needs a download.
 @MainActor
-private func languageCell(in table: NSTableView, for target: Target, isDefault: Bool = false) -> NSView {
+private func languageCell(in table: NSTableView, for target: Target, isDefault: Bool = false, offline: OfflineStatus? = nil) -> NSView {
     let id = NSUserInterfaceItemIdentifier("language")
     let cell: NSTableCellView
     if let reused = table.makeView(withIdentifier: id, owner: nil) as? NSTableCellView {
@@ -16,13 +17,34 @@ private func languageCell(in table: NSTableView, for target: Target, isDefault: 
         label.cell?.usesSingleLineMode = true
         label.maximumNumberOfLines = 1
         label.translatesAutoresizingMaskIntoConstraints = false
+        let mark = NSImageView()
+        mark.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
+        mark.translatesAutoresizingMaskIntoConstraints = false
         cell.addSubview(label)
+        cell.addSubview(mark)
         cell.textField = label
+        cell.imageView = mark
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-            label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+            label.trailingAnchor.constraint(equalTo: mark.leadingAnchor, constant: -6),
             label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            mark.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -8),
+            mark.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            mark.widthAnchor.constraint(equalToConstant: 16),
         ])
+    }
+    switch offline {
+    case .installed:
+        cell.imageView?.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: L("Works without internet"))
+        cell.imageView?.contentTintColor = .secondaryLabelColor
+        cell.imageView?.toolTip = L("Works without internet")
+    case .downloadable:
+        cell.imageView?.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: L("Works without internet after a download"))
+        cell.imageView?.contentTintColor = .tertiaryLabelColor
+        cell.imageView?.toolTip = L("Works without internet after a download")
+    default:
+        cell.imageView?.image = nil
+        cell.imageView?.toolTip = nil
     }
     let text = NSMutableAttributedString(string: target.name, attributes: [.foregroundColor: NSColor.labelColor])
     if let own = target.ownName {
@@ -58,6 +80,9 @@ final class LanguagePicker: NSObject, NSTableViewDataSource, NSTableViewDelegate
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 290, height: 330))
     var available: () -> [Target] = { [] }    // the languages to offer
     var onAdd: (Target) -> Void = { _ in }    // one was picked
+    var offline: [String: OfflineStatus] = [:] {  // which of them the Offline method has
+        didSet { table.reloadData() }
+    }
 
     private(set) lazy var popover: NSPopover = {
         let controller = NSViewController()
@@ -151,7 +176,7 @@ final class LanguagePicker: NSObject, NSTableViewDataSource, NSTableViewDelegate
     func numberOfRows(in tableView: NSTableView) -> Int { shown.count }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        languageCell(in: tableView, for: shown[row])
+        languageCell(in: tableView, for: shown[row], offline: offline[shown[row].id])
     }
 }
 
@@ -176,6 +201,15 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         }
     }
     var defaultLanguage: Target? { languages.first { $0.id == defaultID } ?? languages.first }
+    /// Which languages the Offline method has, by their ids. Empty where the Mac has no such method.
+    var offline: [String: OfflineStatus] = [:] {
+        didSet {
+            picker.offline = offline
+            table.reloadData()
+            refreshButtons()
+        }
+    }
+    var onDownload: (Target) -> Void = { _ in }  // "Download" was clicked for this language
 
     let view = NSStackView()
     let picker = LanguagePicker()
@@ -183,6 +217,7 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
     private let table = NSTableView()
     private let buttons = NSSegmentedControl()
     private let defaultButton = NSButton(title: L("Make Default"), target: nil, action: nil)
+    private let downloadButton = NSButton(title: L("Download"), target: nil, action: nil)
     private let rowType = NSPasteboard.PasteboardType("io.github.baakhoff.btranslate.language-row")
 
     init(width: CGFloat) {
@@ -227,7 +262,14 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         defaultButton.toolTip = L("A popup opens with the default language")
         defaultButton.target = self
         defaultButton.action = #selector(makeSelectedDefault)
-        let row = NSStackView(views: [buttons, defaultButton])
+        downloadButton.bezelStyle = .rounded
+        downloadButton.controlSize = .small
+        downloadButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        downloadButton.toolTip = L("Download this language, to translate it without internet")
+        downloadButton.target = self
+        downloadButton.action = #selector(downloadSelected)
+        downloadButton.isHidden = !OnDevice.isAvailable
+        let row = NSStackView(views: [buttons, defaultButton, downloadButton])
         row.spacing = 10
 
         let note = NSTextField(wrappingLabelWithString:
@@ -243,6 +285,15 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         view.addArrangedSubview(scroll)
         view.addArrangedSubview(row)
         view.addArrangedSubview(note)
+        if OnDevice.isAvailable {
+            let offlineNote = NSTextField(wrappingLabelWithString:
+                L("An arrow in a circle marks a language the Offline method has. Filled: it works without internet. Empty: it does after a download; select the language and click Download. macOS keeps these downloads in System Settings → General → Language & Region → Translation Languages."))
+            offlineNote.font = .systemFont(ofSize: 11)
+            offlineNote.textColor = .secondaryLabelColor
+            offlineNote.translatesAutoresizingMaskIntoConstraints = false
+            offlineNote.widthAnchor.constraint(equalToConstant: width).isActive = true
+            view.addArrangedSubview(offlineNote)
+        }
 
         picker.available = { [weak self] in
             let chosen = self?.languages ?? []
@@ -272,7 +323,14 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         buttons.setEnabled(selectedRow.map { $0 > 0 } ?? false, forSegment: 2)
         buttons.setEnabled(selectedRow.map { $0 < languages.count - 1 } ?? false, forSegment: 3)
         defaultButton.isEnabled = selectedRow.map { languages[$0] != defaultLanguage } ?? false
+        downloadButton.isEnabled = selectedRow.map { offline[languages[$0].id] == .downloadable } ?? false
     }
+
+    @objc private func downloadSelected() {
+        if let row = selectedRow { onDownload(languages[row]) }
+    }
+
+    var canDownloadSelected: Bool { downloadButton.isEnabled }  // (UI test)
 
     @objc private func buttonClicked() {
         switch buttons.selectedSegment {
@@ -310,7 +368,7 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
     func numberOfRows(in tableView: NSTableView) -> Int { languages.count }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        languageCell(in: tableView, for: languages[row], isDefault: languages[row] == defaultLanguage)
+        languageCell(in: tableView, for: languages[row], isDefault: languages[row] == defaultLanguage, offline: offline[languages[row].id])
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) { refreshButtons() }

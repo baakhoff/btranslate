@@ -13,6 +13,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
 
     private let googleBox = NSButton(checkboxWithTitle: L("Google Translate"), target: nil, action: nil)
     private let aiBox = NSButton(checkboxWithTitle: L("AI model"), target: nil, action: nil)
+    private let deviceBox = NSButton(checkboxWithTitle: L("Offline, on this Mac"), target: nil, action: nil)
     private let providerMenu = NSPopUpButton(frame: .zero, pullsDown: false)
     private let modelBox = NSComboBox()
     private let urlLabel = NSTextField(labelWithString: L("Server:"))
@@ -21,7 +22,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private let keyHelp = NSTextField(wrappingLabelWithString: "")
     private let testButton = NSButton(title: L("Test"), target: nil, action: nil)
     private let status = NSTextField(wrappingLabelWithString: "")
-    private let defaultControl = NSSegmentedControl(labels: ["Google", L("AI")], trackingMode: .selectOne, target: nil, action: nil)
+    private let defaultControl = NSSegmentedControl(labels: ["Google", L("AI"), L("Offline")], trackingMode: .selectOne, target: nil, action: nil)
+    private let methods: [Engine] = [.google, .ai, .device]  // the segments of defaultControl
     private var aiLabels: [NSTextField] = []
     private var urlRow: NSGridRow?  // shown for the Custom provider only
     private let languageEditor = LanguageListEditor(width: 436)
@@ -144,9 +146,19 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         pageControl.target = self
         pageControl.action = #selector(pageChanged)
 
-        for box in [googleBox, aiBox] {
+        for box in [googleBox, aiBox, deviceBox] {
             box.target = self
             box.action = #selector(methodsChanged)
+        }
+        let deviceNote = caption(OnDevice.isAvailable
+            ? L("Apple's translation, built into macOS. It works without internet, and BTranslate turns to it by itself when there is none. The text stays on your Mac. Fewer languages than Google: the Languages page marks them.")
+            : L("Apple's translation, built into macOS, works without internet. BTranslate can use it on macOS 26 or later."))
+        languageEditor.onDownload = { [weak self] language in
+            guard let self, let window = self.window else { return }
+            // macOS downloads languages in pairs: English goes with another language of the list.
+            let others = self.languageEditor.languages.filter { $0.id != language.id && self.languageEditor.offline[$0.id] != .unavailable }
+            let partner = language.google == "en" ? (others.first?.google ?? "es") : "en"
+            OnDevice.download(language.id, with: partner, in: window) { [weak self] in self?.refreshOffline() }
         }
         let googleNote = caption(L("Free, no key needed. The selected text goes to Google."))
         let aiNote = caption(L("Your own API key. Often better with context, names and tone. The selected text goes to the provider you pick."))
@@ -226,12 +238,14 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             return page
         }
         // Page 1: how to translate.
-        let translation = page([googleBox, googleNote, aiBox, aiNote, grid, line1, defaultRow])
+        let translation = page([googleBox, googleNote, aiBox, aiNote, grid, deviceBox, deviceNote, line1, defaultRow])
         translation.setCustomSpacing(2, after: googleBox)
         translation.setCustomSpacing(12, after: googleNote)
         translation.setCustomSpacing(2, after: aiBox)
         translation.setCustomSpacing(12, after: aiNote)
         translation.setCustomSpacing(14, after: grid)
+        translation.setCustomSpacing(2, after: deviceBox)
+        translation.setCustomSpacing(14, after: deviceNote)
         translation.setCustomSpacing(12, after: line1)
         // Page 2: into which languages, reading aloud, and the language of BTranslate itself.
         let languages = page([languagesLabel, languageEditor.view, googleVoiceBox, voiceNote, line3, ownLanguageRow])
@@ -262,7 +276,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             content.widthAnchor.constraint(equalToConstant: width),
         ])
-        for view in [intro, googleNote, aiNote, voiceNote, grid, line1, line2, line3, buttons, translation, languages] as [NSView] {
+        for view in [intro, googleNote, aiNote, deviceNote, voiceNote, grid, line1, line2, line3, buttons, translation, languages] as [NSView] {
             view.widthAnchor.constraint(equalToConstant: inner).isActive = true
         }
         // The first column fits its widest label (they are longer in some languages) and the Test button.
@@ -285,9 +299,12 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private func fill() {
         googleBox.state = config.googleEnabled ? .on : .off
         aiBox.state = config.aiEnabled ? .on : .off
+        deviceBox.isEnabled = OnDevice.isAvailable
+        deviceBox.state = config.deviceEnabled && OnDevice.isAvailable ? .on : .off
+        refreshOffline()
         providerMenu.selectItem(at: providers.firstIndex { $0.id == config.providerID } ?? 0)
         urlField.stringValue = config.customURL
-        defaultControl.selectedSegment = config.defaultEngine == .google ? 0 : 1
+        defaultControl.selectedSegment = methods.firstIndex(of: config.defaultEngine) ?? 0
         languageEditor.languages = config.targets
         languageEditor.defaultID = config.startTarget.id
         googleVoiceBox.state = config.googleVoice ? .on : .off
@@ -312,11 +329,42 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     }
 
     private func refreshEnabled() {
-        let google = googleBox.state == .on, ai = aiBox.state == .on
+        let ai = aiBox.state == .on
         for control in [providerMenu, modelBox, urlField, keyField, testButton] as [NSControl] { control.isEnabled = ai }
         for l in aiLabels { l.textColor = ai ? .labelColor : .disabledControlTextColor }
-        defaultControl.isEnabled = google && ai
-        if google != ai { defaultControl.selectedSegment = google ? 0 : 1 }
+        // "Opens with" offers the methods that are on; with one, there is nothing to choose.
+        let on = [googleBox.state == .on, ai, deviceBox.state == .on]
+        for (i, isOn) in on.enumerated() { defaultControl.setEnabled(isOn, forSegment: i) }
+        if !(on.indices.contains(defaultControl.selectedSegment) && on[defaultControl.selectedSegment]) {
+            defaultControl.selectedSegment = on.firstIndex(of: true) ?? 0
+        }
+        defaultControl.isEnabled = on.filter { $0 }.count > 1
+    }
+
+    /// Asks which languages the Offline method has, for the marks in the language lists.
+    private func refreshOffline() {
+        Task { [weak self] in
+            let statuses = await OnDevice.statuses(of: allTargets.map(\.id))
+            self?.languageEditor.offline = statuses
+        }
+    }
+
+    /// The same, waited for (UI test).
+    func loadOfflineForTest() async -> [String: OfflineStatus] {
+        if window == nil { build() }
+        let statuses = await OnDevice.statuses(of: allTargets.map(\.id))
+        languageEditor.offline = statuses
+        return statuses
+    }
+
+    /// Whether Download is offered once the list's row `row` is selected (UI test).
+    func downloadOfferedForTest(row: Int) -> Bool {
+        languageEditor.select(row: row)
+        return languageEditor.canDownloadSelected
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        refreshOffline()  // a language may have been downloaded or removed in System Settings meanwhile
     }
 
     private func setStatus(_ text: String, color: NSColor) {
@@ -329,10 +377,11 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         var c = config
         c.googleEnabled = googleBox.state == .on
         c.aiEnabled = aiBox.state == .on
+        if OnDevice.isAvailable { c.deviceEnabled = deviceBox.state == .on }
         c.providerID = selectedProvider.id
         c.model = modelBox.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         c.customURL = urlField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        c.defaultEngine = defaultControl.selectedSegment == 1 ? .ai : .google
+        c.defaultEngine = methods.indices.contains(defaultControl.selectedSegment) ? methods[defaultControl.selectedSegment] : .google
         c.languageIDs = languageEditor.languages.map(\.id)
         c.defaultLanguageID = languageEditor.defaultLanguage?.id ?? ""
         c.googleVoice = googleVoiceBox.state == .on
@@ -366,7 +415,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     // MARK: Actions
 
     @objc private func methodsChanged() {
-        if googleBox.state == .off && aiBox.state == .off {  // at least one method stays on
+        if googleBox.state == .off && aiBox.state == .off && deviceBox.state == .off {  // at least one method stays on
             googleBox.state = .on
         }
         refreshEnabled()

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # BTranslate's tests. They need no network and no API key: the app's own checks first, then
 # both AI protocols and the Google fallback against tests/mock_server.py, then the popup and
-# the settings window drawn off screen (into build/uitest; in Russian into build/uitest-ru).
+# the settings window drawn off screen (into build/uitest; in Russian into build/uitest-ru),
+# then what the popup does without a connection.
 #   tests/run.sh          build if needed, then test
 #   tests/run.sh --live   also use the real Google Translate (one sentence), the real
-#                         Keychain (a dummy key is saved, read and deleted) and BTranslate's
-#                         real preferences (Russian is chosen, read back, and your choice put back)
+#                         Keychain (a dummy key is saved, read and deleted), BTranslate's
+#                         real preferences (Russian is chosen, read back, and your choice put
+#                         back) and Apple's translation on this Mac, where it has German and English
 #   tests/run.sh --screen also show a popup on screen for a few seconds, to check what a
 #                         picture can't: your app stays in front, typing reaches the pencil's
 #                         search field, a second language joins the popup (needs a working
@@ -18,6 +20,12 @@ BIN=build/BTranslate.app/Contents/MacOS/BTranslate
 # The checks below read the app's English texts, whatever language this Mac or your own
 # BTranslate is set to. The Russian ones say so.
 export BTRANSLATE_LANGUAGE=en
+# The Offline method is Apple's translation, which a Mac may not have (it needs macOS 26, and
+# on some Macs downloads). A stand-in answers for it here: it has English, Russian and German,
+# French and Spanish "need a download", and it translates "Tag" from German into Russian as
+# "OFFLINE de>ru: Tag".
+export BTRANSLATE_OFFLINE=mock
+DEAD="http://127.0.0.1:9"  # nothing listens there: a request ends as it does without internet
 PORT="${BTRANSLATE_TEST_PORT:-18766}"
 MOCK="http://127.0.0.1:$PORT"
 LOG=build/mock.log
@@ -104,6 +112,21 @@ check "Russian: the AI is told every language as in English" "same" bash -c \
     "diff <('$BIN' --prompts) <(BTRANSLATE_LANGUAGE=ru '$BIN' -AppleLanguages '(ru)' --prompts) >/dev/null && echo same"
 logged "Russian: the prompt is the same" 'Translate from Lithuanian (lietuvių) into Russian (русский):.*/anthropic-ru/messages'
 
+check "No connection: said plainly" "ERROR: No internet connection." \
+    env BTRANSLATE_GOOGLE_URL="$DEAD" "$BIN" --print --engine google "Labdien"
+check "No connection: a local AI server that is not running is another matter" "The AI server at 127.0.0.1:9 is not answering. Is it running?" \
+    env BTRANSLATE_PROVIDER=custom BTRANSLATE_BASE_URL="$DEAD/v1" BTRANSLATE_API_KEY=x "$BIN" --print --engine ai "Labdien"
+check "Offline method: a translation, the language told on the Mac" $'source: German | updates: 1\nOFFLINE de>ru: Guten Tag! Wie geht es Ihnen heute?' \
+    "$BIN" --print --engine device --to ru "Guten Tag! Wie geht es Ihnen heute?"
+check "Offline method: the original's language given, line breaks kept" $'OFFLINE de>en: Eins\n\nOFFLINE de>en: Zwei' \
+    "$BIN" --print --engine device --from de --to en $'Eins\n\nZwei'
+check "Offline method: a language Apple has not got" "Apple's offline translation has no Latvian." \
+    "$BIN" --print --engine device --from de --to lv "Guten Tag"
+check "Offline method: a language that needs a download" "are not downloaded yet (German → French). Download them in Settings" \
+    "$BIN" --print --engine device --from de --to fr "Guten Tag"
+check "Offline method: already in that language" $'source: German | updates: 1\nGuten Tag' \
+    "$BIN" --print --engine device --from de --to de "Guten Tag"
+
 LONG="This is the first sentence, and it is here to fill one piece. $(printf 'Another sentence that makes the text longer than one piece. %.0s' 1 2 3 4)"
 check "Speech: Google's voice, in pieces" "google voice xx: 2 piece(s)" \
     env BTRANSLATE_GOOGLE_SPEECH_URL="$MOCK/speech" "$BIN" -googleVoice YES --speech-check xx "$LONG"
@@ -136,10 +159,41 @@ check "UI in Russian: several languages at once" "several languages at once: yes
 check "UI in Russian: the original's language set by hand" "the original's language can be set by hand: yes" echo "$UI_RU"
 check "UI in Russian: pictures written" "settings-languages.png" ls build/uitest-ru
 
+# Without a connection (Google's address cuts the first request off, or nothing listens there).
+OFF=(-googleEnabled YES -aiEnabled NO -defaultEngine google -defaultLanguage ru)
+OFF_OUT="$(env BTRANSLATE_GOOGLE_URL="$MOCK/googleflaky1-switch" "$BIN" --offline-uitest switch "${OFF[@]}" -deviceEnabled YES -languages '(ru, lv)' build/uitest 2>&1 || true)"
+check "No connection: the popup goes over to the Offline method" \
+    "switch, without a connection: method device, no connection shown: yes, texts: OFFLINE de>ru: Guten Tag!" echo "$OFF_OUT"
+check "No connection: a language the Offline method has not got waits" \
+    "Apple's offline translation has no Latvian. / No internet connection. BTranslate will translate as soon as it is back." echo "$OFF_OUT"
+check "No connection: the first method takes over again when the connection is back" \
+    "switch, the connection is back: method google, no connection shown: no, texts: RU:Guten Tag! Ich bin morgen von neun bis fünf im Büro. | LV:Guten Tag!" echo "$OFF_OUT"
+WAIT_OUT="$(env BTRANSLATE_GOOGLE_URL="$MOCK/googleflaky1-wait" "$BIN" --offline-uitest wait "${OFF[@]}" -deviceEnabled NO -languages '(ru)' build/uitest 2>&1 || true)"
+check "No connection, Offline method turned off: the popup waits" \
+    "wait, without a connection: method google, no connection shown: yes, texts: No internet connection. BTranslate will translate as soon as it is back." echo "$WAIT_OUT"
+check "No connection, Offline method turned off: it translates when the connection is back" \
+    "wait, the connection is back: method google, no connection shown: no, texts: RU:Guten Tag!" echo "$WAIT_OUT"
+STAY_OUT="$(env BTRANSLATE_GOOGLE_URL="$DEAD" "$BIN" --offline-uitest switch "${OFF[@]}" -deviceEnabled YES -languages '(ru, en)' build/uitest 2>&1 || true)"
+check "No connection: what was translated offline stays when the connection is back" \
+    "switch, the connection is back: method device, no connection shown: no, texts: OFFLINE de>ru: Guten Tag! Ich bin morgen von neun bis fünf im Büro. | OFFLINE de>en: Guten Tag!" echo "$STAY_OUT"
+SET_OUT="$("$BIN" --offline-uitest settings -googleEnabled YES -deviceEnabled YES -languages '(en, ru, fr, lv)' -defaultLanguage ru build/uitest 2>&1 || true)"
+check "Settings: which languages work without internet" "offline marks: en installed, ru installed, fr downloadable, lv unavailable" echo "$SET_OUT"
+check "Settings: Download is offered for the language that needs it" "Download offered: en no, ru no, fr yes, lv no" echo "$SET_OUT"
+check "Settings, with the offline marks: every text fits" "settings window, every text fits: yes" echo "$SET_OUT"
+SET_RU="$(env BTRANSLATE_LANGUAGE=ru "$BIN" --offline-uitest settings -AppleLanguages '(ru)' -googleEnabled YES -deviceEnabled YES -languages '(en, ru, fr, lv)' build/uitest-ru 2>&1 || true)"
+check "Settings in Russian, with the offline marks: every text fits" "settings window, every text fits: yes" echo "$SET_RU"
+
 if [ "${1:-}" = "--live" ]; then
     check "Google, live" "source: Latvian" "$BIN" --print --engine google "Labdien! Kā jums klājas?"
     check "Keychain, live" "keychain: ok" "$BIN" --keychain-test
     check "BTranslate's language, live: chosen and read back" "language choice: ok" "$BIN" --language-test
+    if env -u BTRANSLATE_OFFLINE "$BIN" --offline de en | grep -q "de → en: installed"; then
+        check "Offline method, live: Apple's translation on this Mac" "source: German" \
+            env -u BTRANSLATE_OFFLINE "$BIN" --print --engine device --to en "Guten Tag! Wie geht es Ihnen heute?"
+        check "Offline method, live: the Download button's way to macOS" "download check: ok" env -u BTRANSLATE_OFFLINE "$BIN" --download-check
+    else
+        echo "skip  Offline method, live (this Mac has not got German and English for it)"
+    fi
 fi
 
 if [ "${1:-}" = "--screen" ]; then

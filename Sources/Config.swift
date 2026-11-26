@@ -2,7 +2,8 @@ import Foundation
 
 // MARK: - Translation methods and AI providers
 
-enum Engine: String { case google, ai }
+/// `device` is the "Offline" method: the translation built into macOS (Sources/OnDevice.swift).
+enum Engine: String { case google, ai, device }
 
 struct Provider {
     enum API { case anthropic, openAI }  // openAI: any server with /chat/completions
@@ -46,6 +47,7 @@ let providers: [Provider] = [
 struct Config {
     var googleEnabled = true
     var aiEnabled = false
+    var deviceEnabled = true        // the Offline method, where the Mac has it
     var providerID = "anthropic"
     var model = "claude-haiku-5-5"
     var customURL = ""
@@ -68,6 +70,7 @@ struct Config {
     /// The methods that are turned on. Never empty.
     var engines: [Engine] {
         let list: [Engine] = (googleEnabled ? [.google] : []) + (aiEnabled ? [.ai] : [])
+            + (deviceEnabled && OnDevice.isAvailable ? [.device] : [])
         return list.isEmpty ? [.google] : list
     }
 
@@ -87,10 +90,11 @@ struct Config {
 
     static func load() -> Config {
         let d = UserDefaults.standard
-        d.register(defaults: ["googleEnabled": true, "googleVoice": true])
+        d.register(defaults: ["googleEnabled": true, "googleVoice": true, "deviceEnabled": true])
         var c = Config()
         c.googleEnabled = d.bool(forKey: "googleEnabled")
         c.aiEnabled = d.bool(forKey: "aiEnabled")
+        c.deviceEnabled = d.bool(forKey: "deviceEnabled")
         c.providerID = d.string(forKey: "aiProvider") ?? c.providerID
         c.model = d.string(forKey: "aiModel") ?? c.model
         c.customURL = d.string(forKey: "aiBaseURL") ?? ""
@@ -119,6 +123,7 @@ struct Config {
         let d = UserDefaults.standard
         d.set(googleEnabled, forKey: "googleEnabled")
         d.set(aiEnabled, forKey: "aiEnabled")
+        d.set(deviceEnabled, forKey: "deviceEnabled")
         d.set(providerID, forKey: "aiProvider")
         d.set(model, forKey: "aiModel")
         d.set(customURL, forKey: "aiBaseURL")

@@ -10,8 +10,20 @@
 // AI provider, model and API key, and the method a popup opens with.
 //
 // Command line, for tests:
-//   BTranslate --print [--engine google|ai] [--from lv] [--to Russian|ru] "text"
-//                                                                   print a translation
+//   BTranslate --print [--engine google|ai|device] [--from lv] [--to Russian|ru] "text"
+//                                                                   print a translation (device: the
+//                                                                   Offline method)
+//   BTranslate --offline [FROM TO]                                  say whether this Mac has the Offline
+//                                                                   method, its languages, and whether
+//                                                                   a pair of them is downloaded
+//   BTranslate --download-check                                     the Download button's way to macOS,
+//                                                                   without a download: for English and
+//                                                                   German, if both are there already,
+//                                                                   macOS answers at once and shows nothing
+//   BTranslate --offline-uitest switch|wait|settings DIR            the popup without a connection and
+//                                                                   the settings' offline marks, drawn
+//                                                                   into DIR off screen (tests/run.sh
+//                                                                   says how each is set up)
 //   BTranslate --speech-check CODE "text"                           say which voice would read a
 //                                                                   text in that language, make the
 //                                                                   audio, and play it at volume zero
@@ -34,7 +46,8 @@
 //                                                                   window into DIR as PNGs, off screen
 //   Env: BTRANSLATE_PROVIDER, BTRANSLATE_MODEL, BTRANSLATE_BASE_URL, BTRANSLATE_API_KEY,
 //        BTRANSLATE_GOOGLE_URL override the saved settings; BTRANSLATE_LANGUAGE=en|ru sets
-//        the language of BTranslate's own texts (and of what these modes print from them).
+//        the language of BTranslate's own texts (and of what these modes print from them);
+//        BTRANSLATE_OFFLINE=mock stands in for Apple's translation (Sources/OnDevice.swift).
 
 import Cocoa
 
@@ -311,6 +324,68 @@ func runUITest(into dir: String) {
     popup.start()
 }
 
+/// The popup without a connection, off screen. Google's address is one that does not answer
+/// (tests/run.sh sets it), so the first translation fails as it does without internet:
+///   switch   the Offline method is on: the popup goes over to it; a language it has not got
+///            waits, and the first method takes over again when the connection is back
+///   wait     the Offline method is off: the popup waits, and translates when the connection is back
+/// After the first result, a second language of the list is added, then the connection "comes back".
+@MainActor
+func runOfflineUITest(_ scenario: String, into dir: String) {
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    let popup = Popup(text: argument(after: "--text") ?? "Guten Tag! Ich bin morgen von neun bis fünf im Büro.")
+    Popup.current = popup
+    popup.prepare()
+    var stage = "without a connection"
+    var pictures = 0
+    func report() {
+        pictures += 1
+        if let view = popup.panel.contentView { snapshot(view, to: "\(dir)/offline-\(scenario)-\(pictures).png") }
+        let texts = popup.shownTexts.map { $0.replacingOccurrences(of: "\n", with: " / ") }.joined(separator: " | ")
+        print("\(scenario), \(stage): method \(popup.engine.rawValue), no connection shown: \(popup.showsNoConnection ? "yes" : "no"), texts: \(texts)")
+    }
+    var steps: [(String, () -> Void)] = []
+    if let other = popup.config.targets.first(where: { other in !popup.sections.contains { $0.target == other } }) {
+        steps.append(("a second language added", { popup.addLanguage(other) }))
+    }
+    steps.append(("the connection is back", { popup.connectionIsBack() }))
+    func next() {
+        report()
+        while !steps.isEmpty {
+            let (name, step) = steps.removeFirst()
+            stage = name
+            step()
+            if !popup.sections.allSatisfy(\.settled) { return }  // it translates again: the next report comes when it has
+            report()
+        }
+        exit(0)
+    }
+    popup.onSettled = { next() }
+    popup.start()
+}
+
+/// The settings window's offline marks and Download button, off screen.
+@MainActor
+func runOfflineSettingsTest(into dir: String) async {
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    _ = SettingsController.shared.preparedContent(page: 0)
+    let statuses = await SettingsController.shared.loadOfflineForTest()
+    var cut: [String] = []
+    for (page, name) in [(0, "offline-settings"), (1, "offline-languages")] {
+        guard let content = SettingsController.shared.preparedContent(page: page) else { continue }
+        content.layoutSubtreeIfNeeded()
+        cut += cutOffTexts(in: content)
+        snapshot(content, to: "\(dir)/\(name).png")
+    }
+    let list = Config.load().targets
+    print("offline marks: \(list.map { "\($0.id) \(statuses[$0.id]?.rawValue ?? "none")" }.joined(separator: ", "))")
+    let offered = list.indices.map { "\(list[$0].id) \(SettingsController.shared.downloadOfferedForTest(row: $0) ? "yes" : "no")" }
+    print("Download offered: \(offered.joined(separator: ", "))")
+    print("settings pages are \(Int(SettingsController.shared.pageHeights.0)) and \(Int(SettingsController.shared.pageHeights.1)) points tall")
+    print("settings window, every text fits: \(cut.isEmpty ? "yes" : "NO (\(cut.joined(separator: " | ")))")")
+    exit(cut.isEmpty ? 0 : 1)
+}
+
 /// Shows a real popup by the pointer for about two seconds, opens the pencil's picker, types
 /// into it and closes it with Esc. Prints what it saw. Nothing is clicked in other apps.
 @MainActor
@@ -442,6 +517,17 @@ if arguments.contains("--selftest") {
     let ok = russian && theMacs && chosenInterfaceLanguage() == was
     print(ok ? "language choice: ok" : "language choice FAILED (Russian chosen: \(russian), the Mac's again: \(theMacs))")
     exit(ok ? 0 : 1)
+} else if arguments.contains("--offline") {
+    runHeadless {
+        guard OnDevice.isAvailable else {
+            print("offline method: not on this Mac (it needs macOS 26 or later)")
+            return 0
+        }
+        print("offline method: yes; languages: \(await OnDevice.supportedLanguages().sorted().joined(separator: " "))")
+        let pair = Array(arguments.drop { $0 != "--offline" }.dropFirst().prefix(2))
+        if pair.count == 2 { print("\(pair[0]) → \(pair[1]): \(await OnDevice.status(from: pair[0], to: pair[1]).rawValue)") }
+        return 0
+    }
 } else if arguments.contains("--models") {
     runHeadless {
         let config = Config.load()
@@ -500,6 +586,42 @@ if arguments.contains("--selftest") {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         runScreenCheck()
+        app.run()
+    }
+} else if arguments.contains("--download-check") {
+    MainActor.assumeIsolated {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        Task { @MainActor in
+            guard await OnDevice.status(from: "en", to: "de") == .installed else {
+                print("download check: skipped (English and German are not both downloaded on this Mac)")
+                exit(0)
+            }
+            // macOS asks from a view in a window: this one is far off every screen.
+            let window = NSWindow(contentRect: NSRect(x: -4000, y: -4000, width: 200, height: 100), styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+            window.orderFrontRegardless()
+            OnDevice.download("de", with: "en", in: window) {
+                print("download check: ok (macOS answered; nothing needed downloading)")
+                exit(0)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 15) {
+                print("download check: FAILED (macOS never answered)")
+                exit(1)
+            }
+        }
+        app.run()
+    }
+} else if let scenario = argument(after: "--offline-uitest") {
+    MainActor.assumeIsolated {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        let dir = arguments.last ?? "."
+        if scenario == "settings" {
+            Task { @MainActor in await runOfflineSettingsTest(into: dir) }
+        } else {
+            runOfflineUITest(scenario, into: dir)
+        }
         app.run()
     }
 } else if let dir = argument(after: "--uitest") {

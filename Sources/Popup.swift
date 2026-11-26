@@ -61,6 +61,7 @@ final class TranslationSection {
     var target: Target
     var translation = ""
     var settled = false           // a translation or an error message is showing
+    var waiting = false           // no translation for lack of a connection: one is made when it is back
     var task: Task<Void, Never>?
 
     let arrow = NSTextField(labelWithString: "→")
@@ -100,7 +101,8 @@ final class Popup: NSObject, NSWindowDelegate {
     private let sourceLabel = NSTextField(labelWithString: "")
     private let speakSourceButton = NSButton()
     private let sourceButton = NSButton()  // the pencil
-    private let engineControl = NSSegmentedControl(labels: ["Google", L("AI")], trackingMode: .selectOne, target: nil, action: nil)
+    private let engineControl = NSSegmentedControl()  // one segment for each method that is turned on
+    private let offlineIcon = NSImageView()           // shows while there is no connection
     private let settingsButton = NSButton()
     private let addButton = NSButton()     // +
     private let scroll = NSScrollView()
@@ -117,6 +119,11 @@ final class Popup: NSObject, NSWindowDelegate {
     var onSettled: (() -> Void)?  // called when every translation (or its error message) is showing (UI test)
     private var clickMonitor: Any?
     private var menuOpen = false  // one of the popup's menus is showing
+    // Without a connection: the popup goes over to the Offline method by itself if that is
+    // turned on, and what stays untranslated is translated when the connection is back.
+    private var noConnection = false   // a request has failed for lack of a connection
+    private var autoOffline: Engine?   // the method the popup had before it went over to Offline by itself
+    private var listening = false      // waiting to be told that the connection is back
     private var closed = false
 
     init(text: String) {
@@ -141,12 +148,31 @@ final class Popup: NSObject, NSWindowDelegate {
 
         engineControl.controlSize = .small
         engineControl.font = .systemFont(ofSize: 11)
-        engineControl.selectedSegment = engine == .google ? 0 : 1
-        engineControl.setToolTip(L("Google Translate"), forSegment: 0)
-        engineControl.setToolTip("\(config.provider.name): \(config.model)", forSegment: 1)
+        engineControl.trackingMode = .selectOne
+        engineControl.segmentCount = config.engines.count
+        for (i, method) in config.engines.enumerated() {
+            switch method {
+            case .google:
+                engineControl.setLabel("Google", forSegment: i)
+                engineControl.setToolTip(L("Google Translate"), forSegment: i)
+            case .ai:
+                engineControl.setLabel(L("AI"), forSegment: i)
+                engineControl.setToolTip("\(config.provider.name): \(config.model)", forSegment: i)
+            case .device:
+                engineControl.setLabel(L("Offline"), forSegment: i)
+                engineControl.setToolTip(L("Apple's translation on this Mac: works without internet"), forSegment: i)
+            }
+        }
+        selectEngine()
         engineControl.isHidden = config.engines.count < 2
         engineControl.target = self
         engineControl.action = #selector(engineChanged)
+
+        offlineIcon.image = NSImage(systemSymbolName: "wifi.slash", accessibilityDescription: L("No internet connection"))
+        offlineIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
+        offlineIcon.contentTintColor = .secondaryLabelColor
+        offlineIcon.toolTip = L("No internet connection")
+        offlineIcon.isHidden = true
 
         configure(speakSourceButton, symbol: "speaker.wave.2", size: 12, tip: "", action: #selector(speakSource))
         configure(sourceButton, symbol: "pencil", size: 12, tip: "", action: #selector(toggleSourcePicker))
@@ -166,7 +192,7 @@ final class Popup: NSObject, NSWindowDelegate {
         center.addObserver(self, selector: #selector(menuDidOpen), name: NSMenu.didBeginTrackingNotification, object: nil)
         center.addObserver(self, selector: #selector(menuDidClose), name: NSMenu.didEndTrackingNotification, object: nil)
 
-        for view in [sourceLabel, speakSourceButton, sourceButton, engineControl, settingsButton, scroll] as [NSView] {
+        for view in [sourceLabel, speakSourceButton, sourceButton, offlineIcon, engineControl, settingsButton, scroll] as [NSView] {
             background.addSubview(view)
         }
         // Keys go to the texts only (Esc, ⌘C, ⌘A): no Tab onto a control, where typing could change it.
@@ -366,6 +392,7 @@ final class Popup: NSObject, NSWindowDelegate {
         if Speaker.shared.playing == section.name { Speaker.shared.stop() }
         section.translation = ""
         section.settled = false
+        section.waiting = false
         setText(L("Translating…"), in: section, color: .secondaryLabelColor)
         let engine = engine, target = section.target, config = config, chosenSource = chosenSource
         section.task = Task { [weak self, weak section] in
@@ -373,6 +400,7 @@ final class Popup: NSObject, NSWindowDelegate {
             do {
                 try await translate(self.source, engine: engine, target: target, source: chosenSource, config: config) { [weak self, weak section] code, text in
                     guard let self, let section, !Task.isCancelled else { return }
+                    if engine != .device { self.noConnection = false }  // an answer from the internet
                     let firstPiece = section.translation.isEmpty
                     if let code, self.detectedSource == nil || section === self.sections.first { self.detectedSource = code }
                     section.translation = text
@@ -382,7 +410,23 @@ final class Popup: NSObject, NSWindowDelegate {
             } catch {
                 if Task.isCancelled || (error as? URLError)?.code == .cancelled || error is CancellationError { return }
                 section.translation = ""
-                self.setText(describe(error), in: section, color: .systemRed)
+                // The Mac told the text's language, though the Offline method can't translate from it: show it.
+                if case OfflineError.noLanguage(let code) = error, code != target.google, chosenSource == nil, self.detectedSource == nil {
+                    self.detectedSource = code
+                }
+                let later = L("No internet connection. BTranslate will translate as soon as it is back.")
+                if engine != .device, isConnectionError(error) {
+                    if self.goOffline(from: engine) { return }  // every language starts anew, with the Offline method
+                    section.waiting = true
+                    self.waitForConnection()
+                    self.setText(later, in: section, color: .secondaryLabelColor)
+                } else if engine == .device, self.autoOffline != nil {
+                    // The Offline method can't do this one, and it is only in use for lack of a connection.
+                    section.waiting = true
+                    self.setText(describe(error) + "\n" + later, in: section, color: .secondaryLabelColor)
+                } else {
+                    self.setText(describe(error), in: section, color: .systemRed)
+                }
             }
             if Task.isCancelled { return }
             section.settled = true
@@ -396,8 +440,57 @@ final class Popup: NSObject, NSWindowDelegate {
     var shownSource: String { sourceLabel.stringValue }
 
     @objc private func engineChanged() {
-        engine = engineControl.selectedSegment == 0 ? .google : .ai  // for this popup only; Settings has the default
+        guard config.engines.indices.contains(engineControl.selectedSegment) else { return }
+        engine = config.engines[engineControl.selectedSegment]  // for this popup only; Settings has the default
+        autoOffline = nil                                       // your choice now, not the popup's
         start()
+    }
+
+    private func selectEngine() {
+        engineControl.selectedSegment = config.engines.firstIndex(of: engine) ?? 0
+    }
+
+    // MARK: Without a connection
+
+    var showsNoConnection: Bool { noConnection }  // (UI test)
+
+    /// The popup goes over to the Offline method, all of it, if that method is turned on.
+    /// Returns false if it is not: then the popup waits for the connection.
+    private func goOffline(from method: Engine) -> Bool {
+        guard config.engines.contains(.device), engine != .device else { return false }
+        autoOffline = method
+        engine = .device
+        selectEngine()
+        waitForConnection()
+        start()
+        return true
+    }
+
+    private func waitForConnection() {
+        noConnection = true
+        guard !listening else { return }
+        listening = true
+        Connection.shared.whenBack { [weak self] in
+            self?.listening = false
+            self?.connectionIsBack()
+        }
+    }
+
+    /// Translates what is still waiting. What the Offline method has translated stays as it
+    /// is; if it left a language untranslated, the method the popup had takes over again.
+    func connectionIsBack() {
+        guard !closed, noConnection else { return }
+        noConnection = false
+        let before = autoOffline
+        autoOffline = nil
+        if let before, sections.contains(where: \.waiting) {
+            engine = before
+            selectEngine()
+            start()
+        } else {
+            for section in sections where section.waiting { start(section) }
+            refreshBar()
+        }
     }
 
     @objc private func openSettings() {
@@ -585,6 +678,7 @@ final class Popup: NSObject, NSWindowDelegate {
         } else {
             sourceLabel.stringValue = sections.contains { !$0.settled } ? L("Detecting…") : L("Unknown language")
         }
+        offlineIcon.isHidden = !noConnection
         sourceButton.contentTintColor = chosenSource == nil ? .secondaryLabelColor : .controlAccentColor
         sourceButton.toolTip = chosenSource == nil
             ? L("Wrong language? Set the language of the original")
@@ -669,7 +763,11 @@ final class Popup: NSObject, NSWindowDelegate {
         settingsButton.frame = NSRect(x: W - pad - 20, y: barY + 1, width: 22, height: 22)
         engineControl.sizeToFit()
         engineControl.frame.origin = NSPoint(x: settingsButton.frame.minX - 8 - engineControl.frame.width, y: centred(engineControl))
-        let rightEdge = (engineControl.isHidden ? settingsButton.frame.minX : engineControl.frame.minX) - 10
+        var rightEdge = (engineControl.isHidden ? settingsButton.frame.minX : engineControl.frame.minX) - 10
+        if !offlineIcon.isHidden {
+            offlineIcon.frame = NSRect(x: rightEdge - 12, y: barY + 2, width: 20, height: 20)
+            rightEdge = offlineIcon.frame.minX - 6
+        }
         sourceLabel.sizeToFit()
         let labelWidth = min(sourceLabel.frame.width, rightEdge - pad - (4 + 20 + 2 + 18))
         sourceLabel.frame = NSRect(x: pad, y: centred(sourceLabel), width: labelWidth, height: sourceLabel.frame.height)
