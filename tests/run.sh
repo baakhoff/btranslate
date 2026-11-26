@@ -216,6 +216,19 @@ check "Settings: \"opens with\" leaves the AI model out until it has a key" "ope
 check "Settings: \"opens with\" has the AI model once it has one" "opens with: google, ai, device" \
     env BTRANSLATE_API_KEY=test-key "$BIN" --offline-uitest settings -googleEnabled YES "${AI[@]}" build/uitest
 
+# Reading aloud where only Google's voice could do it, without internet: a note under the
+# speaker button says why it can't be done. (Nothing is played, and nothing beeps.)
+SPEAK=(-googleEnabled YES -aiEnabled NO -defaultEngine google -recentSources '()' -googleVoice YES -languages '(ab)' -defaultLanguage ab)
+NOTE="the speaker's notice: No internet connection: this text can't be read aloud now. This Mac has no voice for Abkhaz, and Google's voice needs internet."
+check "Reading aloud without a network: a note says why it can't be done" "$NOTE" \
+    env BTRANSLATE_GOOGLE_URL="$MOCK/google" BTRANSLATE_CONNECTION=off "$BIN" --popup-check "Hello" --speak "${SPEAK[@]}"
+check "Reading aloud, Google's voice out of reach: the same note" "$NOTE" \
+    env BTRANSLATE_GOOGLE_URL="$MOCK/google" BTRANSLATE_GOOGLE_SPEECH_URL="$DEAD" "$BIN" --popup-check "Hello" --speak "${SPEAK[@]}"
+check "Reading aloud without a network, in Russian" "У этого Mac нет голоса для этого языка (абхазский), а голосу Google нужен интернет." \
+    env BTRANSLATE_LANGUAGE=ru BTRANSLATE_GOOGLE_URL="$MOCK/google" BTRANSLATE_CONNECTION=off "$BIN" --popup-check "Hello" --speak "${SPEAK[@]}"
+check "Reading aloud with a voice of the Mac needs no network: no note" "the speaker's notice: none" \
+    env BTRANSLATE_GOOGLE_URL="$MOCK/google" BTRANSLATE_CONNECTION=off "$BIN" --popup-check "Labdien" --speak "${SPEAK[@]}" -languages '(en)' -defaultLanguage en
+
 # Where the Offline method can't translate for want of the language pack, the popup offers it.
 GER="Guten Tag! Ich bin morgen von neun bis fünf im Büro."
 OFFER=(-googleEnabled YES -aiEnabled NO -deviceEnabled YES -languages '(lv, ru)' -defaultLanguage lv -recentSources '()')

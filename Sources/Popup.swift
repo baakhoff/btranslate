@@ -129,6 +129,14 @@ final class Popup: NSObject, NSWindowDelegate {
     private var autoOffline: Engine?   // the method the popup had before it went over to Offline by itself
     private var listening = false      // waiting to be told that the connection is back
     private var closed = false
+    // A note in a small bubble under one of the popup's buttons: why what it does can't be done now.
+    private var notice: NSPanel?
+    private var noticeNumber = 0       // which note is showing: an older one's timer must not take a newer one away
+    private(set) var shownNotice: String?
+    var noticeView: NSView? { notice?.contentView }  // (UI test)
+    var noticeWindow: NSWindow? { notice }           // (UI test)
+    /// Where the first translation's speaker button is on the screen (UI test).
+    var speakerFrame: NSRect? { sections.first.map { panel.convertToScreen($0.speakButton.convert($0.speakButton.bounds, to: nil)) } }
 
     init(text: String) {
         source = text
@@ -244,6 +252,7 @@ final class Popup: NSObject, NSWindowDelegate {
         Speaker.shared.stop()
         Speaker.shared.onChange = nil
         Speaker.shared.onError = nil
+        hideNotice()
         closeSourcePicker()
         NotificationCenter.default.removeObserver(self)
         if let m = clickMonitor { NSEvent.removeMonitor(m); clickMonitor = nil }
@@ -728,12 +737,77 @@ final class Popup: NSObject, NSWindowDelegate {
         Speaker.shared.toggle(section.name, text: section.translation, code: section.target.google, googleVoice: config.googleVoice)
     }
 
+    /// A text could not be read aloud (no internet for Google's voice, most often): the
+    /// speaker button turns red, and a note under it says why.
     private func speechFailed(_ name: String, _ message: String) {
         let button = sections.first { $0.name == name }?.speakButton ?? speakSourceButton
-        NSSound.beep()
+        if Speaker.shared.volume > 0 { NSSound.beep() }  // (a check plays nothing, and so does not beep)
         button.contentTintColor = .systemRed
         button.toolTip = message
+        showNotice(message, under: button)
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.refreshSpeech() }
+    }
+
+    /// Shows `text` in a small bubble under `button` for a few seconds. The bubble takes
+    /// neither the keyboard nor clicks: the popup stays as it is.
+    private func showNotice(_ text: String, under button: NSView) {
+        hideNotice()
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.font = .systemFont(ofSize: 12)
+        label.textColor = .labelColor
+        label.preferredMaxLayoutWidth = 250
+        let inner = label.fittingSize
+        let size = NSSize(width: ceil(inner.width) + 24, height: ceil(inner.height) + 16)
+        label.frame = NSRect(x: 12, y: 8, width: ceil(inner.width), height: ceil(inner.height))
+
+        let bubble = NSPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel],
+                             backing: .buffered, defer: false)
+        bubble.isFloatingPanel = true
+        bubble.level = .floating
+        bubble.isOpaque = false
+        bubble.backgroundColor = .clear
+        bubble.hasShadow = true
+        bubble.ignoresMouseEvents = true
+        bubble.isReleasedWhenClosed = false
+        let background = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
+        background.material = .hudWindow
+        background.blendingMode = .behindWindow
+        background.state = .active
+        background.wantsLayer = true
+        background.layer?.cornerRadius = 8
+        background.layer?.masksToBounds = true
+        background.addSubview(label)
+        bubble.contentView = background
+
+        // Under the button, its middle under the button's; above it where the screen ends.
+        let anchor = panel.convertToScreen(button.convert(button.bounds, to: nil))
+        var origin = NSPoint(x: anchor.midX - size.width / 2, y: anchor.minY - 6 - size.height)
+        if let visible = (panel.screen ?? NSScreen.main)?.visibleFrame {
+            if origin.y < visible.minY + 6 { origin.y = anchor.maxY + 6 }
+            origin.x = min(max(origin.x, visible.minX + 6), visible.maxX - 6 - size.width)
+        }
+        bubble.setFrameOrigin(origin)
+        notice = bubble
+        shownNotice = text
+        noticeNumber += 1
+        let number = noticeNumber
+        if panel.isVisible { panel.addChildWindow(bubble, ordered: .above) }  // it moves with the popup
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+            if self?.noticeNumber == number { self?.hideNotice() }
+        }
+    }
+
+    private func hideNotice() {
+        guard let bubble = notice else { return }
+        notice = nil
+        shownNotice = nil
+        panel.removeChildWindow(bubble)
+        bubble.orderOut(nil)
+    }
+
+    /// The first translation's speaker button, pressed (UI test).
+    func pressSpeaker() {
+        if let section = sections.first { speakTranslation(section.speakButton) }
     }
 
     /// The speaker buttons: a stop sign while their text is read, greyed out when there is

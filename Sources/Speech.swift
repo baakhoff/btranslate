@@ -190,6 +190,14 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
             playing = name
             synthesizer.speak(u)
         case .google(let googleCode):
+            // Google's voice needs internet, and this language has no voice on the Mac: without
+            // a network there is nothing to try.
+            let offline = L("No internet connection: this text can't be read aloud now. This Mac has no voice for %@, and Google's voice needs internet.",
+                            languageName(code, inText: true))
+            guard Connection.shared.isOnline else {
+                onError?(name, offline)
+                return
+            }
             playing = name
             task = Task { [weak self] in
                 do {
@@ -206,7 +214,7 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
                     }
                 } catch {
                     if Task.isCancelled || error is CancellationError { return }
-                    self?.onError?(name, describe(error))
+                    self?.onError?(name, isConnectionError(error) ? offline : describe(error))
                 }
                 if !Task.isCancelled { self?.ended(name) }
             }

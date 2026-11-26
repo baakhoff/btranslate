@@ -38,10 +38,12 @@
 //                                                                   without a download: for English and
 //                                                                   German, if both are there already,
 //                                                                   macOS answers at once and shows nothing
-//   BTranslate --popup-check "text" [--download] [--picture DIR]    a popup made off screen: the methods
+//   BTranslate --popup-check "text" [--download] [--speak] [--picture DIR]
+//                                                                   a popup made off screen: the methods
 //                                                                   it offers, what each language shows,
 //                                                                   and whether the language pack is
-//                                                                   offered; --download presses that button
+//                                                                   offered; --download presses that
+//                                                                   button, --speak the speaker's
 //   BTranslate --offline-uitest switch|wait|settings DIR            the popup without a connection and
 //                                                                   the settings' offline marks, drawn
 //                                                                   into DIR off screen (tests/run.sh
@@ -110,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        _ = Connection.shared  // it starts watching the network now, to know later whether there is one
         NSRegisterServicesProvider(provider, "BTranslate")  // = NSPortName in Info.plist
         buildMenu()
         let args = CommandLine.arguments
@@ -392,12 +395,19 @@ func runOfflineUITest(_ scenario: String, into dir: String) {
 /// A popup made off screen for a text. Prints the methods it offers and, for each language
 /// it translates into, the language, what it shows, and whether the language pack is
 /// offered under it. With --download the offer's button is then pressed, and the popup is
-/// printed again once the pack is there. --picture DIR also draws the popup into DIR.
+/// printed again once the pack is there. With --speak the first translation's speaker
+/// button is pressed (without sound) and what the popup says about it is printed.
+/// --picture DIR also draws the popup into DIR.
 @MainActor
 func runPopupCheck(text: String) {
     let popup = Popup(text: text)
     Popup.current = popup
     popup.prepare()
+    // --on-screen: the popup is really shown, by the pointer, for the few seconds the check
+    // takes. It does not take the keyboard, and nothing is clicked.
+    let onScreen = arguments.contains("--on-screen")
+    let frontBefore = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+    if onScreen { popup.panel.orderFrontRegardless() }
     var pressed = false
     func report(_ stage: String) {
         print("\(stage): methods \(popup.config.engines.map(\.rawValue).joined(separator: ", ")); the original: \(popup.shownSource)")
@@ -413,6 +423,30 @@ func runPopupCheck(text: String) {
     var observer: NSObjectProtocol?
     popup.onSettled = {
         report(pressed ? "with the pack" : "popup")
+        if arguments.contains("--speak") {
+            // The first translation's speaker button, pressed; never a sound from a check.
+            Speaker.shared.volume = 0
+            popup.pressSpeaker()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                MainActor.assumeIsolated {
+                    Speaker.shared.stop()
+                    print("the speaker's notice: \(popup.shownNotice ?? "none")")
+                    if onScreen, let bubble = popup.noticeWindow, let button = popup.speakerFrame {
+                        let screen = (popup.panel.screen ?? NSScreen.main)?.visibleFrame ?? .zero
+                        let under = bubble.frame.maxY <= button.minY || bubble.frame.minY >= button.maxY
+                        let near = abs(bubble.frame.midX - button.midX) < bubble.frame.width / 2 + 1
+                        let front = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+                        print("on screen: note showing \(bubble.isVisible ? "yes" : "NO"), by the speaker button \(under && near ? "yes" : "NO"), "
+                              + "inside the screen \(screen.contains(bubble.frame) ? "yes" : "NO"), attached to the popup \(bubble.parent === popup.panel ? "yes" : "NO"), "
+                              + "can take the keyboard \(bubble.canBecomeKey ? "YES" : "no"), app in front before and after: \(frontBefore) / \(front)")
+                    }
+                    popup.close()
+                    if let dir = argument(after: "--picture"), let view = popup.noticeView { snapshot(view, to: "\(dir)/popup-notice.png") }
+                    exit(0)
+                }
+            }
+            return
+        }
         guard arguments.contains("--download"), !pressed, popup.packOffered.contains(true) else { exit(0) }
         pressed = true
         observer = NotificationCenter.default.addObserver(forName: PackInstaller.changed, object: nil, queue: .main) { _ in

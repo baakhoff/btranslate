@@ -36,6 +36,7 @@ the Neural Engine for the languages Apple lacks.
 - **Listen:** one speaker button reads the original aloud, another the translation.
   - Your Mac's own voices do it, offline. The Croatian voice also reads Serbian and Bosnian.
   - macOS has no voice for some languages (Latvian, for one). For those, Google Translate's voice can read the text; you can turn that off in the setup window.
+  - Google's voice needs internet. Without it, a note under the speaker button says that the text can't be read aloud now, and why.
 - **Your own list of languages:**
   - Add any of the 249 languages Google Translate knows, as many or as few as you like.
   - Serbian comes in both Latin and Cyrillic script, and a Serbian text can be turned from one alphabet into the other.

@@ -40,6 +40,8 @@
 "the translation" = "перевод";
 /* %@: a language as a sentence has it, "русский" */
 "the %@ translation" = "перевод на %@";
+/* in a note under the speaker button; %@: a language as a sentence has it, "латышский" */
+"No internet connection: this text can't be read aloud now. This Mac has no voice for %@, and Google's voice needs internet." = "Нет подключения к интернету: прочитать этот текст вслух сейчас нельзя. У этого Mac нет голоса для этого языка (%@), а голосу Google нужен интернет.";
 "This Mac has no voice for %@. Google's voice can read it: turn it on in Settings." = "У этого Mac нет голоса для этого языка (%@). Текст может прочитать голос Google: включите его в настройках.";
 "Google has no voice for %@." = "У Google нет голоса для этого языка (%@).";
 
