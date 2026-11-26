@@ -1,0 +1,126 @@
+# BTranslate
+
+Translate selected text in **any Mac app** from the right-click menu. The translation shows in
+a small popup next to the mouse pointer, and the app you are in stays in front. It uses
+**Google Translate** (free, no key) or an **AI model** with your own API key (Claude, GPT,
+Gemini, DeepSeek, OpenRouter or a local server), so it also covers languages Apple's built-in
+translator doesn't have, such as Latvian and Serbian.
+
+[![CI](https://github.com/baakhoff/btranslate/actions/workflows/ci.yml/badge.svg)](https://github.com/baakhoff/btranslate/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/baakhoff/btranslate)](https://github.com/baakhoff/btranslate/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+![The BTranslate popup](docs/popup.png)
+
+## What you get
+
+- **A right-click menu item:** select text, right-click it and choose **Services → BTranslate**. You can also give it a keyboard shortcut.
+- **A popup, not another app:** the translation appears by the pointer. Esc, ⌘W or a click anywhere else closes it. Drag it if it's in the way.
+- **Two ways to translate, one click apart:**
+  - **Google Translate:** free and instant, no account.
+  - **An AI model:** often better with context, names and tone. The answer streams in as it is written.
+  - You choose which one a popup opens with; the other is a click away in the popup.
+- **The source language is detected** and shown ("Latvian → English").
+- **37 languages to translate into.** Your Mac's own languages are at the top of the menu, and the last one you used is remembered. Serbian comes in both Latin and Cyrillic script.
+- **Copy:** the copy button or ⌘C copies the translation (or the part you selected).
+- **Small:** one native app of under 1 MB, no Dock icon, no menu bar icon, under 30 MB of memory while it waits.
+
+## Requirements
+
+- macOS 14 or later, Apple silicon or Intel.
+- The Command Line Tools, for the Swift compiler the installer builds the app with: `xcode-select --install`.
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/baakhoff/btranslate/main/install.sh | bash
+```
+
+It downloads the release, builds it on your Mac (a few seconds), puts
+`BTranslate.app` in `~/Applications` and opens the setup window. Nothing needs `sudo`.
+
+From a checkout, run `./install.sh`.
+
+### Setup
+
+![The setup window](docs/settings.png)
+
+The setup window asks:
+
+1. **Which methods to use:** Google Translate, an AI model, or both.
+2. **For the AI model:** the provider, the model and your API key.
+   - The model menu fills with the provider's own list once the key is in.
+   - **Test** sends one short sentence, so you know the key and model work before you save.
+3. **Which method BTranslate opens with**, when both are on.
+
+To change any of it later, open BTranslate from Spotlight or Finder, or click the gear in
+the popup.
+
+### Keyboard shortcut
+
+System Settings → Keyboard → Keyboard Shortcuts… → Services → Text → **BTranslate**.
+
+If the menu item is missing in an app that was already open during the install, restart
+that app.
+
+## AI providers
+
+| Provider | Default model | Where the key comes from |
+|---|---|---|
+| Anthropic (Claude) | `claude-haiku-5-5` | platform.claude.com |
+| OpenAI | `gpt-6-luna` | platform.openai.com |
+| Google Gemini | `gemini-3.8-flash` | aistudio.google.com |
+| DeepSeek | `deepseek-chat` | platform.deepseek.com |
+| OpenRouter | `anthropic/claude-haiku-5.5` | openrouter.ai/keys |
+| Custom (OpenAI-compatible) | you type it | Ollama, LM Studio, oMLX…: any server with `/chat/completions` |
+
+A small, fast model is the right choice here: a translation of a paragraph costs a small
+fraction of a cent. You can type any other model name the provider offers.
+
+## Privacy
+
+- **The text you translate** goes to the method you use for that popup: Google, or the AI provider you picked. Nothing else leaves your Mac, and BTranslate has no server, account or analytics of its own.
+- **Your API key** is stored in your Mac's login Keychain and is sent only to its provider.
+- **Google Translate** is reached through the public endpoints Google's own pages and Chrome use. They are not an official API:
+  - Google may limit how fast one address can ask. BTranslate then switches to the second endpoint by itself, and tells you if both refuse.
+  - For heavy use, an AI model with your own key is the dependable choice.
+
+## Update and uninstall
+
+Run the install line again to update: your settings and key are kept.
+
+To remove the app, its menu item, its settings and its saved keys:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/baakhoff/btranslate/main/uninstall.sh | bash
+```
+
+Add `-s -- --keep-keys` after `bash` to leave the API keys in the Keychain.
+
+## Build and test
+
+```bash
+./build.sh        # build/BTranslate.app for this Mac (--universal: Apple silicon + Intel)
+tests/run.sh      # no network or key needed; --live also uses the real Google and Keychain
+```
+
+There is no Xcode project and there are no dependencies: `swiftc` compiles the five files in
+`Sources/`.
+
+- **`tests/run.sh`:**
+  - runs the app's own checks (`BTranslate --selftest`);
+  - translates through `tests/mock_server.py`, which stands in for Anthropic, the OpenAI-style providers and Google;
+  - draws the popup and the settings window off screen, into `build/uitest/`.
+- **The app's command line,** for trying things: `BTranslate --print --engine google --to Russian "Labdien"` prints a translation. `Sources/main.swift` lists the rest.
+- **The icon:** `swift tools/make-icon.swift` draws `Resources/AppIcon.icns`.
+
+## How it works
+
+- **The menu item** is a macOS Service the app declares in its `Info.plist`. macOS hands it the selected text; no accessibility or screen permission is involved.
+- **The popup** is a panel that does not activate its app, so your app keeps the front. The app stays running in the background after its first use, so later popups open at once.
+- **The app is signed ad hoc** (no Apple developer account), which is why the installer builds it on your Mac instead of downloading a binary that Gatekeeper would block. Set `BTRANSLATE_SIGN_IDENTITY` to sign with an identity of your own.
+- **API keys** are read and written through `/usr/bin/security`, so an update (a new ad hoc signature) does not bring up a Keychain prompt.
+
+## License
+
+[MIT](LICENSE)

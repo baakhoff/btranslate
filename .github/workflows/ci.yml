@@ -1,0 +1,18 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-15   # Apple silicon
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (Apple silicon and Intel)
+        run: ./build.sh --universal
+      - name: Test
+        run: tests/run.sh
+      - name: The installer's version matches VERSION
+        run: test "$(./install.sh --version)" = "BTranslate installer $(cat VERSION)"
