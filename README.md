@@ -33,6 +33,7 @@ translator doesn't have, such as Latvian and Serbian.
   - Put them in your order and choose the default one: a popup opens with it.
   - The list starts with your Mac's own languages.
 - **Copy:** the copy button or ⌘C copies a translation (or the part you selected).
+- **In English and in Russian:** BTranslate's own windows, messages and language names follow your Mac's language, or the one you pick in the setup window. The installer does too.
 - **Small:** one native app of under 1 MB, no Dock icon, no menu bar icon, under 30 MB of memory while it waits.
 
 ## Requirements
@@ -72,8 +73,13 @@ The setup window has two pages.
    - The arrows move the selected language up or down; you can also drag rows.
    - **Make Default** marks the language a popup opens with. In the popup, **+** adds any of the others.
 2. **Whether Google's voice may read aloud** the languages your Mac has no voice for.
+3. **BTranslate's own language:** the same as the Mac, English or Russian. BTranslate restarts itself in the background to switch; nothing else changes.
 
 ![The setup window, Languages page](docs/settings-languages.png)
+
+The same page in Russian. A language is found by its Russian name, its English name or its own:
+
+![The Languages page in Russian](docs/settings-languages-ru.png)
 
 ![Adding a language](docs/languages.png)
 
@@ -126,26 +132,35 @@ Add `-s -- --keep-keys` after `bash` to leave the API keys in the Keychain.
 
 ```bash
 ./build.sh        # build/BTranslate.app for this Mac (--universal: Apple silicon + Intel)
-tests/run.sh      # no network or key needed; --live also uses the real Google and Keychain;
-                  # --screen also shows a popup for three seconds and checks focus and typing
+tests/run.sh      # no network or key needed; --live also uses the real Google, Keychain and
+                  # preferences; --screen also shows a popup for three seconds and checks
+                  # focus and typing
 ```
 
 There is no Xcode project and there are no dependencies: `swiftc` compiles the files in
 `Sources/`.
 
 - **`tests/run.sh`:**
-  - runs the app's own checks (`BTranslate --selftest`);
+  - runs the app's own checks (`BTranslate --selftest`), in English and in Russian;
+  - checks that every text of the app has its Russian translation (`tools/check-strings.py`);
   - translates through `tests/mock_server.py`, which stands in for Anthropic, the OpenAI-style providers and Google;
-  - draws the popup, the settings window and the language pickers off screen, into `build/uitest/`;
+  - draws the popup, the settings window and the language pickers off screen, into `build/uitest/` and, in Russian, `build/uitest-ru/`, and checks that no label or button is cut short;
   - makes speech with a Mac voice without playing it.
 - **The app's command line,** for trying things: `BTranslate --print --engine google --from lv --to Russian "Labdien"` prints a translation, and `BTranslate --speech-check lv "Labdien"` says which voice would read a text and plays it at volume zero. `Sources/main.swift` lists the rest.
 - **The icon:** `swift tools/make-icon.swift` draws `Resources/AppIcon.icns`.
-- **The language list:** `python3 tools/update-languages.py` rewrites `Sources/Languages.swift` from Google's own list (one request), for when Google adds languages.
+- **The language list:** `python3 tools/update-languages.py` rewrites `Sources/Languages.swift` from Google's own list, in English and in Russian (one request each), for when Google adds languages.
+- **Another language for BTranslate itself:**
+  - The texts are in English in the source, as `L("Save")`. A translation is one file, `Resources/<code>.lproj/Localizable.strings`, with the English text as the key: copy `Resources/ru.lproj` and translate it.
+  - Add the language to `interfaceLanguages` in `Sources/Localization.swift`, to `CFBundleLocalizations` in `Resources/Info.plist` and to `LOCALIZATIONS` in `tools/update-languages.py`, then run that tool for Google's names of the languages.
+  - `python3 tools/check-strings.py` says which texts are missing, left over, or lost a `%@`.
 
 ## How it works
 
 - **The menu item** is a macOS Service the app declares in its `Info.plist`. macOS hands it the selected text; no accessibility or screen permission is involved.
 - **The popup** is a panel that does not activate its app, so your app keeps the front. The app stays running in the background after its first use, so later popups open at once.
+- **BTranslate's own language** is chosen the way macOS chooses it for any app: the first of your languages that the app comes in.
+  - The choice in the setup window is stored as the app's own `AppleLanguages` preference, which is also what System Settings → Language & Region → Applications sets. An app's language is fixed when it starts, so BTranslate then starts itself anew in the background.
+  - An AI model is told the languages in English whatever BTranslate's language is.
 - **Serbian in two alphabets:** Google writes Serbian in Cyrillic only, and hands a Serbian text back unchanged. So BTranslate changes the alphabet itself, in both directions.
   - Going to Cyrillic, it leaves in Latin what looks foreign: words with q, w, x or y, abbreviations such as STL, names like GitHub, and English in brackets or with a hyphen ("open-source").
   - A foreign name that nothing marks as foreign is converted letter by letter. The AI method does better with those.

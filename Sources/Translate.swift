@@ -16,26 +16,26 @@ func serverMessage(_ body: String) -> String {
         if let m = obj["error"] as? String { return m }
         if let m = obj["message"] as? String { return m }
     }
-    if body.hasPrefix("<") { return "the server sent a web page, not an answer." }
+    if body.hasPrefix("<") { return L("the server sent a web page, not an answer.") }
     return String(body.prefix(300))
 }
 
 func describe(_ error: Error) -> String {
     switch error {
     case TranslateError.noKey(let provider):
-        return "No API key for \(provider) yet. Open Settings (the gear button) and paste one."
+        return L("No API key for %@ yet. Open Settings (the gear button) and paste one.", provider)
     case TranslateError.noServer:
-        return "No server address for the AI model yet. Open Settings (the gear button) and add one."
+        return L("No server address for the AI model yet. Open Settings (the gear button) and add one.")
     case TranslateError.http(429, _):
-        return "Too many requests right now. Wait a minute and try again, or switch to the other method."
+        return L("Too many requests right now. Wait a minute and try again, or switch to the other method.")
     case TranslateError.http(let code, let body) where code == 401 || code == 403:
-        return "The API key was refused (HTTP \(code)): \(serverMessage(body))"
+        return L("The API key was refused (HTTP %ld): %@", code, serverMessage(body))
     case TranslateError.http(402, let body):
-        return "The account has no credit left (HTTP 402): \(serverMessage(body))"
+        return L("The account has no credit left (HTTP 402): %@", serverMessage(body))
     case TranslateError.http(404, let body):
-        return "Not found (HTTP 404). Check the model name in Settings. \(serverMessage(body))"
+        return L("Not found (HTTP 404). Check the model name in Settings. %@", serverMessage(body))
     case TranslateError.http(let code, let body):
-        return "The server answered HTTP \(code): \(serverMessage(body))"
+        return L("The server answered HTTP %ld: %@", code, serverMessage(body))
     case TranslateError.other(let s):
         return s
     default:
@@ -269,7 +269,7 @@ func googleTranslate(_ text: String, from: String = "auto", to code: String) asy
     for chunk in chunks(text) {
         try Task.checkCancellation()
         var piece: String?
-        var lastError: Error = TranslateError.other("Google sent an answer this app can't read.")
+        var lastError: Error = TranslateError.other(L("Google sent an answer this app can't read."))
         while piece == nil, let endpoint = endpoints.first {
             var req = URLRequest(url: endpoint.url(from: from, to: code))
             req.httpMethod = "POST"  // the text goes in the body, not in the URL
@@ -415,7 +415,7 @@ func aiTranslate(_ text: String, target: Target, source: Target? = nil, config: 
         if payload == "[DONE]" { break }
         guard let obj = try? JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any] else { continue }
         if let err = obj["error"] as? [String: Any] {
-            throw TranslateError.other(err["message"] as? String ?? "The AI service reported an error.")
+            throw TranslateError.other(err["message"] as? String ?? L("The AI service reported an error."))
         }
         var piece: String?
         switch api {
@@ -440,11 +440,11 @@ func aiTranslate(_ text: String, target: Target, source: Target? = nil, config: 
     let (code, body, _) = splitCode(raw)
     var final = body.trimmingCharacters(in: .whitespacesAndNewlines)
     if final.isEmpty {
-        throw TranslateError.other(stopReason == "refusal" ? "The model declined to translate this text."
-                                                           : "The model sent back an empty answer.")
+        throw TranslateError.other(stopReason == "refusal" ? L("The model declined to translate this text.")
+                                                           : L("The model sent back an empty answer."))
     }
     if stopReason == "max_tokens" || stopReason == "length" {
-        final += "\n\n[Cut off here: the text is too long for one answer.]"
+        final += "\n\n" + L("[Cut off here: the text is too long for one answer.]")
     }
     update(code, final)
 }
@@ -468,7 +468,7 @@ func listModels(config: Config, key: String) async throws -> [String] {
     guard status == 200 else { throw TranslateError.http(status, String(decoding: data, as: UTF8.self)) }
     guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let list = obj["data"] as? [[String: Any]] else {
-        throw TranslateError.other("The server's model list can't be read.")
+        throw TranslateError.other(L("The server's model list can't be read."))
     }
     let ids = list.compactMap { $0["id"] as? String }.map { $0.hasPrefix("models/") ? String($0.dropFirst(7)) : $0 }
     return anthropic ? ids : ids.sorted()  // Anthropic lists the newest first already
@@ -533,9 +533,11 @@ func selfTest() -> [String] {
     expect("languages: Serbian in both alphabets", target(id: "sr-Latn")?.latin == true && target(id: "sr")?.latin == false)
     expect("languages: AI is told the language in its own name too", target(id: "ru")?.prompt == "Russian (русский)")
     expect("languages: the default list has English", defaultLanguageIDs().contains("en") && !Config().targets.isEmpty)
-    expect("language search: prefix first", searchTargets("ser", in: allTargets).map(\.id) == ["sr-Latn", "sr"])
-    expect("language search: own name", searchTargets("русский", in: allTargets).map(\.id) == ["ru"])
-    expect("language search: by name or code", findTarget("ru")?.name == "Russian" && findTarget("latvian")?.id == "lv")
+    expect("language search: prefix first", Set(searchTargets("ser", in: allTargets).prefix(2).map(\.id)) == ["sr-Latn", "sr"])
+    expect("language search: own name", searchTargets("русский", in: allTargets).first?.id == "ru"
+        && searchTargets("latvieš", in: allTargets).map(\.id) == ["lv"])
+    expect("language search: by name or code", findTarget("ru")?.english == "Russian" && findTarget("latvian")?.id == "lv"
+        && findTarget("Serbian (Latin)")?.id == "sr-Latn")
     expect("language order: a row moved down and up", moved(["a", "b", "c"], from: 0, to: 3) == ["b", "c", "a"]
         && moved(["a", "b", "c"], from: 2, to: 0) == ["c", "a", "b"] && moved(["a", "b"], from: 5, to: 0) == ["a", "b"])
     let voices = ["en-US", "en-GB", "ru-RU", "hr-HR", "fr-FR", "zh-CN", "zh-TW", "pt-BR", "he-IL"]
@@ -554,10 +556,32 @@ func selfTest() -> [String] {
     expect("speech: Google's answer", parseGoogleSpeech(")]}\'\n\n[[\"wrb.fr\",\"jQ1olc\",\"[\\\"QUJD\\\"]\",null,null,null,\"generic\"]]\n") == Data("ABC".utf8)
         && parseGoogleSpeech("[[\"wrb.fr\",\"jQ1olc\",null]]") == nil)
     expect("source languages: one Serbian, found by name or code", sourceLanguages.filter { $0.google == "sr" }.count == 1
-        && findTarget("lv", in: sourceLanguages)?.name == "Latvian" && sourceLanguages.count == googleLanguages.count)
+        && findTarget("lv", in: sourceLanguages)?.english == "Latvian" && sourceLanguages.count == googleLanguages.count)
     expect("AI is told a language set by hand", systemPrompt(allTargets[0], source: findTarget("lv", in: sourceLanguages)).contains("The text is written in Latvian (latviešu)")
         && userMessage("x", target: target(id: "ru")!, source: findTarget("lv", in: sourceLanguages)).hasPrefix("Translate from Latvian (latviešu) into Russian (русский):"))
-    expect("language names", languageName("sr") == "Serbian" && languageName("zh-CN") == "Chinese (Simplified)" && languageName("he") == "Hebrew")
+    // BTranslate's own language. The AI is told languages in English whatever it is (the checks above).
+    switch interfaceLanguage {
+    case "ru":
+        expect("Russian: texts", L("Save") == "Сохранить" && L("The server answered HTTP %ld: %@", 500, "x") == "Сервер ответил HTTP 500: x"
+            && L("the %@ translation", "русский") == "перевод на русский")
+        expect("Russian: language names", languageName("sr") == "Сербский" && languageName("zh-CN") == "Китайский (упрощенный)"
+            && languageName("he") == "Иврит" && languageName("lv", inText: true) == "латышский")
+        let latvian = target(id: "lv")
+        expect("Russian: a language in a list, in a sentence and in English", latvian?.name == "Латышский" && latvian?.inText == "латышский"
+            && latvian?.english == "Latvian" && latvian?.ownName == "latviešu" && target(id: "sr-Latn")?.name == "Сербский (латиница)"
+            && target(id: "ru")?.ownName == nil && target(id: "en")?.ownName == "English" && detectAutomatically.name == "Определить автоматически")
+        expect("Russian: search by the Russian and the English name", searchTargets("латыш", in: allTargets).first?.id == "lv"
+            && searchTargets("latv", in: allTargets).first?.id == "lv" && findTarget("латышский")?.id == "lv")
+        expect("Russian: the list is in Russian order", allTargets.first?.id == "ab" && allTargets.last?.id == "ja"
+            && sourceLanguages.last?.id == "ja")
+    default:
+        expect("English: texts are the source's", interfaceLanguage == "en" && L("Save") == "Save"
+            && L("The server answered HTTP %ld: %@", 500, "x") == "The server answered HTTP 500: x")
+        expect("language names", languageName("sr") == "Serbian" && languageName("zh-CN") == "Chinese (Simplified)" && languageName("he") == "Hebrew"
+            && languageName("lv", inText: true) == "Latvian" && target(id: "ru")?.ownName == "русский" && target(id: "en")?.ownName == nil)
+    }
+    expect("BTranslate's languages: each has its texts", interfaceLanguages.map(\.code) == ["en", "ru"]
+        && interfaceLanguages.dropFirst().allSatisfy { Bundle.main.path(forResource: $0.code, ofType: "lproj") != nil })
     expect("key check", Keychain.isValid("sk-ant-abc_123") && !Keychain.isValid("two words") && !Keychain.isValid("a\"b"))
     return failures
 }

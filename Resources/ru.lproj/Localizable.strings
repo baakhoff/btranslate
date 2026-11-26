@@ -1,0 +1,131 @@
+/* BTranslate in Russian. The key is the English text as Sources/ has it in L("…"); keep %@ and
+   %ld in the translation (%1$@, %2$@ to change their order). tools/check-strings.py checks
+   this file against the source, and tests/run.sh runs it.
+
+   Words used throughout: the popup is «окно перевода»; the default language is «основной язык»,
+   as in macOS's own Language & Region settings; AI is «ИИ»; the Keychain is «Связка ключей».
+   No «ё», as in macOS itself and in Google's names of the languages (Sources/Languages.swift). */
+
+/* Languages. These two come without a capital letter, like Google's names: a list adds it,
+   a sentence does not ("перевод на сербский (латиница)"). */
+"Serbian (Latin)" = "сербский (латиница)";
+"Serbian (Cyrillic)" = "сербский (кириллица)";
+"Detect automatically" = "Определить автоматически";
+
+/* The popup */
+"AI" = "ИИ";
+"Google Translate" = "Google Переводчик";
+"BTranslate settings" = "Настройки BTranslate";
+"Translating…" = "Перевод…";
+"Detecting…" = "Определение языка…";
+"Unknown language" = "Неизвестный язык";
+"Wrong language? Set the language of the original" = "Язык определен неверно? Укажите язык оригинала";
+"The original's language was set by hand. Click to change it or to detect it again" = "Язык оригинала указан вручную. Нажмите, чтобы изменить его или определить заново";
+"Copy this translation" = "Скопировать этот перевод";
+"Copy" = "Скопировать";
+"Copied" = "Скопировано";
+"Take this language out of the popup" = "Убрать этот язык из окна";
+/* %@: a language as a sentence has it, "русский" */
+"Take %@ out of this popup" = "Убрать из этого окна: %@";
+"Also translate into another language of your list" = "Перевести еще на один язык из вашего списка";
+"Every language of your list is here" = "Все языки вашего списка уже здесь";
+"Edit the List…" = "Изменить список…";
+
+/* Reading aloud. %@ in "Listen to %@" is one of the three texts after it. */
+"Stop" = "Остановить";
+"Listen to %@" = "Прослушать %@";
+"Listen to %@, once its language is known" = "Прослушать %@ можно, когда определится язык";
+"Listen to %@ (Google's voice: this text is sent to Google)" = "Прослушать %@ (голос Google: этот текст отправляется в Google)";
+"the original" = "оригинал";
+"the translation" = "перевод";
+/* %@: a language as a sentence has it, "русский" */
+"the %@ translation" = "перевод на %@";
+"This Mac has no voice for %@. Google's voice can read it: turn it on in Settings." = "У этого Mac нет голоса для этого языка (%@). Текст может прочитать голос Google: включите его в настройках.";
+"Google has no voice for %@." = "У Google нет голоса для этого языка (%@).";
+
+/* The settings window */
+"BTranslate Settings" = "Настройки BTranslate";
+"Select text in any app, right-click it and choose Services → BTranslate." = "Выделите текст в любом приложении, нажмите на него правой кнопкой мыши и выберите «Службы» → «BTranslate».";
+"Translation" = "Перевод";
+"Languages" = "Языки";
+"Save" = "Сохранить";
+"Cancel" = "Отменить";
+
+/* Its Translation page */
+"Free, no key needed. The selected text goes to Google." = "Бесплатно, ключ не нужен. Выделенный текст отправляется в Google.";
+"AI model" = "Модель ИИ";
+"Your own API key. Often better with context, names and tone. The selected text goes to the provider you pick." = "Нужен свой ключ API. Часто лучше передает контекст, имена и тон. Выделенный текст отправляется выбранному провайдеру.";
+"Provider:" = "Провайдер:";
+"Model:" = "Модель:";
+"Server:" = "Сервер:";
+"API key:" = "Ключ API:";
+"Custom (OpenAI-compatible)" = "Свой сервер (совместимый с OpenAI)";
+/* The key field's placeholders: they have to fit the field. */
+"Paste your API key" = "Вставьте ключ API";
+"Saved in your Keychain. Paste a new key to replace it." = "Ключ сохранен. Вставьте новый для замены.";
+/* %@: where on the provider's site, "platform.claude.com → API keys" */
+"Get a key at %@." = "Ключ можно получить на %@.";
+"One key reaches models from many providers." = "Один ключ дает доступ к моделям многих провайдеров.";
+"Any server with /chat/completions, such as Ollama, LM Studio or oMLX. The key is optional." = "Любой сервер с /chat/completions, например Ollama, LM Studio или oMLX. Ключ необязателен.";
+"The key is stored in your Mac's Keychain." = "Ключ хранится в Связке ключей вашего Mac.";
+"Test" = "Проверить";
+"Testing…" = "Проверка…";
+"It works. “Labdien! Kā jums klājas?” → “%@”" = "Работает. «Labdien! Kā jums klājas?» → «%@»";
+"Enter the server's address, starting with http:// or https://." = "Введите адрес сервера, начиная с http:// или https://.";
+"Enter a model name." = "Введите название модели.";
+/* %@: the provider, "Anthropic (Claude)" */
+"Paste an API key for %@, or turn the AI model off." = "Вставьте ключ API для %@ или отключите модель ИИ.";
+"That doesn't look like an API key: it has spaces or quotes in it." = "Это не похоже на ключ API: в нем есть пробелы или кавычки.";
+"The key could not be saved to the Keychain." = "Не удалось сохранить ключ в Связке ключей.";
+/* Followed by the two methods: Google | ИИ */
+"BTranslate opens with:" = "По умолчанию переводить через:";
+
+/* Its Languages page */
+"Languages to translate into:" = "Языки перевода:";
+"Search languages" = "Поиск языка";
+"Add a language" = "Добавить язык";
+"Remove the selected languages" = "Удалить выбранные языки";
+"Move the selected language up" = "Переместить выбранный язык выше";
+"Move the selected language down" = "Переместить выбранный язык ниже";
+"Move up" = "Переместить выше";
+"Move down" = "Переместить ниже";
+"Make Default" = "Сделать основным";
+/* After a star, next to the default language in the list */
+"default" = "основной";
+"A popup opens with the default language" = "Окно перевода открывается с основным языком";
+"A popup opens with the default language; + in the popup adds others from this list. Use the arrows, or drag rows, to put them in your order." = "Окно перевода открывается с основным языком; кнопка + в нем добавляет другие языки из этого списка. Расставьте языки в удобном порядке стрелками или перетаскиванием.";
+"Read aloud with Google's voice where this Mac has none" = "Читать вслух голосом Google, если у Mac нет своего";
+"The speaker buttons use your Mac's voices. It has none for some languages, such as Latvian: with this on, a text you play in one of those is sent to Google." = "Кнопки динамика читают текст голосами вашего Mac. Для некоторых языков, например латышского, у него голосов нет: если эта настройка включена, текст на таком языке при прослушивании отправляется в Google.";
+"BTranslate's language:" = "Язык BTranslate:";
+"Same as the Mac" = "Как в системе";
+
+/* What can go wrong with a translation. %@ at the end: the server's own message. */
+"No text is selected." = "Текст не выделен.";
+/* %@: the provider, "Anthropic (Claude)" */
+"No API key for %@ yet. Open Settings (the gear button) and paste one." = "Для %@ еще нет ключа API. Откройте настройки (кнопка с шестеренкой) и вставьте его.";
+"No server address for the AI model yet. Open Settings (the gear button) and add one." = "Для модели ИИ еще не указан адрес сервера. Откройте настройки (кнопка с шестеренкой) и укажите его.";
+"Too many requests right now. Wait a minute and try again, or switch to the other method." = "Сейчас слишком много запросов. Подождите минуту и попробуйте снова или переключитесь на другой способ перевода.";
+"The API key was refused (HTTP %ld): %@" = "Ключ API отклонен (HTTP %ld): %@";
+"The account has no credit left (HTTP 402): %@" = "На счете закончились средства (HTTP 402): %@";
+"Not found (HTTP 404). Check the model name in Settings. %@" = "Не найдено (HTTP 404). Проверьте название модели в настройках. %@";
+"The server answered HTTP %ld: %@" = "Сервер ответил HTTP %ld: %@";
+/* Follows one of the lines above, after the colon */
+"the server sent a web page, not an answer." = "сервер прислал веб-страницу, а не ответ.";
+"Google sent an answer this app can't read." = "Google прислал ответ, который приложение не может прочитать.";
+"The AI service reported an error." = "Сервис ИИ сообщил об ошибке.";
+"The model declined to translate this text." = "Модель отказалась переводить этот текст.";
+"The model sent back an empty answer." = "Модель прислала пустой ответ.";
+"[Cut off here: the text is too long for one answer.]" = "[Здесь перевод обрывается: текст слишком длинный для одного ответа.]";
+"The server's model list can't be read." = "Не удалось прочитать список моделей сервера.";
+
+/* The menu bar (its shortcuts work in the settings window) */
+"Settings…" = "Настройки…";
+"Quit BTranslate" = "Завершить BTranslate";
+"Edit" = "Правка";
+"Undo" = "Отменить";
+"Redo" = "Повторить";
+"Cut" = "Вырезать";
+"Paste" = "Вставить";
+"Select All" = "Выбрать все";
+"Window" = "Окно";
+"Close" = "Закрыть";

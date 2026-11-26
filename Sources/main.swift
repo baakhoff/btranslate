@@ -21,12 +21,20 @@
 //                                                                   typing reaches the pencil's search
 //   BTranslate --models                                             print the provider's models
 //   BTranslate --selftest                                           checks that need no network
+//   BTranslate --prompts                                            how an AI model is told each language
 //   BTranslate --cyrillize "text"                                   Serbian in Latin letters → Cyrillic
 //   BTranslate --keychain-test                                      save, read and delete a dummy key
+//   BTranslate --language-test                                      choose Russian for BTranslate as its
+//                                                                   settings do, read the choice back,
+//                                                                   and put back what was chosen
+//   open -g BTranslate.app --args --background --restart-check      (while it is not running) the app
+//                                                                   starts itself anew once, as it does
+//                                                                   after a change of its language
 //   BTranslate --uitest DIR                                         draw the popup and the settings
 //                                                                   window into DIR as PNGs, off screen
 //   Env: BTRANSLATE_PROVIDER, BTRANSLATE_MODEL, BTRANSLATE_BASE_URL, BTRANSLATE_API_KEY,
-//        BTRANSLATE_GOOGLE_URL override the saved settings.
+//        BTRANSLATE_GOOGLE_URL override the saved settings; BTRANSLATE_LANGUAGE=en|ru sets
+//        the language of BTranslate's own texts (and of what these modes print from them).
 
 import Cocoa
 
@@ -34,7 +42,7 @@ final class ServiceProvider: NSObject {
     // NSMessage "translateText" in Info.plist → translateText:userData:error:
     @objc func translateText(_ pboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
         let text = pboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if text.isEmpty { error.pointee = "No text is selected."; return }
+        if text.isEmpty { error.pointee = L("No text is selected.") as NSString; return }
         Task { @MainActor in
             (NSApp.delegate as? AppDelegate)?.servedRequest = true
             showPopup(text)
@@ -67,7 +75,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSRegisterServicesProvider(provider, "BTranslate")  // = NSPortName in Info.plist
         buildMenu()
         let args = CommandLine.arguments
-        if let i = args.firstIndex(of: "--text"), i + 1 < args.count {
+        if args.contains("--restart-check") {
+            restart()  // a check of restart(): the app started anew has no such argument
+        } else if let i = args.firstIndex(of: "--text"), i + 1 < args.count {
             showPopup(args[i + 1])
         } else if args.contains("--settings") {
             showSettings()
@@ -108,6 +118,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Starts the app anew, in the background, as after an update. (A change of BTranslate's
+    /// own language needs it: macOS fixes an app's language when the app starts.)
+    func restart() {
+        let again = Process()
+        again.executableURL = URL(fileURLWithPath: "/bin/sh")
+        // Wait until this one is gone (the Services menu knows one BTranslate), then open the app.
+        again.arguments = ["-c", "while kill -0 \"$1\" 2>/dev/null; do sleep 0.1; done; exec /usr/bin/open -g \"$0\" --args --background",
+                           Bundle.main.bundlePath, String(ProcessInfo.processInfo.processIdentifier)]
+        guard (try? again.run()) != nil else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }  // after the front is handed back
+    }
+
     func applicationDidBecomeActive(_ notification: Notification) {
         if Date() < handBackUntil && !SettingsController.shared.isVisible { handBack() }
     }
@@ -120,19 +142,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func buildMenu() {
         let main = NSMenu()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        appMenu.addItem(withTitle: L("Settings…"), action: #selector(showSettings), keyEquivalent: ",")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit BTranslate", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        let edit = NSMenu(title: "Edit")
-        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
-        edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        appMenu.addItem(withTitle: L("Quit BTranslate"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let edit = NSMenu(title: L("Edit"))
+        edit.addItem(withTitle: L("Undo"), action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: L("Redo"), action: Selector(("redo:")), keyEquivalent: "Z")
         edit.addItem(.separator())
-        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
-        let window = NSMenu(title: "Window")
-        window.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        edit.addItem(withTitle: L("Cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: L("Copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: L("Paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: L("Select All"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        let window = NSMenu(title: L("Window"))
+        window.addItem(withTitle: L("Close"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         for menu in [appMenu, edit, window] {
             let item = NSMenuItem()
             item.submenu = menu
@@ -173,6 +195,27 @@ func snapshot(_ view: NSView, to path: String) {
     try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
 }
 
+/// The labels and buttons under `view` whose text does not fit their frame. (Table rows are
+/// left out: they cut a long name short on purpose.)
+@MainActor
+func cutOffTexts(in view: NSView) -> [String] {
+    if view.isHidden || view is NSTableView { return [] }
+    var found: [String] = []
+    if let label = view as? NSTextField {
+        if label.isEditable, let hint = label.placeholderString, let font = label.font {  // a field's grey hint
+            if (hint as NSString).size(withAttributes: [.font: font]).width > label.frame.width - 10 { found.append(hint) }
+        } else if !label.isEditable, !label.stringValue.isEmpty, let cell = label.cell {
+            let wide = label.intrinsicContentSize.width > label.frame.width + 0.5
+            let tall = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: label.frame.width, height: 10_000)).height > label.frame.height + 0.5
+            if cell.wraps ? tall : wide { found.append(label.stringValue) }
+        }
+    } else if let control = view as? NSControl, control is NSButton || control is NSSegmentedControl,
+              control.intrinsicContentSize.width > control.frame.width + 0.5 {
+        found.append((control as? NSButton)?.title ?? "segmented control")
+    }
+    return found + view.subviews.flatMap(cutOffTexts)
+}
+
 /// Nothing appears on screen: the settings window and a popup are built, drawn into PNG files,
 /// and the popup is checked to stay where it was moved to when it translates again.
 @MainActor
@@ -199,9 +242,24 @@ func runUITest(into dir: String) {
         snapshot(content, to: dir + "/settings-reordered.png")
         print("settings pages are \(Int(SettingsController.shared.pageHeights.0)) and \(Int(SettingsController.shared.pageHeights.1)) points tall")
     }
+    // A translation can be longer than the English text the window was laid out for.
+    var cut: [String] = []
+    for page in 0...1 {
+        if let content = SettingsController.shared.preparedContent(page: page) {
+            content.layoutSubtreeIfNeeded()
+            cut += cutOffTexts(in: content)
+        }
+    }
+    let choices = SettingsController.shared.languageChoicesForTest().map { $0.isEmpty ? "the Mac's" : $0 }
+    print("language menu: \(choices.joined(separator: ", "))")
+    print("interface language: \(interfaceLanguage)")
+    print("settings window, every text fits: \(cut.isEmpty ? "yes" : "NO (\(cut.joined(separator: " | ")))")")
+    if !cut.isEmpty { exit(1) }
+
     let popup = Popup(text: argument(after: "--text") ?? "Labdien! Kā jums klājas? Rīt es būšu birojā no deviņiem līdz pieciem.")
     Popup.current = popup
     popup.prepare()
+    let lithuanian = sourceLanguages.first { $0.id == "lt" }?.name ?? "Lithuanian"  // as the bar shows it
 
     // The pencil's picker, as it looks after typing "lat".
     let picker = popup.makeSourcePicker()
@@ -235,17 +293,17 @@ func runUITest(into dir: String) {
                 popup.setSource(sourceLanguages.first { $0.id == "lt" }, remember: false)
             }
             for other in others.prefix(2) { popup.addLanguage(other) }
-        case 3 where popup.sections.count > 1 && popup.shownSource != "Lithuanian":
+        case 3 where popup.sections.count > 1 && popup.shownSource != lithuanian:
             if let view = popup.panel.contentView { snapshot(view, to: dir + "/popup-several.png") }
             let texts = popup.shownTexts
-            let several = texts.allSatisfy { !$0.isEmpty && $0 != "Translating…" } && Set(texts).count == texts.count
+            let several = texts.allSatisfy { !$0.isEmpty && $0 != L("Translating…") } && Set(texts).count == texts.count
             print("several languages at once: \(several ? "yes" : "NO") (\(popup.sections.map(\.target.id).joined(separator: ", ")))")
             if !several { exit(1) }
             // Set the original's language by hand, as picking it with the pencil does.
             popup.setSource(sourceLanguages.first { $0.id == "lt" }, remember: false)
         default:
             if let view = popup.panel.contentView { snapshot(view, to: dir + "/popup-source-set.png") }
-            let set = popup.shownSource == "Lithuanian"
+            let set = popup.shownSource == lithuanian
             print("the original's language can be set by hand: \(set ? "yes" : "NO (bar says \(popup.shownSource))")")
             exit(set ? 0 : 1)
         }
@@ -309,7 +367,8 @@ func runScreenCheck() {
                             after(0.3) {
                                 note("language picked")
                                 UserDefaults.standard.set(recent, forKey: "recentSources")  // leave your list of recent ones alone
-                                let picked = !popup.sourcePickerState.open && popup.shownSource == "Lithuanian" && popup.panel.isKeyWindow
+                                let lithuanian = sourceLanguages.first { $0.id == "lt" }?.name ?? "Lithuanian"
+                                let picked = !popup.sourcePickerState.open && popup.shownSource == lithuanian && popup.panel.isKeyWindow
                                 print("Return on \"lithu\": picker closed \(popup.sourcePickerState.open ? "NO" : "yes"), "
                                     + "the bar now says \(popup.shownSource)")
                                 // Add another language of your list, as + does, and wait for both translations.
@@ -334,7 +393,7 @@ func runScreenCheck() {
                                     done = true
                                     let texts = popup.shownTexts
                                     let grew = popup.panel.frame.height > heightBefore + 20
-                                    let several = texts.count == 2 && texts.allSatisfy { !$0.isEmpty && $0 != "Translating…" } && grew
+                                    let several = texts.count == 2 && texts.allSatisfy { !$0.isEmpty && $0 != L("Translating…") } && grew
                                         && popup.panel.isKeyWindow
                                     print("+ \(other.name): \(texts.count) translations showing, popup \(Int(heightBefore)) → \(Int(popup.panel.frame.height)) points tall, "
                                         + "top edge \(abs(popup.panel.frame.maxY - topBefore) < 1 || popup.panel.frame.maxY < topBefore ? "in place" : "MOVED UP")")
@@ -356,6 +415,12 @@ if arguments.contains("--selftest") {
     let failures = selfTest()
     print(failures.isEmpty ? "selftest: ok" : "selftest FAILED: " + failures.joined(separator: "; "))
     exit(failures.isEmpty ? 0 : 1)
+} else if arguments.contains("--prompts") {
+    // The same lines whatever BTranslate's own language is: the tests compare them.
+    for language in (allTargets + sourceLanguages).sorted(by: { ($0.id, $0.prompt) < ($1.id, $1.prompt) }) {
+        print("\(language.id)\t\(language.prompt)")
+    }
+    exit(0)
 } else if arguments.contains("--cyrillize") {
     print(cyrillize(arguments.last ?? ""))  // Serbian in Latin letters → Cyrillic, to try the rules
     exit(0)
@@ -366,6 +431,16 @@ if arguments.contains("--selftest") {
     Keychain.delete(account)
     let ok = saved && replaced && Keychain.read(account) == nil
     print(ok ? "keychain: ok" : "keychain FAILED (saved: \(saved), replaced: \(replaced))")
+    exit(ok ? 0 : 1)
+} else if arguments.contains("--language-test") {
+    let was = chosenInterfaceLanguage()
+    chooseInterfaceLanguage("ru")
+    let russian = chosenInterfaceLanguage() == "ru"
+    chooseInterfaceLanguage("")
+    let theMacs = chosenInterfaceLanguage().isEmpty
+    chooseInterfaceLanguage(was)
+    let ok = russian && theMacs && chosenInterfaceLanguage() == was
+    print(ok ? "language choice: ok" : "language choice FAILED (Russian chosen: \(russian), the Mac's again: \(theMacs))")
     exit(ok ? 0 : 1)
 } else if arguments.contains("--models") {
     runHeadless {
@@ -412,7 +487,7 @@ if arguments.contains("--selftest") {
                 updates += 1
                 last = (code, text)
             }
-            print("source: \(last.0.map(languageName) ?? "?") | updates: \(updates)")
+            print("source: \(last.0.map { languageName($0) } ?? "?") | updates: \(updates)")
             print(last.1)
             return 0
         } catch {

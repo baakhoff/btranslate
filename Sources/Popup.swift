@@ -100,7 +100,7 @@ final class Popup: NSObject, NSWindowDelegate {
     private let sourceLabel = NSTextField(labelWithString: "")
     private let speakSourceButton = NSButton()
     private let sourceButton = NSButton()  // the pencil
-    private let engineControl = NSSegmentedControl(labels: ["Google", "AI"], trackingMode: .selectOne, target: nil, action: nil)
+    private let engineControl = NSSegmentedControl(labels: ["Google", L("AI")], trackingMode: .selectOne, target: nil, action: nil)
     private let settingsButton = NSButton()
     private let addButton = NSButton()     // +
     private let scroll = NSScrollView()
@@ -142,7 +142,7 @@ final class Popup: NSObject, NSWindowDelegate {
         engineControl.controlSize = .small
         engineControl.font = .systemFont(ofSize: 11)
         engineControl.selectedSegment = engine == .google ? 0 : 1
-        engineControl.setToolTip("Google Translate", forSegment: 0)
+        engineControl.setToolTip(L("Google Translate"), forSegment: 0)
         engineControl.setToolTip("\(config.provider.name): \(config.model)", forSegment: 1)
         engineControl.isHidden = config.engines.count < 2
         engineControl.target = self
@@ -150,7 +150,7 @@ final class Popup: NSObject, NSWindowDelegate {
 
         configure(speakSourceButton, symbol: "speaker.wave.2", size: 12, tip: "", action: #selector(speakSource))
         configure(sourceButton, symbol: "pencil", size: 12, tip: "", action: #selector(toggleSourcePicker))
-        configure(settingsButton, symbol: "gearshape", size: 13, tip: "BTranslate settings", action: #selector(openSettings))
+        configure(settingsButton, symbol: "gearshape", size: 13, tip: L("BTranslate settings"), action: #selector(openSettings))
         configure(addButton, symbol: "plus", size: 12, tip: "", action: #selector(showAddMenu))
 
         scroll.drawsBackground = false
@@ -254,8 +254,8 @@ final class Popup: NSObject, NSWindowDelegate {
         section.menu.action = #selector(targetChanged(_:))
         section.menu.refusesFirstResponder = true
         configure(section.speakButton, symbol: "speaker.wave.2", size: 13, tip: "", action: #selector(speakTranslation(_:)))
-        configure(section.copyButton, symbol: "doc.on.doc", size: 13, tip: "Copy this translation", action: #selector(copyTranslation(_:)))
-        configure(section.removeButton, symbol: "xmark", size: 11, tip: "Take this language out of the popup", action: #selector(removeLanguage(_:)))
+        configure(section.copyButton, symbol: "doc.on.doc", size: 13, tip: L("Copy this translation"), action: #selector(copyTranslation(_:)))
+        configure(section.removeButton, symbol: "xmark", size: 11, tip: L("Take this language out of the popup"), action: #selector(removeLanguage(_:)))
 
         let text = section.textView
         text.isEditable = false
@@ -305,9 +305,9 @@ final class Popup: NSObject, NSWindowDelegate {
             for item in section.menu.itemArray {
                 item.isEnabled = !sections.contains { $0 !== section && $0.target.name == item.title }
             }
-            section.removeButton.toolTip = "Take \(section.target.name) out of this popup"
+            section.removeButton.toolTip = L("Take %@ out of this popup", section.target.inText)
         }
-        addButton.toolTip = "Also translate into another language of your list"
+        addButton.toolTip = L("Also translate into another language of your list")
     }
 
     @objc private func targetChanged(_ sender: NSPopUpButton) {
@@ -334,12 +334,12 @@ final class Popup: NSObject, NSWindowDelegate {
             menu.addItem(item)
         }
         if menu.items.isEmpty {
-            let none = NSMenuItem(title: "Every language of your list is here", action: nil, keyEquivalent: "")
+            let none = NSMenuItem(title: L("Every language of your list is here"), action: nil, keyEquivalent: "")
             none.isEnabled = false
             menu.addItem(none)
         }
         menu.addItem(.separator())
-        let edit = NSMenuItem(title: "Edit the List…", action: #selector(openSettings), keyEquivalent: "")
+        let edit = NSMenuItem(title: L("Edit the List…"), action: #selector(openSettings), keyEquivalent: "")
         edit.target = self
         menu.addItem(edit)
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: addButton.bounds.height + 4), in: addButton)
@@ -366,7 +366,7 @@ final class Popup: NSObject, NSWindowDelegate {
         if Speaker.shared.playing == section.name { Speaker.shared.stop() }
         section.translation = ""
         section.settled = false
-        setText("Translating…", in: section, color: .secondaryLabelColor)
+        setText(L("Translating…"), in: section, color: .secondaryLabelColor)
         let engine = engine, target = section.target, config = config, chosenSource = chosenSource
         section.task = Task { [weak self, weak section] in
             guard let self, let section else { return }
@@ -523,21 +523,21 @@ final class Popup: NSObject, NSWindowDelegate {
             let plan = code.map { Speaker.shared.plan(for: $0, googleVoice: config.googleVoice) } ?? .none
             let playing = Speaker.shared.playing == name
             button.image = NSImage(systemSymbolName: playing ? "stop.fill" : "speaker.wave.2",
-                                   accessibilityDescription: playing ? "Stop" : "Listen to \(what)")
+                                   accessibilityDescription: playing ? L("Stop") : L("Listen to %@", what))
             button.contentTintColor = playing ? .controlAccentColor : .secondaryLabelColor
             button.isEnabled = hasText && plan != .none
             switch (plan, code) {
-            case (_, nil): button.toolTip = "Listen to \(what), once its language is known"
-            case (.mac, _): button.toolTip = playing ? "Stop" : "Listen to \(what)"
-            case (.google, _): button.toolTip = playing ? "Stop" : "Listen to \(what) (Google's voice: this text is sent to Google)"
+            case (_, nil): button.toolTip = L("Listen to %@, once its language is known", what)
+            case (.mac, _): button.toolTip = playing ? L("Stop") : L("Listen to %@", what)
+            case (.google, _): button.toolTip = playing ? L("Stop") : L("Listen to %@ (Google's voice: this text is sent to Google)", what)
             case (.none, let code?):
-                button.toolTip = "This Mac has no voice for \(languageName(code)). Google's voice can read it: turn it on in Settings."
+                button.toolTip = L("This Mac has no voice for %@. Google's voice can read it: turn it on in Settings.", languageName(code, inText: true))
             }
         }
-        set(speakSourceButton, name: "original", code: sourceCode, hasText: true, what: "the original")
+        set(speakSourceButton, name: "original", code: sourceCode, hasText: true, what: L("the original"))
         for section in sections {
             set(section.speakButton, name: section.name, code: section.target.google, hasText: !section.translation.isEmpty,
-                what: sections.count > 1 ? "the \(section.target.name) translation" : "the translation")
+                what: sections.count > 1 ? L("the %@ translation", section.target.inText) : L("the translation"))
         }
     }
 
@@ -560,9 +560,9 @@ final class Popup: NSObject, NSWindowDelegate {
         guard !s.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(s, forType: .string)
-        section.copyButton.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Copied")
+        section.copyButton.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: L("Copied"))
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak section] in
-            section?.copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy")
+            section?.copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: L("Copy"))
         }
     }
 
@@ -583,12 +583,12 @@ final class Popup: NSObject, NSWindowDelegate {
         } else if let detectedSource {
             sourceLabel.stringValue = languageName(detectedSource)
         } else {
-            sourceLabel.stringValue = sections.contains { !$0.settled } ? "Detecting…" : "Unknown language"
+            sourceLabel.stringValue = sections.contains { !$0.settled } ? L("Detecting…") : L("Unknown language")
         }
         sourceButton.contentTintColor = chosenSource == nil ? .secondaryLabelColor : .controlAccentColor
         sourceButton.toolTip = chosenSource == nil
-            ? "Wrong language? Set the language of the original"
-            : "The original's language was set by hand. Click to change it or to detect it again"
+            ? L("Wrong language? Set the language of the original")
+            : L("The original's language was set by hand. Click to change it or to detect it again")
         refreshSpeech()
         layout()
     }

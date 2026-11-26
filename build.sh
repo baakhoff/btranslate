@@ -36,5 +36,14 @@ rm -f "${binaries[@]}"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
 [ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# The languages BTranslate itself comes in: one Resources/<code>.lproj each. English is the
+# text in the source, so en.lproj only says that English is there. (A mistake in a .strings
+# file stops the build here.)
+for lproj in Resources/*.lproj; do
+    mkdir -p "$APP/Contents/Resources/$(basename "$lproj")"
+    for strings in "$lproj"/*.strings; do
+        plutil -convert binary1 -o "$APP/Contents/Resources/$(basename "$lproj")/$(basename "$strings")" "$strings"
+    done
+done
 codesign --force --sign "${BTRANSLATE_SIGN_IDENTITY:--}" "$APP" 2>/dev/null
 echo "Built $APP ($VERSION, ${archs[*]})"

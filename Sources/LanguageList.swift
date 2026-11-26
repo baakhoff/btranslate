@@ -13,6 +13,8 @@ private func languageCell(in table: NSTableView, for target: Target, isDefault: 
         cell.identifier = id
         let label = NSTextField(labelWithString: "")
         label.lineBreakMode = .byTruncatingTail
+        label.cell?.usesSingleLineMode = true
+        label.maximumNumberOfLines = 1
         label.translatesAutoresizingMaskIntoConstraints = false
         cell.addSubview(label)
         cell.textField = label
@@ -27,8 +29,11 @@ private func languageCell(in table: NSTableView, for target: Target, isDefault: 
         text.append(NSAttributedString(string: "  " + own, attributes: [.foregroundColor: NSColor.secondaryLabelColor]))
     }
     if isDefault {
-        text.append(NSAttributedString(string: "   ★ default", attributes: [.foregroundColor: NSColor.controlAccentColor]))
+        text.append(NSAttributedString(string: "   ★ " + L("default"), attributes: [.foregroundColor: NSColor.controlAccentColor]))
     }
+    let oneLine = NSMutableParagraphStyle()  // a long name is cut short, never wrapped into the next row
+    oneLine.lineBreakMode = .byTruncatingTail
+    text.addAttribute(.paragraphStyle, value: oneLine, range: NSRange(location: 0, length: text.length))
     cell.textField?.attributedStringValue = text
     return cell
 }
@@ -71,7 +76,7 @@ final class LanguagePicker: NSObject, NSTableViewDataSource, NSTableViewDelegate
     override init() {
         super.init()
         let size = view.frame.size
-        search.placeholderString = "Search languages"
+        search.placeholderString = L("Search languages")
         search.delegate = self
         search.frame = NSRect(x: 10, y: size.height - 34, width: size.width - 20, height: 24)
         search.autoresizingMask = [.width, .minYMargin]
@@ -177,7 +182,7 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
 
     private let table = NSTableView()
     private let buttons = NSSegmentedControl()
-    private let defaultButton = NSButton(title: "Make Default", target: nil, action: nil)
+    private let defaultButton = NSButton(title: L("Make Default"), target: nil, action: nil)
     private let rowType = NSPasteboard.PasteboardType("io.github.baakhoff.btranslate.language-row")
 
     init(width: CGFloat) {
@@ -202,9 +207,9 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         scroll.heightAnchor.constraint(equalToConstant: 22 * 5 + 6).isActive = true  // five rows, then it scrolls
 
         let images = [NSImage(named: NSImage.addTemplateName), NSImage(named: NSImage.removeTemplateName),
-                      NSImage(systemSymbolName: "chevron.up", accessibilityDescription: "Move up"),
-                      NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Move down")]
-        let tips = ["Add a language", "Remove the selected languages", "Move the selected language up", "Move the selected language down"]
+                      NSImage(systemSymbolName: "chevron.up", accessibilityDescription: L("Move up")),
+                      NSImage(systemSymbolName: "chevron.down", accessibilityDescription: L("Move down"))]
+        let tips = [L("Add a language"), L("Remove the selected languages"), L("Move the selected language up"), L("Move the selected language down")]
         buttons.segmentCount = images.count
         buttons.trackingMode = .momentary
         buttons.segmentStyle = .smallSquare
@@ -219,14 +224,14 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
         defaultButton.bezelStyle = .rounded
         defaultButton.controlSize = .small
         defaultButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        defaultButton.toolTip = "A popup opens with the default language"
+        defaultButton.toolTip = L("A popup opens with the default language")
         defaultButton.target = self
         defaultButton.action = #selector(makeSelectedDefault)
         let row = NSStackView(views: [buttons, defaultButton])
         row.spacing = 10
 
         let note = NSTextField(wrappingLabelWithString:
-            "A popup opens with the default language; + in the popup adds others from this list. Use the arrows, or drag rows, to put them in your order.")
+            L("A popup opens with the default language; + in the popup adds others from this list. Use the arrows, or drag rows, to put them in your order."))
         note.font = .systemFont(ofSize: 11)
         note.textColor = .secondaryLabelColor
         note.translatesAutoresizingMaskIntoConstraints = false

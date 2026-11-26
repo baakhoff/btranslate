@@ -46,7 +46,7 @@ func googleSpeechCode(_ code: String) -> String {
 
 /// How to read a text in the language `code` aloud. `voiceLanguages` are the language tags of
 /// the Mac's voices ("en-US", "hr-HR", …); `preferred` the Mac's own languages.
-func speechPlan(for code: String, voiceLanguages: [String], preferred: [String] = Locale.preferredLanguages,
+func speechPlan(for code: String, voiceLanguages: [String], preferred: [String] = macLanguages(),
                 googleVoice: Bool) -> SpeechPlan {
     /// The voice tag to use for a language or language-region prefix, if the Mac has one.
     func voice(_ prefix: String) -> String? {
@@ -141,7 +141,7 @@ func googleSpeech(_ text: String, code: String) async throws -> Data {
     let status = (response as? HTTPURLResponse)?.statusCode ?? 0
     guard status == 200 else { throw TranslateError.http(status, String(decoding: data, as: UTF8.self)) }
     guard let audio = parseGoogleSpeech(String(decoding: data, as: UTF8.self)), !audio.isEmpty else {
-        throw TranslateError.other("Google has no voice for \(languageName(code)).")
+        throw TranslateError.other(L("Google has no voice for %@.", languageName(code, inText: true)))
     }
     return audio
 }

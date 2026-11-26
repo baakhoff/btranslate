@@ -1,0 +1,2 @@
+/* What Finder shows about the app. The name and the Services menu item stay "BTranslate". */
+NSHumanReadableCopyright = "Лицензия MIT";

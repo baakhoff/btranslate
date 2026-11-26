@@ -1,25 +1,37 @@
 #!/usr/bin/env python3
-"""Writes Sources/Languages.swift from Google Translate's own list of languages.
+"""Writes Sources/Languages.swift from Google Translate's own list of languages: the codes
+with their English names, and the names in every other language BTranslate itself comes in.
 
-  python3 tools/update-languages.py              ask Google (one request)
-  python3 tools/update-languages.py saved.json   use a saved answer instead
+  python3 tools/update-languages.py           ask Google (one request per language of the app)
+  python3 tools/update-languages.py FOLDER    use saved answers instead: FOLDER/en.json, FOLDER/ru.json
 
-Run it from the repository's top folder when Google adds languages.
+Run it from the repository's top folder when Google adds languages, or after adding a
+language to LOCALIZATIONS below (and Resources/<code>.lproj).
 """
 import json
+import os
 import sys
+import time
 import urllib.request
 
-URL = "https://translate.googleapis.com/translate_a/l?client=gtx&hl=en"
+URL = "https://translate.googleapis.com/translate_a/l?client=gtx&hl="
+LOCALIZATIONS = ["ru"]  # besides English
 
-if len(sys.argv) > 1:
-    with open(sys.argv[1], encoding="utf-8") as f:
-        data = json.load(f)
-else:
-    with urllib.request.urlopen(URL, timeout=20) as response:
-        data = json.load(response)
 
-languages = sorted(data["tl"].items(), key=lambda item: item[1].lower())
+def answer(language):
+    if len(sys.argv) > 1:
+        with open(os.path.join(sys.argv[1], language + ".json"), encoding="utf-8") as f:
+            return json.load(f)["tl"]
+    with urllib.request.urlopen(URL + language, timeout=20) as response:
+        return json.load(response)["tl"]
+
+
+def quoted(text):
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+english = answer("en")
+languages = sorted(english.items(), key=lambda item: item[1].lower())
 if len(languages) < 100:
     sys.exit(f"Only {len(languages)} languages in the answer: not writing the file.")
 
@@ -30,9 +42,29 @@ lines = [
     "let googleLanguages: [(code: String, name: String)] = [",
 ]
 for code, name in languages:
-    escaped = name.replace("\\", "\\\\").replace('"', '\\"')
-    lines.append(f'    ("{code}", "{escaped}"),')
+    lines.append(f"    ({quoted(code)}, {quoted(name)}),")
+lines += [
+    "]",
+    "",
+    "/// The same languages as Google names them in the other languages BTranslate comes in:",
+    "/// [BTranslate's language: [Google's code: name]]. The names are as a sentence has them",
+    '/// ("латышский"); a list shows them with a capital letter.',
+    "let localizedLanguageNames: [String: [String: String]] = [",
+]
+for localization in LOCALIZATIONS:
+    if len(sys.argv) == 1:
+        time.sleep(1)  # one request at a time, unhurried
+    names = answer(localization)
+    missing = [code for code, _ in languages if code not in names]
+    if missing:
+        print(f"No {localization} name for: {', '.join(missing)} (the app falls back to macOS's name, then English).")
+    lines.append(f"    {quoted(localization)}: [")
+    for code, _ in languages:
+        if code in names:
+            lines.append(f"        {quoted(code)}: {quoted(names[code])},")
+    lines.append("    ],")
 lines.append("]")
+
 with open("Sources/Languages.swift", "w", encoding="utf-8") as f:
     f.write("\n".join(lines) + "\n")
-print(f"Wrote Sources/Languages.swift with {len(languages)} languages.")
+print(f"Wrote Sources/Languages.swift with {len(languages)} languages, named in English and {', '.join(LOCALIZATIONS)}.")

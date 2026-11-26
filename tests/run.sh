@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # BTranslate's tests. They need no network and no API key: the app's own checks first, then
 # both AI protocols and the Google fallback against tests/mock_server.py, then the popup and
-# the settings window drawn off screen (into build/uitest).
+# the settings window drawn off screen (into build/uitest; in Russian into build/uitest-ru).
 #   tests/run.sh          build if needed, then test
-#   tests/run.sh --live   also use the real Google Translate (one sentence) and the real
-#                         Keychain (a dummy key is saved, read and deleted)
+#   tests/run.sh --live   also use the real Google Translate (one sentence), the real
+#                         Keychain (a dummy key is saved, read and deleted) and BTranslate's
+#                         real preferences (Russian is chosen, read back, and your choice put back)
 #   tests/run.sh --screen also show a popup on screen for a few seconds, to check what a
 #                         picture can't: your app stays in front, typing reaches the pencil's
 #                         search field, a second language joins the popup (needs a working
@@ -14,6 +15,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 BIN=build/BTranslate.app/Contents/MacOS/BTranslate
 [ -x "$BIN" ] || ./build.sh
+# The checks below read the app's English texts, whatever language this Mac or your own
+# BTranslate is set to. The Russian ones say so.
+export BTRANSLATE_LANGUAGE=en
 PORT="${BTRANSLATE_TEST_PORT:-18766}"
 MOCK="http://127.0.0.1:$PORT"
 LOG=build/mock.log
@@ -49,6 +53,8 @@ ai() {  # ai PROVIDER PATH [args...]: a headless AI translation against the mock
 TRANSLATED=$'source: Latvian | updates: 4\nHello! How are you?\nSecond line.'
 
 check "selftest" "selftest: ok" "$BIN" --selftest
+check "selftest, in Russian" "selftest: ok" env BTRANSLATE_LANGUAGE=ru "$BIN" --selftest
+check "Every text has its translation" "strings: ok" python3 -I tools/check-strings.py
 
 check "Anthropic: streaming, thinking skipped" "$TRANSLATED" ai anthropic anthropic "Labdien"
 logged "Anthropic: model, effort, version header" '"anthropic-version": "2026-10-21".*"model": "claude-haiku-5-5", "output_config": {"effort": "low"}'
@@ -86,6 +92,18 @@ check "AI: the original's language given" "source: Lithuanian" ai anthropic anth
 logged "AI: told to read the text as that language" 'The text is written in Lithuanian (lietuvių)'
 logged "AI: the user turn names both languages" 'Translate from Lithuanian (lietuvių) into Russian (русский):'
 
+check "Russian: the detected language's name" $'source: Латышский | updates: 1\nEN:Labdien' \
+    env BTRANSLATE_LANGUAGE=ru BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --print --engine google "Labdien"
+check "Russian: an error message" "Ключ API отклонен (HTTP 401): invalid x-api-key" \
+    env BTRANSLATE_LANGUAGE=ru BTRANSLATE_PROVIDER=anthropic BTRANSLATE_BASE_URL="$MOCK/anthropic" BTRANSLATE_API_KEY=wrong-key \
+    "$BIN" --print --engine ai "Labdien"
+check "Russian: the AI is still told the languages in English" "source: Литовский" \
+    env BTRANSLATE_LANGUAGE=ru BTRANSLATE_PROVIDER=anthropic BTRANSLATE_BASE_URL="$MOCK/anthropic-ru" BTRANSLATE_API_KEY=test-key \
+    "$BIN" --print --engine ai --from литовский --to русский "Labas"
+check "Russian: the AI is told every language as in English" "same" bash -c \
+    "diff <('$BIN' --prompts) <(BTRANSLATE_LANGUAGE=ru '$BIN' -AppleLanguages '(ru)' --prompts) >/dev/null && echo same"
+logged "Russian: the prompt is the same" 'Translate from Lithuanian (lietuvių) into Russian (русский):.*/anthropic-ru/messages'
+
 LONG="This is the first sentence, and it is here to fill one piece. $(printf 'Another sentence that makes the text longer than one piece. %.0s' 1 2 3 4)"
 check "Speech: Google's voice, in pieces" "google voice xx: 2 piece(s)" \
     env BTRANSLATE_GOOGLE_SPEECH_URL="$MOCK/speech" "$BIN" -googleVoice YES --speech-check xx "$LONG"
@@ -105,10 +123,23 @@ check "UI, off screen: several languages at once" "several languages at once: ye
 check "UI, off screen: the list's arrows and Make Default" \
     "list buttons: en,ru,lv,sr-Latn default=ru → en,ru,sr-Latn,lv default=ru → en,ru,sr-Latn,lv default=sr-Latn → ru,en,sr-Latn,lv default=sr-Latn" echo "$UI_OUT"
 check "UI, off screen: pictures written" "source-picker.png" ls build/uitest
+check "UI, off screen: every text of the settings window fits" "settings window, every text fits: yes" echo "$UI_OUT"
+check "UI, off screen: the menu of BTranslate's own language" "language menu: the Mac's, en, ru" echo "$UI_OUT"
+
+# The same in Russian: longer words in the same windows.
+UI_RU="$(env BTRANSLATE_LANGUAGE=ru BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --uitest build/uitest-ru \
+    -AppleLanguages '(ru)' -googleEnabled YES -defaultEngine google -languages '(en, ru, lv)' -defaultLanguage ru 2>&1 || true)"
+check "UI in Russian: it is in Russian" "interface language: ru" echo "$UI_RU"
+check "UI in Russian: every text of the settings window fits" "settings window, every text fits: yes" echo "$UI_RU"
+check "UI in Russian: the picker finds languages by their English names too" "source picker finds: ltg, la, lv" echo "$UI_RU"
+check "UI in Russian: several languages at once" "several languages at once: yes (ru, en, lv)" echo "$UI_RU"
+check "UI in Russian: the original's language set by hand" "the original's language can be set by hand: yes" echo "$UI_RU"
+check "UI in Russian: pictures written" "settings-languages.png" ls build/uitest-ru
 
 if [ "${1:-}" = "--live" ]; then
     check "Google, live" "source: Latvian" "$BIN" --print --engine google "Labdien! Kā jums klājas?"
     check "Keychain, live" "keychain: ok" "$BIN" --keychain-test
+    check "BTranslate's language, live: chosen and read back" "language choice: ok" "$BIN" --language-test
 fi
 
 if [ "${1:-}" = "--screen" ]; then

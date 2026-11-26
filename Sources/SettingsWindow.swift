@@ -1,7 +1,8 @@
 import Cocoa
 
 /// The setup window: which translation methods to use, the AI provider, model and API key,
-/// the languages to translate into, and which method a popup opens with. It opens when you
+/// the languages to translate into, which method a popup opens with, and the language of
+/// BTranslate itself. It opens when you
 /// start BTranslate yourself (the installer does, once) and from the gear button in the popup.
 @MainActor
 final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate {
@@ -10,23 +11,24 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private var window: NSWindow?
     private var config = Config.load()
 
-    private let googleBox = NSButton(checkboxWithTitle: "Google Translate", target: nil, action: nil)
-    private let aiBox = NSButton(checkboxWithTitle: "AI model", target: nil, action: nil)
+    private let googleBox = NSButton(checkboxWithTitle: L("Google Translate"), target: nil, action: nil)
+    private let aiBox = NSButton(checkboxWithTitle: L("AI model"), target: nil, action: nil)
     private let providerMenu = NSPopUpButton(frame: .zero, pullsDown: false)
     private let modelBox = NSComboBox()
-    private let urlLabel = NSTextField(labelWithString: "Server:")
+    private let urlLabel = NSTextField(labelWithString: L("Server:"))
     private let urlField = NSTextField()
     private let keyField = NSSecureTextField()
     private let keyHelp = NSTextField(wrappingLabelWithString: "")
-    private let testButton = NSButton(title: "Test", target: nil, action: nil)
+    private let testButton = NSButton(title: L("Test"), target: nil, action: nil)
     private let status = NSTextField(wrappingLabelWithString: "")
-    private let defaultControl = NSSegmentedControl(labels: ["Google", "AI"], trackingMode: .selectOne, target: nil, action: nil)
+    private let defaultControl = NSSegmentedControl(labels: ["Google", L("AI")], trackingMode: .selectOne, target: nil, action: nil)
     private var aiLabels: [NSTextField] = []
     private var urlRow: NSGridRow?  // shown for the Custom provider only
     private let languageEditor = LanguageListEditor(width: 436)
-    private let googleVoiceBox = NSButton(checkboxWithTitle: "Read aloud with Google's voice where this Mac has none", target: nil, action: nil)
+    private let googleVoiceBox = NSButton(checkboxWithTitle: L("Read aloud with Google's voice where this Mac has none"), target: nil, action: nil)
+    private let languageMenu = NSPopUpButton(frame: .zero, pullsDown: false)  // the language of BTranslate itself
     // Two pages, so the window fits a small screen: how to translate, and into which languages.
-    private let pageControl = NSSegmentedControl(labels: ["Translation", "Languages"], trackingMode: .selectOne, target: nil, action: nil)
+    private let pageControl = NSSegmentedControl(labels: [L("Translation"), L("Languages")], trackingMode: .selectOne, target: nil, action: nil)
     private var pages: [NSView] = []
 
     private var modelTask: Task<Void, Never>?
@@ -114,6 +116,17 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         return steps
     }
 
+    /// What the language menu's items stand for, each picked in turn: "" is the Mac's own
+    /// language (UI test). Nothing is saved.
+    func languageChoicesForTest() -> [String] {
+        let was = languageMenu.indexOfSelectedItem
+        defer { languageMenu.selectItem(at: was) }
+        return (0..<languageMenu.numberOfItems).map { item in
+            languageMenu.selectItem(at: item)
+            return draft().languageChoice
+        }
+    }
+
     // MARK: Building the window
 
     private func caption(_ text: String) -> NSTextField {
@@ -127,7 +140,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         let title = NSTextField(labelWithString: "BTranslate")
         title.font = .systemFont(ofSize: 20, weight: .bold)
         let intro = NSTextField(wrappingLabelWithString:
-            "Select text in any app, right-click it and choose Services → BTranslate.")
+            L("Select text in any app, right-click it and choose Services → BTranslate."))
         pageControl.target = self
         pageControl.action = #selector(pageChanged)
 
@@ -135,8 +148,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             box.target = self
             box.action = #selector(methodsChanged)
         }
-        let googleNote = caption("Free, no key needed. The selected text goes to Google.")
-        let aiNote = caption("Your own API key. Often better with context, names and tone. The selected text goes to the provider you pick.")
+        let googleNote = caption(L("Free, no key needed. The selected text goes to Google."))
+        let aiNote = caption(L("Your own API key. Often better with context, names and tone. The selected text goes to the provider you pick."))
 
         providerMenu.addItems(withTitles: providers.map(\.name))
         providerMenu.target = self
@@ -163,10 +176,10 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         keyHelp.font = .systemFont(ofSize: 11)
         keyHelp.textColor = .secondaryLabelColor
         let grid = NSGridView(views: [
-            [label("Provider:"), providerMenu],
-            [label("Model:"), modelBox],
+            [label(L("Provider:")), providerMenu],
+            [label(L("Model:")), modelBox],
             [urlLabel, urlField],
-            [label("API key:"), keyField],
+            [label(L("API key:")), keyField],
             [NSGridCell.emptyContentView, keyHelp],
             [testButton, status],
         ])
@@ -180,25 +193,29 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         grid.row(at: 5).yPlacement = .top
         urlRow = grid.row(at: 2)
 
-        let defaultLabel = NSTextField(labelWithString: "BTranslate opens with:")
+        let defaultLabel = NSTextField(labelWithString: L("BTranslate opens with:"))
         defaultControl.target = self
         defaultControl.action = #selector(defaultChanged)
         let defaultRow = NSStackView(views: [defaultLabel, defaultControl])
         defaultRow.spacing = 8
 
-        let save = NSButton(title: "Save", target: self, action: #selector(saveSettings))
+        let save = NSButton(title: L("Save"), target: self, action: #selector(saveSettings))
         save.keyEquivalent = "\r"
-        let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancelSettings))
+        let cancel = NSButton(title: L("Cancel"), target: self, action: #selector(cancelSettings))
         cancel.keyEquivalent = "\u{1b}"
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let buttons = NSStackView(views: [spacer, cancel, save])
         buttons.spacing = 8
 
-        let line1 = NSBox(), line2 = NSBox()
-        for line in [line1, line2] { line.boxType = .separator }
-        let languagesLabel = NSTextField(labelWithString: "Languages to translate into:")
-        let voiceNote = caption("The speaker buttons use your Mac's voices. It has none for some languages, such as Latvian: with this on, a text you play in one of those is sent to Google.")
+        let line1 = NSBox(), line2 = NSBox(), line3 = NSBox()
+        for line in [line1, line2, line3] { line.boxType = .separator }
+        let languagesLabel = NSTextField(labelWithString: L("Languages to translate into:"))
+        let voiceNote = caption(L("The speaker buttons use your Mac's voices. It has none for some languages, such as Latvian: with this on, a text you play in one of those is sent to Google."))
+        // BTranslate's own language: the Mac's, or one of those it comes in, each named in itself.
+        languageMenu.addItems(withTitles: [L("Same as the Mac")] + interfaceLanguages.map(\.name))
+        let ownLanguageRow = NSStackView(views: [NSTextField(labelWithString: L("BTranslate's language:")), languageMenu])
+        ownLanguageRow.spacing = 8
 
         let width: CGFloat = 480, inner = width - 44
         func page(_ views: [NSView]) -> NSStackView {
@@ -216,10 +233,12 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         translation.setCustomSpacing(12, after: aiNote)
         translation.setCustomSpacing(14, after: grid)
         translation.setCustomSpacing(12, after: line1)
-        // Page 2: into which languages, and reading aloud.
-        let languages = page([languagesLabel, languageEditor.view, googleVoiceBox, voiceNote])
+        // Page 2: into which languages, reading aloud, and the language of BTranslate itself.
+        let languages = page([languagesLabel, languageEditor.view, googleVoiceBox, voiceNote, line3, ownLanguageRow])
         languages.setCustomSpacing(16, after: languageEditor.view)
         languages.setCustomSpacing(2, after: googleVoiceBox)
+        languages.setCustomSpacing(14, after: voiceNote)
+        languages.setCustomSpacing(12, after: line3)
         pages = [translation, languages]
 
         let stack = NSStackView(views: [title, intro, pageControl, translation, languages, line2, buttons])
@@ -243,14 +262,16 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             content.widthAnchor.constraint(equalToConstant: width),
         ])
-        for view in [intro, googleNote, aiNote, voiceNote, grid, line1, line2, buttons, translation, languages] as [NSView] {
+        for view in [intro, googleNote, aiNote, voiceNote, grid, line1, line2, line3, buttons, translation, languages] as [NSView] {
             view.widthAnchor.constraint(equalToConstant: inner).isActive = true
         }
-        grid.column(at: 0).width = 72
+        // The first column fits its widest label (they are longer in some languages) and the Test button.
+        let widest = (aiLabels as [NSView] + [testButton]).map { ceil($0.intrinsicContentSize.width) }.max() ?? 0
+        grid.column(at: 0).width = max(72, widest)
 
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 400),
                          styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        w.title = "BTranslate Settings"
+        w.title = L("BTranslate Settings")
         w.contentView = content
         w.isReleasedWhenClosed = false
         w.isRestorable = false
@@ -270,6 +291,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         languageEditor.languages = config.targets
         languageEditor.defaultID = config.startTarget.id
         googleVoiceBox.state = config.googleVoice ? .on : .off
+        languageMenu.selectItem(at: (interfaceLanguages.firstIndex { $0.code == config.languageChoice } ?? -1) + 1)
         setStatus("", color: .secondaryLabelColor)
         showProvider(keepModel: config.model)
         refreshEnabled()
@@ -284,8 +306,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         urlRow?.isHidden = provider.id != "custom"
         keyField.stringValue = ""
         let saved = Keychain.read(provider.id) != nil
-        keyField.placeholderString = saved ? "Saved in your Keychain. Paste a new key to replace it." : "Paste your API key"
-        keyHelp.stringValue = provider.keyHelp + " The key is stored in your Mac's Keychain."
+        keyField.placeholderString = saved ? L("Saved in your Keychain. Paste a new key to replace it.") : L("Paste your API key")
+        keyHelp.stringValue = provider.keyHelp + " " + L("The key is stored in your Mac's Keychain.")
         loadModels()
     }
 
@@ -314,6 +336,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         c.languageIDs = languageEditor.languages.map(\.id)
         c.defaultLanguageID = languageEditor.defaultLanguage?.id ?? ""
         c.googleVoice = googleVoiceBox.state == .on
+        let chosen = languageMenu.indexOfSelectedItem - 1  // -1: the first item, "Same as the Mac"
+        c.languageChoice = interfaceLanguages.indices.contains(chosen) ? interfaceLanguages[chosen].code : ""
         return c
     }
 
@@ -364,11 +388,11 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private func problem(_ c: Config, key: String) -> String? {
         guard c.aiEnabled else { return nil }
         if c.providerID == "custom" && !(c.customURL.hasPrefix("http://") || c.customURL.hasPrefix("https://")) {
-            return "Enter the server's address, starting with http:// or https://."
+            return L("Enter the server's address, starting with http:// or https://.")
         }
-        if c.model.isEmpty { return "Enter a model name." }
-        if key.isEmpty && c.providerID != "custom" { return "Paste an API key for \(c.provider.name), or turn the AI model off." }
-        if !key.isEmpty && !Keychain.isValid(key) { return "That doesn't look like an API key: it has spaces or quotes in it." }
+        if c.model.isEmpty { return L("Enter a model name.") }
+        if key.isEmpty && c.providerID != "custom" { return L("Paste an API key for %@, or turn the AI model off.", c.provider.name) }
+        if !key.isEmpty && !Keychain.isValid(key) { return L("That doesn't look like an API key: it has spaces or quotes in it.") }
         return nil
     }
 
@@ -376,14 +400,14 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         let c = draft(), key = currentKey()
         if let p = problem(c, key: key) { setStatus(p, color: .systemRed); return }
         testTask?.cancel()
-        setStatus("Testing…", color: .secondaryLabelColor)
+        setStatus(L("Testing…"), color: .secondaryLabelColor)
         testTask = Task { [weak self] in
             var result = ""
             do {
                 let english = target(id: "en") ?? allTargets[0]
                 try await aiTranslate("Labdien! Kā jums klājas?", target: english, config: c, key: key) { _, text in result = text }
                 guard let self, !Task.isCancelled else { return }
-                self.setStatus("It works. “Labdien! Kā jums klājas?” → “\(result)”", color: .systemGreen)
+                self.setStatus(L("It works. “Labdien! Kā jums klājas?” → “%@”", result), color: .systemGreen)
             } catch {
                 guard let self, !Task.isCancelled else { return }
                 self.setStatus(describe(error), color: .systemRed)
@@ -401,12 +425,15 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         }
         if c.aiEnabled && !typed.isEmpty && !Keychain.save(typed, account: c.providerID) {
             showPage(0)
-            setStatus("The key could not be saved to the Keychain.", color: .systemRed)
+            setStatus(L("The key could not be saved to the Keychain."), color: .systemRed)
             return
         }
+        let languageChanged = c.languageChoice != config.languageChoice
         c.save()
         config = c
         window?.close()
+        // The app takes its language when it starts: start it anew, in the background.
+        if languageChanged { (NSApp.delegate as? AppDelegate)?.restart() }
     }
 
     @objc private func cancelSettings() {

@@ -20,9 +20,10 @@ The first release.
 - **AI translations that really translate:** the model is told the language in English and in the language itself, and that changing the alphabet is not a translation, so Serbian → Russian comes out in Russian and not in Serbian Cyrillic.
 - **A pencil next to the detected language:** when the guess is wrong, pick the language of the original from a searchable list (the ones picked lately come first), and the popup translates again. Both Google and the AI model are told the language.
 - **Reading aloud:** a speaker button for the original and one for the translation. The Mac's own voices read, offline; the Croatian voice also reads Serbian and Bosnian. For a language macOS has no voice for, such as Latvian, Google Translate's voice reads the text, unless that is turned off in the setup window.
+- **In English and in Russian:** every window, menu, tooltip and message of BTranslate, the names of all 249 languages (Google's own Russian names; a language is found by its Russian, English or own name) and the installer. BTranslate follows the Mac's language; **BTranslate's language** on the Languages page of the setup window sets it to English or Russian for this app alone.
 - **The popup:** copy button and ⌘C; Esc, ⌘W or a click anywhere else closes it; it can be dragged and stays where you put it.
 - **API keys in the login Keychain,** one per provider.
 - **One-line installer** that builds the app on your Mac (no sudo), and an uninstaller.
-- **Tests without network or keys:** a mock server for both AI protocols and Google, an off-screen drawing of the popup, the settings window and the language pickers, and speech made without sound. An optional on-screen check shows a popup for three seconds and confirms that the app in front stays in front and that typing reaches the pencil's search field.
+- **Tests without network or keys:** a mock server for both AI protocols and Google, an off-screen drawing of the popup, the settings window and the language pickers in both languages (with a check that no text is cut short), a check that every text has its translation, and speech made without sound. An optional on-screen check shows a popup for three seconds and confirms that the app in front stays in front and that typing reaches the pencil's search field.
 
 [1.0.0]: https://github.com/baakhoff/btranslate/releases/tag/v1.0.0
