@@ -391,12 +391,14 @@ logged "Picture: all its texts go to Google in one request" '"q": \["'
 check "Picture: by an AI model, as numbered lines; a text the model leaves out is counted" \
     "not translated: 1 (The model left some texts out of its answer.)" \
     env "${MODEL[@]}" "$BIN" "${T[@]}" --picture-check build/uitest/window.png --engine ai
+# Offline. How many of the picture's texts can't be translated depends on the Mac: on what its
+# reader makes of the letters, and on what its recognizer takes each text for. So the checks
+# hold what does not: the first such text says why, and the texts after it are translated.
+OFFPIC="$("$BIN" "${T[@]}" -deviceEnabled YES -recentSources '()' --picture-check build/uitest/window.png --engine device 2>&1 || true)"
 check "Picture: offline, each text is translated from its own language" \
-    $'   Welcome back → OFFLINE en>ru: Welcome back\n   Datei öffnen → OFFLINE de>ru: Datei öffnen' \
-    "$BIN" "${T[@]}" -deviceEnabled YES -recentSources '()' --picture-check build/uitest/window.png --engine device
-check "Picture: offline, a text in a language it has not got says so and the others are translated" \
-    "not translated: 3 (This offline translation needs the NLLB-200 language pack (Latvian → Russian)." \
-    "$BIN" "${T[@]}" -deviceEnabled YES -recentSources '()' --picture-check build/uitest/window.png --engine device
+    $'   Welcome back → OFFLINE en>ru: Welcome back\n   Datei öffnen → OFFLINE de>ru: Datei öffnen' echo "$OFFPIC"
+check "Picture: offline, a text in a language it has not got says so" "(This offline translation needs the NLLB-200 language pack (" echo "$OFFPIC"
+check "Picture: offline, and the texts after that one are translated all the same" "   Save changes → OFFLINE en>ru: Save changes" echo "$OFFPIC"
 # A page of hundreds of texts (the one the reader of pictures is made ready with). The mock
 # server's "slow" addresses take a third of a second over each request and write down how
 # many they were answering at once.
