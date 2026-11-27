@@ -207,7 +207,9 @@ update (tools/local-signing.sh has made no certificate here)." \
                 fi
                 case "$answer" in
                     "") asked=1; if [ -n "$yes_default" ]; then want=yes; else want=no; fi ;;
-                    y|Y|yes|Yes|YES|д|Д|да|Да|ДА) want=yes; asked=1 ;;
+                    # In Russian a lone y is as likely the key printed «Н» in a Latin layout: no answer.
+                    y|Y) if [ -n "$ru" ]; then printf '%s\n' "Введите «да» или «нет»."; else want=yes; asked=1; fi ;;
+                    yes|Yes|YES|д|Д|да|Да|ДА) want=yes; asked=1 ;;
                     n|N|no|No|NO|нет|Нет|НЕТ|т|Т) want=no; asked=1 ;;
                     н|Н) asked=1; if [ -n "$ru" ]; then want=no; else want=yes; fi ;;
                     l|L) if [ -n "$ru" ]; then want=yes; asked=1; fi ;;
