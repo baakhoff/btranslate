@@ -4,9 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
-Version at release: 1.1.0.
+## [1.1.0] - 2026-11-27
 
 ### Updates
 - **BTranslate looks for a newer version** once a day (half a minute after it starts, then hourly whether the last check is a day old): one small request to GitHub for `VERSION` on `main`, and one for whether that version's release is there. Nothing of the user's goes with them. **Check for updates once a day** on the new About page turns it off.
@@ -64,4 +62,5 @@ The first release.
 - **One BTranslate at a time:** a second copy, or a mistyped option on the command line, ends instead of answering the shortcut twice.
 - **Tests without network or keys:** a mock server for both AI protocols and Google, an off-screen drawing of every window in both languages (with a check that no text is cut short), stand-ins for the other app's text field and for a window's picture, and speech made without sound. CI runs them on macOS 15 and macOS 26.
 
+[1.1.0]: https://github.com/baakhoff/btranslate/releases/tag/v1.1.0
 [1.0.0]: https://github.com/baakhoff/btranslate/releases/tag/v1.0.0
