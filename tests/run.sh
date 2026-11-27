@@ -637,6 +637,23 @@ check "Picture, selecting: the selection stays when another method translates th
     --picture-window-check build/uitest/window.png --act "click Welcome back; method google; copy"
 check "Picture, selecting: the highlights follow the window when it is made smaller" $'» highlight\nthe highlight lies over each selected text: yes' \
     act "click Welcome back; shift-click Hilfe; size 520x360; highlight"
+# A window taller than its picture has room above and below it, a wider one left and right: the
+# picture is centred, and a text is found and highlighted where it is drawn, not where it would be
+# at the window's top left corner.
+TALL="$(act "size 700x560; click Welcome back; shift-click Hilfe; highlight")"
+check "Picture, selecting: in a window taller than its picture, the picture has room above and below" "margins: above and below" echo "$TALL"
+check "Picture, selecting: and the highlights lie over its texts" $'» highlight\nthe highlight lies over each selected text: yes' echo "$TALL"
+WIDE="$(act "size 900x300; click Save changes; shift-click Datei öffnen; highlight")"
+check "Picture, selecting: in a window wider than its picture, the picture has room left and right" "margins: left and right" echo "$WIDE"
+check "Picture, selecting: and a click finds its texts" $'» shift-click Datei öffnen\nselected: Datei öffnen / Save changes;' echo "$WIDE"
+check "Picture, selecting: and the highlights lie over them" $'» highlight\nthe highlight lies over each selected text: yes' echo "$WIDE"
+# Where nothing could be translated, the texts can still be selected, and are copied as they
+# are; and the error stays in the bar: the selection and a copy do not take its place.
+FAILED="$(env BTRANSLATE_GOOGLE_URL="$DEAD" "$BIN" "${T[@]}" --picture-window-check build/uitest/window.png --act "click Welcome back; copy" 2>&1 || true)"
+check "Picture, selecting: with no connection, its texts can be selected, and the error stays in the bar, in red" \
+    $'» click Welcome back\nselected: Welcome back; the bar says now: No internet connection. (in red);' echo "$FAILED"
+check "Picture, copying: with no connection, a text is copied as it is, and the error still stays" \
+    $'» copy\ncopied the text: Welcome back\nselected: Welcome back; the bar says now: No internet connection. (in red);' echo "$FAILED"
 SELECTED="$(act "drag Datei öffnen .. Hilfe; shift-click Welcome back" --picture build/uitest/selected)"
 check "Picture, selecting: drawn with a selection, every text of the window fits" "every text of the window fits: yes" echo "$SELECTED"
 check "Picture, selecting: drawn with a selection, the window is on its screen" "the window is on its screen, bar and all: yes" echo "$SELECTED"

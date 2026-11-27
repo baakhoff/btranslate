@@ -469,16 +469,19 @@ func runPictureActs(_ acts: inout [String], in window: PictureWindow) -> Bool {
             panel.setContentSize(NSSize(width: sides[0], height: sides[1]))
             panel.layoutIfNeeded()
             window.contentView?.layoutSubtreeIfNeeded()
-            print("the picture is now \(Int(view.bounds.width))x\(Int(view.bounds.height)) points")
+            let place = view.drawn
+            let margins = place.minX > 1 ? "left and right" : place.minY > 1 ? "above and below" : "none"
+            print("the picture is now \(Int(view.bounds.width))x\(Int(view.bounds.height)) points, margins: \(margins)")
         case "highlight":
-            // Each highlight, turned back into the picture's pixels, is that text's box; and a
-            // click at its middle is a click on that text.
+            // Each highlight, turned back into the picture's pixels, is that text's box, it lies
+            // on the picture as drawn (not in the margins around it), and a click at its middle
+            // is a click on that text.
             let boxes = view.boxes
             let wrong = window.selectedInOrder.filter { i in
                 let shown = view.highlight(of: i), back = view.toPixels(shown), box = boxes[i]
                 let same = abs(back.minX - box.minX) < 0.5 && abs(back.minY - box.minY) < 0.5
                     && abs(back.maxX - box.maxX) < 0.5 && abs(back.maxY - box.maxY) < 0.5
-                let inside = view.bounds.insetBy(dx: -0.5, dy: -0.5).contains(shown)
+                let inside = view.drawn.insetBy(dx: -0.5, dy: -0.5).contains(shown)
                 return !same || !inside || view.text(at: NSPoint(x: shown.midX, y: shown.midY)) != i
             }
             print("the highlight lies over each selected text: \(wrong.isEmpty && !window.selectedInOrder.isEmpty ? "yes" : "NO (\(wrong.map { window.blocks?[$0].text ?? "?" }.joined(separator: " / ")))")")
@@ -486,7 +489,7 @@ func runPictureActs(_ acts: inout [String], in window: PictureWindow) -> Bool {
             print("ERROR: no such step: \(act)")
             exit(1)
         }
-        print("selected: \(selected()); the bar says now: \(window.shownStatus); the window: \(PictureWindow.current === window ? "open" : "closed")")
+        print("selected: \(selected()); the bar says now: \(window.shownStatus)\(window.statusInRed ? " (in red)" : ""); the window: \(PictureWindow.current === window ? "open" : "closed")")
     }
     return true
 }

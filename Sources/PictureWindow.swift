@@ -138,8 +138,20 @@ final class PictureView: NSView {
             needsDisplay = true
         }
     }
-    private(set) var selected: Set<Int> = [] { didSet { needsDisplay = true } }
-    private(set) var dragged: NSRect?  // the rectangle of a drag, in the view's points
+    // A selection or a drag changes a few small rectangles of the view: only they are drawn
+    // again, not the whole picture at each move of the mouse.
+    private(set) var selected: Set<Int> = [] {
+        didSet {
+            for text in selected.symmetricDifference(oldValue) where boxes.indices.contains(text) {
+                setNeedsDisplay(highlight(of: text).insetBy(dx: -2, dy: -2))
+            }
+        }
+    }
+    private(set) var dragged: NSRect? {  // the rectangle of a drag, in the view's points
+        didSet {
+            for rect in [oldValue, dragged].compactMap({ $0 }) { setNeedsDisplay(rect.insetBy(dx: -2, dy: -2)) }
+        }
+    }
     var onChange: (() -> Void)?        // the selection changed
     var onMenu: (() -> NSMenu?)?       // a right-click on a selected text
 
@@ -161,7 +173,7 @@ final class PictureView: NSView {
 
     func toPixels(_ rect: NSRect) -> CGRect {
         let place = drawn, k = place.width / pixelSize.width
-        guard k > 0 else { return .zero }
+        guard k > 0 else { return .null }  // a view with no room shows no picture, and no text is anywhere in it
         return CGRect(x: (rect.minX - place.minX) / k, y: (place.maxY - rect.maxY) / k, width: rect.width / k, height: rect.height / k)
     }
 
@@ -209,16 +221,12 @@ final class PictureView: NSView {
         guard dragged != nil || hypot(point.x - start.x, point.y - start.y) > 3 else { return }
         let rect = NSRect(x: min(start.x, point.x), y: min(start.y, point.y), width: abs(point.x - start.x), height: abs(point.y - start.y))
         dragged = rect
-        needsDisplay = true
         select(before.union(texts(touching: rect)))
     }
 
     override func mouseUp(with event: NSEvent) {
         pressedAt = nil
-        if dragged != nil {
-            dragged = nil
-            needsDisplay = true
-        }
+        dragged = nil
     }
 
     /// A right-click on a text selects it, unless it is selected already, and opens the menu.
@@ -282,7 +290,8 @@ final class PictureWindow: NSObject, NSWindowDelegate {
     private(set) var blocks: [PictureBlock]?  // nil until the picture is read
     private(set) var painted: CGImage?
     private(set) var statusText = ""  // what the bar says of the reading and translating
-    private var problem = false
+    private var problem = false  // what it says is an error, in red
+    private var lasting = false  // and the selection must not take its place: an error, or texts not translated
     private(set) var failed = false
     /// Of each text, where its translation was painted over the picture shown, and what was
     /// painted: nil where it was not. A selected text is highlighted there, and copied as that.
@@ -469,6 +478,7 @@ final class PictureWindow: NSObject, NSWindowDelegate {
                     let lines = try await PictureReader.linesApart(in: image, languages: expected)
                     try Task.checkCancellation()
                     self.blocks = PictureReader.blocks(lines)
+                    self.showPicture()  // its texts can be selected from now on, translated or not
                     Log.note(String(format: "window: %d lines read, %d texts, in %.1f s", lines.count, self.blocks?.count ?? 0, Date().timeIntervalSince(began)))
                 }
                 try await self.translateBlocks()
@@ -516,7 +526,7 @@ final class PictureWindow: NSObject, NSWindowDelegate {
         try Task.checkCancellation()
         repaint()
         if result.failed > 0 {
-            say(L("Not translated: %ld.", result.failed) + (result.reason.map { " " + $0 } ?? ""), problem: result.failed == worth.count)
+            say(L("Not translated: %ld.", result.failed) + (result.reason.map { " " + $0 } ?? ""), problem: result.failed == worth.count, lasting: true)
         } else {
             say(L("Translation into %@", target.inText))
         }
@@ -533,23 +543,28 @@ final class PictureWindow: NSObject, NSWindowDelegate {
         showPicture()
     }
 
-    private func say(_ text: String, problem: Bool = false) {
+    private func say(_ text: String, problem: Bool = false, lasting: Bool = false) {
         statusText = text
         self.problem = problem
+        self.lasting = problem || lasting
         showStatus()
     }
 
-    /// The bar says what is selected while something is; what it said before comes back after.
+    /// The bar says what is selected while something is, and what it said before comes back
+    /// after. An error, or that some texts were not translated (they are copied as their
+    /// originals), is not covered, by the selection or by a copy: the user has to see it. The
+    /// Copy button's tooltip and its "Copied" still say what it copies and that it did.
     private func showStatus() {
         let count = pictureView.selected.count
-        let text = copiedNote ?? (count > 0 ? L("Selected: %ld. ⌘C copies the text.", count) : statusText)
+        let text = lasting ? statusText : copiedNote ?? (count > 0 ? L("Selected: %ld. ⌘C copies the text.", count) : statusText)
         status.stringValue = text
-        status.textColor = problem && copiedNote == nil && count == 0 ? .systemRed : .secondaryLabelColor
+        status.textColor = problem ? .systemRed : .secondaryLabelColor
         status.toolTip = text
         copyButton.toolTip = count > 0 ? L("Copies the selected text") : L("Copies the picture")
     }
 
     var shownStatus: String { status.stringValue }  // (checks)
+    var statusInRed: Bool { status.textColor == .systemRed }
 
     @objc private func showPicture() {
         let originalShown = originalButton.state == .on || painted == nil
@@ -609,8 +624,9 @@ final class PictureWindow: NSObject, NSWindowDelegate {
     enum Version { case shown, originals, translations }
 
     /// The selected texts in reading order: from the top down, and from left to right among
-    /// texts on one line of the picture (one whose first line starts above the middle of
-    /// another's first line is on a line before it).
+    /// texts on one line of the picture. A text is on a line when the middle of its first line is
+    /// above the bottom of the first line of that line's topmost text. (Two
+    /// columns are read across, line by line, where their texts are level.)
     var selectedInOrder: [Int] {
         guard let blocks else { return [] }
         let chosen = pictureView.selected.filter { blocks.indices.contains($0) }.sorted { blocks[$0].box.minY < blocks[$1].box.minY }
