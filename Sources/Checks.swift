@@ -797,15 +797,21 @@ func runUpdateRun() async -> Int32 {
         print("ERROR: give the version found as BTRANSLATE_UPDATE_WAITING")
         return 1
     }
+    var startedAnew = false
+    updater.startAnew = {
+        startedAnew = true
+        print("the app starts itself anew")
+    }
     updater.update(asked: !arguments.contains("--auto"))
     print("update to \(version): \(updater.stateName)")
     print("the note it keeps: \(updater.noteText)")
     var waited = 0
-    while case .updating = updater.state, waited < 600 {
+    while case .updating = updater.state, !startedAnew, waited < 600 {
         await waitOut(0.05)
         waited += 1
     }
     print("once the command has ended: \(updater.stateName)")
+    print("started anew by itself: \(startedAnew ? "yes" : "no")")
     print("the note then: \(updater.noteText)")
     print("tried again by itself: \(updater.failedAutomatically == version ? "no, Update still offers it" : "yes")")
     guard let content = SettingsController.shared.preparedContent(page: .about) else { return 1 }

@@ -83,6 +83,7 @@
 //      BTRANSLATE_VERSION is the version this copy takes itself for, BTRANSLATE_UPDATE_URL where
 //      it looks for a newer one, BTRANSLATE_UPDATE_COMMAND what an update runs,
 //      BTRANSLATE_UPDATE_LOG where that writes, BTRANSLATE_UPDATE_WAITING a version as if found,
+//      BTRANSLATE_DISK_VERSION the version on disk once that has ended,
 //      BTRANSLATE_SIGNED=adhoc|own how this copy is taken to be signed.
 
 import Cocoa

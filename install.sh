@@ -32,7 +32,7 @@
 main() {
     set -euo pipefail
 
-    local VERSION=1.1.0
+    local VERSION=1.1.1
     local REPO=baakhoff/btranslate
     local APP="$HOME/Applications/BTranslate.app"
     local BUNDLE_ID=io.github.baakhoff.btranslate
@@ -247,6 +247,22 @@ update (tools/local-signing.sh has made no certificate here)." \
 
     [ "$(uname -s)" = Darwin ] || die "BTranslate is a macOS app."
 
+    # The running app is ended before its place is taken, also when it is the app that started
+    # this installer (its own Update): pkill leaves its own ancestors alone unless told
+    # otherwise (-a), and the app would go on running, the old one, with the new one on disk.
+    end_app() { pkill -a -x "$1" 2>/dev/null || true; }
+
+    # For tests/run.sh: only that step, for a stand-in of the tests' own (never a BTranslate).
+    # pkill takes the name as a pattern: BTStandIn and digits only, or a name such as
+    # "BTStandIn.*" or "BTStandIn1|BTranslate" would end more than the one stand-in.
+    if [ "${BTRANSLATE_INSTALLER_TEST:-}" = end ]; then
+        case "${BTRANSLATE_TEST_PROCESS:-}" in
+            BTStandIn*[!0-9]*) ;;
+            BTStandIn?*) end_app "$BTRANSLATE_TEST_PROCESS"; return 0 ;;
+        esac
+        die "BTRANSLATE_TEST_PROCESS has to name a stand-in (BTStandIn and digits)."
+    fi
+
     # For tests/run.sh: only the language pack's step, as on a first install, for the app at
     # BTRANSLATE_TEST_APP.
     if [ "${BTRANSLATE_INSTALLER_TEST:-}" = pack ]; then
@@ -301,7 +317,7 @@ update (tools/local-signing.sh has made no certificate here)." \
                                      "сборка не удалась. Если строки выше — ошибки компилятора о языке Swift, то Command Line Tools устарели для этой версии: обновите их («Системные настройки» → «Основные» → «Обновление ПО») и запустите установку снова.")"
 
     say "$(t "Installing" "Установка в") $APP"
-    pkill -x BTranslate 2>/dev/null || true
+    end_app BTranslate
     mkdir -p "$HOME/Applications"
     rm -rf "$APP"
     ditto "$src/build/BTranslate.app" "$APP"
