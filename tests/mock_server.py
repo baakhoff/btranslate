@@ -105,23 +105,22 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         # An address whose first part has "slow" in it (/googleslow/…, /anthropicslow/…) takes a
         # third of a second to answer, as a real server takes its time, and the log says how
-        # many such requests were being answered at once: `"together": 3`.
+        # many such requests were being answered at once: `"together": 3`. A request stops
+        # counting before its answer goes out: the next one, which the app sends only once it
+        # has that answer, is never counted together with it.
         slow = "slow" in self.path.split("/")[1]
         if slow:
             with HELD_LOCK:
                 HELD["now"] += 1
                 HELD["most"] = max(HELD["most"], HELD["now"])
             time.sleep(0.35)
-        try:
-            self.answer_post()
-        finally:
-            if slow:
-                with HELD_LOCK:
-                    HELD["now"] -= 1
-                    most = HELD["most"]
-                    if HELD["now"] == 0:
-                        HELD["most"] = 0
-                        print(json.dumps({"path": self.path.split("/")[1], "together": most}), flush=True)
+            with HELD_LOCK:
+                HELD["now"] -= 1
+                most = HELD["most"]
+                if HELD["now"] == 0:
+                    HELD["most"] = 0
+                    print(json.dumps({"path": self.path.split("/")[1], "together": most}), flush=True)
+        self.answer_post()
 
     def answer_post(self):
         raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))

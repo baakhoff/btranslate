@@ -391,7 +391,7 @@ logged "Picture: all its texts go to Google in one request" '"q": \["'
 check "Picture: by an AI model, as numbered lines; a text the model leaves out is counted" \
     "not translated: 1 (The model left some texts out of its answer.)" \
     env "${MODEL[@]}" "$BIN" "${T[@]}" --picture-check build/uitest/window.png --engine ai
-check "Picture: offline, a language's texts go to macOS's translation together" \
+check "Picture: offline, each text is translated from its own language" \
     $'   Welcome back → OFFLINE en>ru: Welcome back\n   Datei öffnen → OFFLINE de>ru: Datei öffnen' \
     "$BIN" "${T[@]}" -deviceEnabled YES -recentSources '()' --picture-check build/uitest/window.png --engine device
 check "Picture: offline, a text in a language it has not got says so and the others are translated" \
@@ -404,14 +404,14 @@ check "Picture: offline, a text in a language it has not got says so and the oth
 MANY="$(env BTRANSLATE_GOOGLE_URL="$MOCK/googleslow" "$BIN" "${T[@]}" --picture-check build/uitest/many.png --to lv 2>&1 || true)"
 check "Picture: a page of hundreds of texts is read and translated" "with words; into lv by google" echo "$MANY"
 logged "Picture: its requests go to Google three at a time" '"path": "googleslow", "together": 3'
-check "Picture: and never more than three" "seen 0 time(s)" seen '"path": "googleslow", "together": [4-9]'
+check "Picture: and never more than three" "seen 0 time(s)" seen '"path": "googleslow", "together": \([4-9]\|[1-9][0-9]\)'
 env "${MODEL[@]}" BTRANSLATE_BASE_URL="$MOCK/anthropicslow" "$BIN" "${T[@]}" --picture-check build/uitest/many.png --engine ai --to lv > /dev/null 2>&1 || true
 logged "Picture: its requests go to an AI provider four at a time" '"path": "anthropicslow", "together": 4'
-check "Picture: and never more than four" "seen 0 time(s)" seen '"path": "anthropicslow", "together": [5-9]'
+check "Picture: and never more than four" "seen 0 time(s)" seen '"path": "anthropicslow", "together": \([5-9]\|[1-9][0-9]\)'
 env BTRANSLATE_KEYCHAIN=off BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" -aiEnabled YES -aiProvider custom -aiBaseURL "$MOCK/openaislow" \
     --picture-check build/uitest/many.png --engine ai --to lv > /dev/null 2>&1 || true
 logged "Picture: to a server of your own, one at a time" '"path": "openaislow", "together": 1'
-check "Picture: and never two" "seen 0 time(s)" seen '"path": "openaislow", "together": [2-9]'
+check "Picture: and never two" "seen 0 time(s)" seen '"path": "openaislow", "together": \([2-9]\|[1-9][0-9]\)'
 WINDOW="$(typing --picture-window-check build/uitest/window.png --picture build/uitest)"
 check "Picture: its window, read in a process of its own" "the bar says: Translation into Russian" echo "$WINDOW"
 check "Picture: every text of its window fits" "every text of the window fits: yes" echo "$WINDOW"
