@@ -51,6 +51,43 @@ final class PopupPanel: NSPanel {
     }
 }
 
+extension NSSegmentedControl {
+    /// Makes this the method selector of a popup, of the typing panel or of a window's picture:
+    /// a segment for each method that can be used now, with `shown` selected. With one method
+    /// there is nothing to choose, and it stays hidden.
+    func offerMethods(of config: Config, showing shown: Engine) {
+        let methods = config.engines
+        controlSize = .small
+        font = .systemFont(ofSize: 11)
+        trackingMode = .selectOne
+        segmentCount = methods.count
+        for (i, method) in methods.enumerated() {
+            setLabel(method.label, forSegment: i)
+            switch method {
+            case .google: setToolTip(L("Google Translate"), forSegment: i)
+            case .ai: setToolTip("\(config.provider.name): \(config.model)", forSegment: i)
+            case .device: setToolTip(L("Translated on this Mac: works without internet"), forSegment: i)
+            }
+        }
+        selectedSegment = methods.firstIndex(of: shown) ?? 0
+        isHidden = methods.count < 2
+        refusesFirstResponder = true  // keys go to the text, never onto a control, where typing could change it
+    }
+}
+
+extension NSButton {
+    /// Makes this a small grey symbol without a border, as the popups' buttons are.
+    func beSymbol(_ name: String, size: CGFloat, tip: String) {
+        isBordered = false
+        imagePosition = .imageOnly
+        contentTintColor = .secondaryLabelColor
+        symbolConfiguration = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
+        image = NSImage(systemSymbolName: name, accessibilityDescription: tip)
+        toolTip = tip
+        refusesFirstResponder = true
+    }
+}
+
 /// A view whose y runs downward, so that the translations stack from the top.
 private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
@@ -159,25 +196,7 @@ final class Popup: NSObject, NSWindowDelegate {
         sourceLabel.lineBreakMode = .byTruncatingTail
         sourceLabel.toolTip = String(source.prefix(600))
 
-        engineControl.controlSize = .small
-        engineControl.font = .systemFont(ofSize: 11)
-        engineControl.trackingMode = .selectOne
-        engineControl.segmentCount = config.engines.count
-        for (i, method) in config.engines.enumerated() {
-            switch method {
-            case .google:
-                engineControl.setLabel("Google", forSegment: i)
-                engineControl.setToolTip(L("Google Translate"), forSegment: i)
-            case .ai:
-                engineControl.setLabel(L("AI"), forSegment: i)
-                engineControl.setToolTip("\(config.provider.name): \(config.model)", forSegment: i)
-            case .device:
-                engineControl.setLabel(L("Offline"), forSegment: i)
-                engineControl.setToolTip(L("Translated on this Mac: works without internet"), forSegment: i)
-            }
-        }
-        selectEngine()
-        engineControl.isHidden = config.engines.count < 2
+        engineControl.offerMethods(of: config, showing: engine)
         engineControl.target = self
         engineControl.action = #selector(engineChanged)
 
@@ -209,22 +228,12 @@ final class Popup: NSObject, NSWindowDelegate {
         for view in [sourceLabel, speakSourceButton, sourceButton, offlineIcon, engineControl, settingsButton, scroll] as [NSView] {
             background.addSubview(view)
         }
-        // Keys go to the texts only (Esc, ⌘C, ⌘A): no Tab onto a control, where typing could change it.
-        for control in [speakSourceButton, sourceButton, engineControl, settingsButton, addButton] as [NSControl] {
-            control.refusesFirstResponder = true
-        }
     }
 
     private func configure(_ button: NSButton, symbol: String, size: CGFloat, tip: String, action: Selector) {
-        button.isBordered = false
-        button.imagePosition = .imageOnly
-        button.contentTintColor = .secondaryLabelColor
-        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip)
-        button.toolTip = tip
+        button.beSymbol(symbol, size: size, tip: tip)
         button.target = self
         button.action = action
-        button.refusesFirstResponder = true
     }
 
     func show() {

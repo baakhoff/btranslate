@@ -92,10 +92,39 @@ enum LanguagePack {
         return caches.appendingPathComponent(id).appendingPathComponent("com.apple.e5rt.e5bundlecache")
     }
 
+    /// Takes away what macOS prepared of the pack's models, and all it prepared under an
+    /// earlier macOS. Not the rest of what it keeps there for this app under the macOS that
+    /// runs now: the pieces of its reader of pictures (Sources/Picture.swift), a few megabytes
+    /// that take a minute to make again. The names there say nothing; the pack's are told by
+    /// their size, half a gigabyte each.
     static func forgetPrepared() {
         guard let prepared else { return }
-        try? FileManager.default.removeItem(at: prepared)
+        forget(in: prepared, system: system)
         UserDefaults.standard.removeObject(forKey: "packPreparedFor")
+    }
+
+    /// The same for any such folder, and whatever the macOS (a check has one of its own).
+    static func forget(in prepared: URL, system: String) {
+        let files = FileManager.default
+        for build in (try? files.contentsOfDirectory(at: prepared, includingPropertiesForKeys: nil)) ?? [] {
+            guard build.lastPathComponent == system else {
+                try? files.removeItem(at: build)
+                continue
+            }
+            for piece in (try? files.contentsOfDirectory(at: build, includingPropertiesForKeys: nil)) ?? [] where isLarge(piece) {
+                try? files.removeItem(at: piece)
+            }
+        }
+    }
+
+    /// Whether a folder holds more than 50 MB.
+    private static func isLarge(_ folder: URL) -> Bool {
+        var bytes = 0
+        for case let file as URL in FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.fileSizeKey]) ?? .init() {
+            bytes += (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            if bytes > 50_000_000 { return true }
+        }
+        return false
     }
 
     /// The build of macOS that runs now ("26B8132"): it prepares the models anew after every
@@ -110,8 +139,14 @@ enum LanguagePack {
     /// there. True where that is not kept track of (a test's own pack).
     static var isPrepared: Bool {
         guard let prepared else { return true }
-        return UserDefaults.standard.string(forKey: "packPreparedFor") == system
-            && !((try? FileManager.default.contentsOfDirectory(atPath: prepared.path)) ?? []).isEmpty
+        return UserDefaults.standard.string(forKey: "packPreparedFor") == system && holdsModels(prepared, system: system)
+    }
+
+    /// Whether such a folder holds, for that macOS, something as large as a model of the
+    /// pack's: the pieces of the reader of pictures lie there too, and are not it.
+    static func holdsModels(_ prepared: URL, system: String) -> Bool {
+        let build = prepared.appendingPathComponent(system)
+        return ((try? FileManager.default.contentsOfDirectory(at: build, includingPropertiesForKeys: nil)) ?? []).contains(where: isLarge)
     }
 
     static func notePrepared() {
@@ -427,6 +462,24 @@ final class NLLBEngine: @unchecked Sendable {
             }
         } onCancel: {
             stop.raise()
+        }
+    }
+
+    /// Keeps the model in memory over several translations in a row (the texts of a window's
+    /// picture): it is then let go after the last of them, not loaded anew for each. Every
+    /// `keep` has its `letGo`.
+    func keep() { lock.withLock { waiting += 1 } }
+
+    func letGo() {
+        let last = lock.withLock { () -> Bool in
+            waiting -= 1
+            return waiting == 0
+        }
+        guard last else { return }
+        queue.async {
+            // Not if a translation was asked for meanwhile: it would only load the model again.
+            guard self.lock.withLock({ self.waiting == 0 }) else { return }
+            autoreleasepool { self.unload() }
         }
     }
 

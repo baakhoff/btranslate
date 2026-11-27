@@ -40,9 +40,11 @@ It is a key by its place on the keyboard, so it is the same key in every layout.
   - A paste goes only to the app the panel was opened for, and only on Return. The clipboard is put back unless something was copied meanwhile.
   - `BTranslate --ax-check` does all this against a window of its own: a Mac text view, and a web page's `<input>`, `<textarea>` and editable `<div>`, empty and not.
 - **A window's picture** comes from `SCContentSharingPicker`, the picker of ScreenCaptureKit, and `SCScreenshotManager`. The picker alone is not enough for macOS: on macOS 27 the picture is refused until the app may record the screen.
-  - Vision reads the lines, in a process of its own that the app starts for each picture, so what the reading needs in memory goes with it.
+  - Vision reads the lines, in a process of its own that the app starts for each picture, so what the reading needs in memory goes with it. A window is read in a fifth to half of a second.
+  - macOS prepares that reader for each program once (and again after an update of itself), in five pieces of some twelve seconds each, which it keeps among the app's caches. Three it prepares at the first picture; two more only at a picture with text that is hard to read, as every real window has somewhere. So BTranslate has all five prepared ahead, when it is installed and each time it starts, with a picture of its own drawing that brings them all on (`--prepare-reading`). Without that, the first full window takes half a minute.
   - Lines of a paragraph are put together (a full line of several words, with the next right under it), while the rows of a list stay apart.
-  - All texts go to Google in one request, each from its own language; an AI model gets them as numbered lines.
+  - The texts go to Google forty to a request, each from its own language, and three requests at a time; an AI provider gets them as numbered lines, twenty-five to a request and four at a time (a server of your own: sixty, one at a time).
+  - Offline, the texts macOS's own translation can do go to it a language at a time, and the language pack's model stays in memory until the window's last text. macOS takes about a fifth of a second over each text, whatever is tried.
   - Each translation is painted over its original in letters of the same size (judged by the line's width, which macOS gives exactly) and colour, on the colour that was behind it.
 
 ## Translating
@@ -63,9 +65,9 @@ Apple lacks.
 
 - **Apple has about 25 languages,** and not Latvian, Serbian or Croatian: those need the language pack (or an AI model of your own on the Mac: the Custom provider with Ollama, LM Studio or oMLX runs without internet too).
 - **Some Macs have all of Apple's languages ready:** on the one BTranslate was written on (macOS 27) none needed a download. On others each language is a download; macOS keeps them under System Settings → General → Language & Region → Translation Languages.
-- **The pack's model** is two Core ML programs, an encoder and a decoder, with 8-bit weights. The app has its own tokenizer for it (checked against Meta's on 60 texts) and searches for the translation with a beam of four. The model is loaded for a translation and let go right after it.
+- **The pack's model** is two Core ML programs, an encoder and a decoder, with 8-bit weights. The app has its own tokenizer for it (checked against Meta's on 60 texts) and searches for the translation with a beam of four. The model is loaded for a translation and let go right after it; for a window's texts, after the last of them.
   - macOS prepares the models for the Neural Engine the first time they are loaded, and again after an update of itself. That takes a quarter of a minute and leaves a gigabyte and a half in the process that did it, so BTranslate has it done in a process of its own (`--pack-prepare`).
-  - What macOS prepared, about 1 GB, it keeps among the app's caches, and would keep for every version of itself. BTranslate removes it with the pack, and what was prepared for an earlier macOS when it prepares anew.
+  - What macOS prepared, about 1 GB, it keeps among the app's caches, and would keep for every version of itself. BTranslate removes it with the pack, and what was prepared for an earlier macOS when it prepares anew. The pieces of the reader of pictures, which lie in the same folder under names that say nothing, are told from the pack's by their size and left there.
   - [tools/nllb](../tools/nllb/README.md) says how the pack is made and what the conversion had to get around.
 - **The language of a text** has to be told on the Mac, and the pack writes nonsense when told a wrong one. The pack's detector, the Mac's own recognizer, a few letters and words of Latvian, Serbian and their neighbours, and your own languages all have a say; when together they are not sure, the popup says what the text may be and asks for the pencil.
 - `BTranslate --offline` says whether a Mac has the method and which languages.
@@ -77,4 +79,4 @@ Apple lacks.
   - macOS ties a permission to the exact build of such an app, so the shortcut's permissions have to be given again after an update.
   - `tools/local-signing.sh` makes a certificate of this Mac's own, and the installer signs with it from then on: every build is then the same app to macOS. `BTRANSLATE_SIGN_IDENTITY` names another identity to sign with.
 - **API keys** are read and written through `/usr/bin/security`, so an update (a new signature) does not bring up a Keychain prompt. The key is read once and remembered while the app runs.
-- **The log of the shortcut,** `~/Library/Logs/BTranslate.log`, says which of its three things it did in which app. It never holds a text: only its length.
+- **The log of the shortcut,** `~/Library/Logs/BTranslate.log`, says which of its three things it did in which app, and how long a window's reading and translating took. It never holds a text: only its length.

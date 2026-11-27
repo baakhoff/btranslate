@@ -41,7 +41,8 @@
 //   --shortcut-page [--picture DIR]  the settings' page for it, off screen
 //   --type-check "text" [--field live|none|stuck] [--to LANGUAGE] [--esc] [--picture DIR]
 //                                  the panel for typing in another language, off screen (runTypeCheck)
-//   --picture-make FILE            draw a picture that stands for a window
+//   --picture-make FILE [--many]   draw a picture that stands for a window (--many: a page of
+//                                  hundreds of short texts, the one the reader is made ready with)
 //   --picture-check FILE [--engine …] [--to …] [--picture DIR]
 //                                  read a picture as a window's is read, translate its texts, print them
 //   --picture-window-check FILE [--picture DIR]  the window that shows it, off screen
@@ -160,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard Accessibility.isAllowed else {
             Log.note("shortcut: no permission to read the app in front")
             showSettings()
-            SettingsController.shared.showPage(2)
+            SettingsController.shared.showPage(.shortcut)
             Accessibility.ask()
             return
         }
@@ -319,19 +320,23 @@ func cutOffTexts(in view: NSView) -> [String] {
     return found + view.subviews.flatMap(cutOffTexts)
 }
 
+/// How tall the settings window's pages are, and whether the tallest fits the smallest screen a
+/// Mac that runs BTranslate has: 900 points, less the menu bar, the Dock and the window's title bar.
+@MainActor
+func reportPageHeights() {
+    let heights = SettingsController.shared.pageHeights.map { Int($0) }
+    let fit = (heights.max() ?? 0) <= 760
+    print("settings pages are \(heights.map(String.init).joined(separator: ", ")) points tall: \(fit ? "they fit a small screen" : "TOO TALL for a small screen")")
+}
+
 /// Nothing appears on screen: the settings window and a popup are built, drawn into PNG files,
 /// and the popup is checked to stay where it was moved to when it translates again.
 @MainActor
 func runUITest(into dir: String) {
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-    if let content = SettingsController.shared.preparedContent(page: 0) {
-        snapshot(content, to: dir + "/settings.png")
-    }
-    if let content = SettingsController.shared.preparedContent(page: 1) {
-        snapshot(content, to: dir + "/settings-languages.png")
-    }
-    if let content = SettingsController.shared.preparedContent(page: 2) {
-        snapshot(content, to: dir + "/settings-shortcut.png")
+    for (page, name) in [(SettingsController.Page.translation, "settings"), (.languages, "settings-languages"),
+                         (.defaults, "settings-defaults"), (.shortcut, "settings-shortcut")] {
+        if let content = SettingsController.shared.preparedContent(page: page) { snapshot(content, to: "\(dir)/\(name).png") }
     }
     snapshot(SettingsController.shared.preparedPicker(search: "ser"), to: dir + "/languages.png")
     // Add a language through the picker: it joins the list and leaves the picker.
@@ -346,11 +351,10 @@ func runUITest(into dir: String) {
     print("language to write in: \(SettingsController.shared.typingForTest().joined(separator: " → "))")
     if let content = SettingsController.shared.currentContent {
         snapshot(content, to: dir + "/settings-reordered.png")
-        print("settings pages are \(Int(SettingsController.shared.pageHeights.0)) and \(Int(SettingsController.shared.pageHeights.1)) points tall")
     }
     // A translation can be longer than the English text the window was laid out for.
     var cut: [String] = []
-    for page in 0...2 {
+    for page in SettingsController.Page.allCases {
         if let content = SettingsController.shared.preparedContent(page: page) {
             content.layoutSubtreeIfNeeded()
             cut += cutOffTexts(in: content)
@@ -359,6 +363,7 @@ func runUITest(into dir: String) {
     let choices = SettingsController.shared.languageChoicesForTest().map { $0.isEmpty ? "the Mac's" : $0 }
     print("language menu: \(choices.joined(separator: ", "))")
     print("interface language: \(interfaceLanguage)")
+    reportPageHeights()
     print("settings window, every text fits: \(cut.isEmpty ? "yes" : "NO (\(cut.joined(separator: " | ")))")")
     if !cut.isEmpty { exit(1) }
 
@@ -515,10 +520,10 @@ func runPopupCheck(text: String) {
 @MainActor
 func runOfflineSettingsTest(into dir: String) async {
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-    _ = SettingsController.shared.preparedContent(page: 0)
+    _ = SettingsController.shared.preparedContent(page: .translation)
     let statuses = await SettingsController.shared.loadOfflineForTest()
     var cut: [String] = []
-    for (page, name) in [(0, "offline-settings"), (1, "offline-languages")] {
+    for (page, name) in [(SettingsController.Page.translation, "offline-settings"), (.languages, "offline-languages"), (.defaults, "offline-defaults")] {
         guard let content = SettingsController.shared.preparedContent(page: page) else { continue }
         content.layoutSubtreeIfNeeded()
         cut += cutOffTexts(in: content)
@@ -528,9 +533,10 @@ func runOfflineSettingsTest(into dir: String) async {
     print("offline marks: \(list.map { "\($0.id) \(statuses[$0.id]?.rawValue ?? "none")" }.joined(separator: ", "))")
     let offered = list.indices.map { "\(list[$0].id) \(SettingsController.shared.downloadOfferedForTest(row: $0) ? "yes" : "no")" }
     print("Download offered: \(offered.joined(separator: ", "))")
-    _ = SettingsController.shared.preparedContent(page: 0)
+    _ = SettingsController.shared.preparedContent(page: .translation)
     print("opens with: \(SettingsController.shared.offeredMethods.map(\.rawValue).joined(separator: ", "))")
-    print("settings pages are \(Int(SettingsController.shared.pageHeights.0)) and \(Int(SettingsController.shared.pageHeights.1)) points tall")
+    print("each opens with: \(SettingsController.shared.defaultsForTest)")
+    reportPageHeights()
     print("settings window, every text fits: \(cut.isEmpty ? "yes" : "NO (\(cut.joined(separator: " | ")))")")
     exit(cut.isEmpty ? 0 : 1)
 }
@@ -934,13 +940,10 @@ if arguments.contains("--selftest") {
     exit(PictureReader.readForTheApp(languages: languages))
 } else if arguments.contains("--prepare-reading") {
     // macOS makes its reader of pictures ready for a program the first time it reads one, which
-    // takes some twenty seconds: the installer and the app have it done here, in the background.
+    // takes up to a minute: the installer and the app have it done here, in the background,
+    // with a picture that has all of it made ready (see PictureReader.warmUpPicture).
     MainActor.assumeIsolated {
-        let made = NSTemporaryDirectory() + "btranslate-prepare-\(ProcessInfo.processInfo.processIdentifier).png"
-        let drawn = makeTestPicture(at: made)
-        let image = CGImageSourceCreateWithURL(URL(fileURLWithPath: made) as CFURL, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
-        try? FileManager.default.removeItem(atPath: made)  // (not in a `defer`: this ends with exit())
-        guard drawn, let image else { exit(1) }
+        guard let image = PictureReader.warmUpPicture() else { exit(1) }
         let start = Date()
         let lines = (try? PictureReader.lines(in: image, languages: [])) ?? []
         print(String(format: "reading is ready: %d lines in %.1f s", lines.count, Date().timeIntervalSince(start)))
@@ -966,7 +969,12 @@ if arguments.contains("--selftest") {
 } else if let text = argument(after: "--type-check") {
     runHeadless { await runTypeCheck(text) }
 } else if let file = argument(after: "--picture-make") {
-    runHeadless { makeTestPicture(at: file) ? 0 : 1 }
+    runHeadless {
+        guard arguments.contains("--many") else { return makeTestPicture(at: file) ? 0 : 1 }
+        guard let image = PictureReader.warmUpPicture(),
+              let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return 1 }
+        return (try? png.write(to: URL(fileURLWithPath: file))) != nil ? 0 : 1
+    }
 } else if let file = argument(after: "--picture-check") {
     runHeadless { await runPictureCheck(file) }
 } else if let file = argument(after: "--picture-window-check") {

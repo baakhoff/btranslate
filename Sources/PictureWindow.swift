@@ -125,13 +125,14 @@ enum WindowPicture {
 final class PictureWindow: NSObject, NSWindowDelegate {
     static var current: PictureWindow?
     private static let bar: CGFloat = 36
+    private static let statusRoom: CGFloat = 150  // the least width the bar keeps for what it says
 
     let panel: PopupPanel  // floats over the app you are in without becoming the active app; Esc and ⌘W close it, ⌘C copies
     private let original: CGImage
     private let scale: CGFloat
     private let pixels: Pixels?
     private let config = Config.load()
-    private let engine: Engine
+    private(set) var engine: Engine
     private(set) var target: Target
     private(set) var blocks: [PictureBlock]?  // nil until the picture is read
     private(set) var painted: CGImage?
@@ -141,9 +142,11 @@ final class PictureWindow: NSObject, NSWindowDelegate {
     private let imageView = NSImageView()
     private let arrow = NSTextField(labelWithString: "→")
     private let menu = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let engineControl = NSSegmentedControl()
     private let status = NSTextField(labelWithString: "")
     private let originalButton = NSButton(title: L("Original"), target: nil, action: nil)
     private let copyButton = NSButton(title: L("Copy"), target: nil, action: nil)
+    private let settingsButton = NSButton()
     private var task: Task<Void, Never>?
     private var closed = false
     var onSettled: (() -> Void)?  // the translation, or the reason there is none, is showing (tests)
@@ -164,8 +167,9 @@ final class PictureWindow: NSObject, NSWindowDelegate {
         original = image
         self.scale = scale
         pixels = Pixels(image)
-        engine = config.startEngine
-        target = config.startTarget
+        // Both are set in the settings; the menu and the selector in the bar are for this window only.
+        engine = config.windowStartEngine
+        target = config.windowTarget
         // As large as the window it shows, where the screen has the room.
         var size = NSSize(width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale)
         let anchor = frame ?? NSRect(origin: NSEvent.mouseLocation, size: .zero)
@@ -197,7 +201,6 @@ final class PictureWindow: NSObject, NSWindowDelegate {
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
-        panel.minSize = NSSize(width: 360, height: 200)
         panel.delegate = self
         panel.onClose = { [weak self] in self?.close() }
         panel.onCopy = { [weak self] in self?.copyPicture() }
@@ -205,6 +208,13 @@ final class PictureWindow: NSObject, NSWindowDelegate {
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.imageAlignment = .alignCenter
         imageView.translatesAutoresizingMaskIntoConstraints = false
+        // The window's size is its own to keep. Left to itself, the picture would hold out for
+        // its full size and make the window grow: one as tall as the screen then has its bar,
+        // with the selectors, under the screen's edge. So the picture gives way, and is shown smaller.
+        for way in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
+            imageView.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(1), for: way)
+            imageView.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: way)
+        }
         arrow.font = .systemFont(ofSize: 12, weight: .medium)
         arrow.textColor = .secondaryLabelColor
         menu.controlSize = .small
@@ -213,11 +223,19 @@ final class PictureWindow: NSObject, NSWindowDelegate {
         menu.selectItem(at: config.targets.firstIndex(of: target) ?? 0)
         menu.target = self
         menu.action = #selector(targetChanged)
+        menu.toolTip = L("The language this window is translated into. The one it opens with is set in BTranslate's settings, on the Defaults page.")
+        engineControl.offerMethods(of: config, showing: engine)
+        engineControl.target = self
+        engineControl.action = #selector(engineChanged)
+        settingsButton.beSymbol("gearshape", size: 13, tip: L("BTranslate settings"))
+        settingsButton.target = self
+        settingsButton.action = #selector(openSettings)
         status.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         status.textColor = .secondaryLabelColor
         status.lineBreakMode = .byTruncatingTail
+        // What the bar says takes the room between the selectors and the buttons, which keep their places.
         status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        status.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        status.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
         originalButton.setButtonType(.pushOnPushOff)
         originalButton.toolTip = L("Shows the window as it is, without the translations")
         for button in [originalButton, copyButton] {
@@ -230,9 +248,11 @@ final class PictureWindow: NSObject, NSWindowDelegate {
         copyButton.action = #selector(copyPicture)
         copyButton.toolTip = L("Copies the picture")
 
-        let row = NSStackView(views: [arrow, menu, status, originalButton, copyButton])
+        let row = NSStackView(views: [arrow, menu, engineControl, status, originalButton, copyButton, settingsButton])
+        row.distribution = .fill
         row.spacing = 8
         row.setCustomSpacing(2, after: arrow)
+        status.widthAnchor.constraint(greaterThanOrEqualToConstant: PictureWindow.statusRoom).isActive = true
         row.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
         row.translatesAutoresizingMaskIntoConstraints = false
         let content = NSView()
@@ -249,6 +269,18 @@ final class PictureWindow: NSObject, NSWindowDelegate {
             row.heightAnchor.constraint(equalToConstant: PictureWindow.bar),
         ])
         panel.contentView = content
+        // The bar has to fit, with room for a few words of the status: the picture of a narrow
+        // window gets a window wider than itself.
+        let needed = max(360, ceil(row.fittingSize.width))
+        panel.contentMinSize = NSSize(width: needed, height: 200)
+        if panel.frame.width < needed {
+            var frame = panel.frame
+            frame.size.width = needed
+            if let visible = (panel.screen ?? NSScreen.main)?.visibleFrame {
+                frame.origin.x = max(visible.minX + 6, min(frame.minX, visible.maxX - needed - 6))
+            }
+            panel.setFrame(frame, display: false)
+        }
         showPicture()
     }
 
@@ -282,10 +314,11 @@ final class PictureWindow: NSObject, NSWindowDelegate {
                     }
                     let image = self.original
                     let expected = self.config.targets.map(\.google) + macLanguages()
+                    let began = Date()
                     let lines = try await PictureReader.linesApart(in: image, languages: expected)
                     try Task.checkCancellation()
                     self.blocks = PictureReader.blocks(lines)
-                    Log.note("window: \(lines.count) lines read, \(self.blocks?.count ?? 0) texts")
+                    Log.note(String(format: "window: %d lines read, %d texts, in %.1f s", lines.count, self.blocks?.count ?? 0, Date().timeIntervalSince(began)))
                 }
                 try await self.translateBlocks()
             } catch is CancellationError {
@@ -314,7 +347,9 @@ final class PictureWindow: NSObject, NSWindowDelegate {
         var done = 0
         say(L("Translating… %ld of %ld", 0, worth.count))
         var lastPaint = Date.distantPast
+        let began = Date()
         let result = try await translateMany(worth.map { all[$0].text }, engine: engine, target: target, config: config) { place, made in
+            guard !Task.isCancelled else { return }  // a late one, for a method or a language no longer chosen
             all[worth[place]].translation = made
             done += 1
             self.blocks = all
@@ -332,7 +367,7 @@ final class PictureWindow: NSObject, NSWindowDelegate {
         } else {
             say(L("Translation into %@", target.inText))
         }
-        Log.note("window: \(worth.count) texts, \(result.failed) not translated, \(engine)")
+        Log.note(String(format: "window: %d texts, %d not translated, \(engine), in %.1f s", worth.count, result.failed, Date().timeIntervalSince(began)))
         onSettled?()
     }
 
@@ -358,6 +393,28 @@ final class PictureWindow: NSObject, NSWindowDelegate {
         guard config.targets.indices.contains(menu.indexOfSelectedItem) else { return }
         target = config.targets[menu.indexOfSelectedItem]
         start()
+    }
+
+    /// Another method: the texts, read once, are translated anew by it.
+    @objc private func engineChanged() {
+        guard config.engines.indices.contains(engineControl.selectedSegment) else { return }
+        engine = config.engines[engineControl.selectedSegment]
+        start()
+    }
+
+    /// Chooses the method as the selector does (tests). false: it is not among the methods.
+    func choose(_ method: Engine) -> Bool {
+        guard let index = config.engines.firstIndex(of: method) else { return false }
+        engineControl.selectedSegment = index
+        engineChanged()
+        return true
+    }
+
+    /// The gear: the settings open in the picture's place. (It floats over every window, and
+    /// would lie over theirs.)
+    @objc private func openSettings() {
+        close()
+        (NSApp.delegate as? AppDelegate)?.showSettings()
     }
 
     @objc func copyPicture() {

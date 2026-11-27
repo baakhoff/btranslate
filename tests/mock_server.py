@@ -19,6 +19,8 @@ Every request is logged as one JSON line on stdout.
 import json
 import re
 import sys
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import base64
 import hashlib
@@ -35,6 +37,8 @@ def pieces(asked):
         return PIECES
     return [re.sub(r"^(\d+)\| ", r"\1| AI:", line) + "\n" for line in lines if not line.startswith("2| ")]
 CUT_OFF = {}  # "googleflaky2-x" → how many requests it has cut off so far
+HELD = {"now": 0, "most": 0}  # requests to a "slow" address that are being answered now, and the most there were
+HELD_LOCK = threading.Lock()
 # The miniature language pack: no models, so installing it is downloading and checking only.
 PACK = {"nllb200-v1-tokens.tsv": "<s>\t\n<pad>\t\n</s>\t\n<unk>\t\n▁a\t-0.0\nb\t-1.0\n".encode(),
         "nllb200-v1-note.txt": b"A stand-in for a model's weights. " * 400}
@@ -99,6 +103,26 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404, {"error": {"message": "not found"}})
 
     def do_POST(self):
+        # An address whose first part has "slow" in it (/googleslow/…, /anthropicslow/…) takes a
+        # third of a second to answer, as a real server takes its time, and the log says how
+        # many such requests were being answered at once: `"together": 3`. A request stops
+        # counting before its answer goes out: the next one, which the app sends only once it
+        # has that answer, is never counted together with it.
+        slow = "slow" in self.path.split("/")[1]
+        if slow:
+            with HELD_LOCK:
+                HELD["now"] += 1
+                HELD["most"] = max(HELD["most"], HELD["now"])
+            time.sleep(0.35)
+            with HELD_LOCK:
+                HELD["now"] -= 1
+                most = HELD["most"]
+                if HELD["now"] == 0:
+                    HELD["most"] = 0
+                    print(json.dumps({"path": self.path.split("/")[1], "together": most}), flush=True)
+        self.answer_post()
+
+    def answer_post(self):
         raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         if "/translate_a/" in self.path:
             texts = parse_qs(raw.decode()).get("q", [""])

@@ -1,7 +1,39 @@
 import Cocoa
 
+/// A method chosen among the ones that can be used now, a segment for each. The one picked
+/// is kept while it is not on offer (the AI model unticked, then ticked again).
+@MainActor
+private final class MethodChoice: NSObject {
+    let control = NSSegmentedControl(labels: ["Google"], trackingMode: .selectOne, target: nil, action: nil)
+    private(set) var offered: [Engine] = [.google]
+    var chosen: Engine = .google
+
+    override init() {
+        super.init()
+        control.target = self
+        control.action = #selector(changed)
+    }
+
+    /// The method it shows.
+    var shown: Engine { offered.indices.contains(control.selectedSegment) ? offered[control.selectedSegment] : offered[0] }
+
+    /// Offers `methods` (never none). While the one chosen is not among them it shows `otherwise`, or the first.
+    func offer(_ methods: [Engine], otherwise: Engine? = nil) {
+        offered = methods
+        control.segmentCount = methods.count
+        for (i, method) in methods.enumerated() {
+            control.setLabel(method.label, forSegment: i)
+            control.setWidth(0, forSegment: i)  // as wide as its label
+        }
+        control.selectedSegment = methods.firstIndex(of: chosen) ?? otherwise.flatMap(methods.firstIndex(of:)) ?? 0
+        control.isEnabled = methods.count > 1  // with one, there is nothing to choose
+    }
+
+    @objc private func changed() { chosen = shown }
+}
+
 /// The settings window. It opens when you start BTranslate yourself (the installer does,
-/// once) and from the gear button in the popup.
+/// once) and from the gear button of a popup, of the typing panel and of a translated window.
 @MainActor
 final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     static let shared = SettingsController()
@@ -24,16 +56,18 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private let keyHelp = NSTextField(wrappingLabelWithString: "")
     private let testButton = NSButton(title: L("Test"), target: nil, action: nil)
     private let status = NSTextField(wrappingLabelWithString: "")
-    // "Opens with": a segment for each method that can be used now.
-    private let defaultControl = NSSegmentedControl(labels: ["Google"], trackingMode: .selectOne, target: nil, action: nil)
-    private var shownMethods: [Engine] = [.google]  // the segments of defaultControl
-    private var chosenDefault: Engine = .google     // the method picked there, kept while it is not on offer
+    // The method each opens with: a popup, the typing panel, a window's picture.
+    private let popupMethod = MethodChoice(), typingMethod = MethodChoice(), windowMethod = MethodChoice()
     private var aiLabels: [NSTextField] = []
     private var urlRow: NSGridRow?  // shown for the Custom provider only
     private let languageEditor = LanguageListEditor(width: 436)
-    // The language the typing panel writes in: one of the list above it.
+    // The languages the typing panel writes in and a window is translated into: of the list of
+    // the Languages page. Selected text goes into that list's default, which is only named here.
+    private let popupLanguage = NSTextField(labelWithString: "")
     private let typingMenu = NSPopUpButton(frame: .zero, pullsDown: false)
     private var typingID = ""  // as it was chosen; "" or gone from the list: the second default
+    private let windowMenu = NSPopUpButton(frame: .zero, pullsDown: false)
+    private var windowID = ""  // as it was chosen; "" or gone from the list: the default
     private let googleVoiceBox = NSButton(checkboxWithTitle: L("Read aloud with Google's voice where this Mac has none"), target: nil, action: nil)
     private let languageMenu = NSPopUpButton(frame: .zero, pullsDown: false)  // the language of BTranslate itself
     // The shortcut that brings BTranslate up from any app, and what it needs.
@@ -45,9 +79,12 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private let screenButton = NSButton(title: L("Open System Settings…"), target: nil, action: nil)
     private let loginBox = NSButton(checkboxWithTitle: L("Open BTranslate when I log in"), target: nil, action: nil)
     private var accessTimer: Timer?
-    // Three pages, so the window fits a small screen.
-    private let pageControl = NSSegmentedControl(labels: [L("Translation"), L("Languages"), L("Shortcut")], trackingMode: .selectOne, target: nil, action: nil)
+    // Four pages, so the window fits a small screen.
+    enum Page: Int, CaseIterable { case translation, languages, defaults, shortcut }
+    private let pageControl = NSSegmentedControl(labels: [L("Translation"), L("Languages"), L("Defaults"), L("Shortcut")],
+                                                 trackingMode: .selectOne, target: nil, action: nil)
     private var pages: [NSView] = []
+    private var shownPage: Page { Page(rawValue: pageControl.selectedSegment) ?? .translation }
 
     private var modelTask: Task<Void, Never>?
     private var testTask: Task<Void, Never>?
@@ -73,7 +110,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     }
 
     /// Shows one of the pages; the window keeps its top edge and takes the page's height.
-    func showPage(_ index: Int) {
+    func showPage(_ which: Page) {
+        let index = which.rawValue
         guard pages.indices.contains(index) else { return }
         pageControl.selectedSegment = index
         let top = window.map { NSPoint(x: $0.frame.minX, y: $0.frame.maxY) }
@@ -87,11 +125,11 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
 
     @objc private func pageChanged() {
         languageEditor.picker.popover.close()
-        showPage(pageControl.selectedSegment)
+        showPage(shownPage)
     }
 
     /// The window's content with the saved settings filled in, without showing it (UI test).
-    func preparedContent(page: Int = 0) -> NSView? {
+    func preparedContent(page: Page = .translation) -> NSView? {
         if window == nil { build() }
         config = Config.load()
         fill()
@@ -101,12 +139,12 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
 
     var currentContent: NSView? { window?.contentView }
 
-    /// The window's content height on each page (UI test). Leaves the second page showing.
-    var pageHeights: (CGFloat, CGFloat) {
-        showPage(0)
-        let first = window?.contentView?.fittingSize.height ?? 0
-        showPage(1)
-        return (first, window?.contentView?.fittingSize.height ?? 0)
+    /// The window's content height on each page (UI test). Leaves the last page showing.
+    var pageHeights: [CGFloat] {
+        Page.allCases.map { page in
+            showPage(page)
+            return window?.contentView?.fittingSize.height ?? 0
+        }
     }
 
     /// What the shortcut's page says about the permission (UI test).
@@ -147,7 +185,14 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     }
 
     /// The methods "Opens with" offers now (UI test).
-    var offeredMethods: [Engine] { shownMethods }
+    var offeredMethods: [Engine] { popupMethod.offered }
+
+    /// The method and the language each of the three opens with, as the window shows them (UI test).
+    var defaultsForTest: String {
+        let c = draft()
+        return "popup \(c.defaultEngine.rawValue) \(c.defaultLanguageID), typing \(c.typingEngine?.rawValue ?? "none") \(c.typingLanguageID), "
+            + "window \(c.windowEngine?.rawValue ?? "none") \(c.windowLanguageID)"
+    }
 
     /// What the language menu's items stand for, each picked in turn: "" is the Mac's own
     /// language (UI test). Nothing is saved.
@@ -205,7 +250,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
                 guard let self else { return }
                 if await OnDevice.needsPack(language.id) {
                     // Apple has not got this language: the language pack has. Its download shows on the first page.
-                    self.showPage(0)
+                    self.showPage(.translation)
                     PackInstaller.shared.start()
                     return
                 }
@@ -261,12 +306,6 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         grid.row(at: 5).yPlacement = .top
         urlRow = grid.row(at: 2)
 
-        let defaultLabel = NSTextField(labelWithString: L("BTranslate opens with:"))
-        defaultControl.target = self
-        defaultControl.action = #selector(defaultChanged)
-        let defaultRow = NSStackView(views: [defaultLabel, defaultControl])
-        defaultRow.spacing = 8
-
         let save = NSButton(title: L("Save"), target: self, action: #selector(saveSettings))
         save.keyEquivalent = "\r"
         let cancel = NSButton(title: L("Cancel"), target: self, action: #selector(cancelSettings))
@@ -276,8 +315,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         let buttons = NSStackView(views: [spacer, cancel, save])
         buttons.spacing = 8
 
-        let line1 = NSBox(), line2 = NSBox(), line3 = NSBox()
-        for line in [line1, line2, line3] { line.boxType = .separator }
+        let line2 = NSBox(), line3 = NSBox()
+        for line in [line2, line3] { line.boxType = .separator }
         let languagesLabel = NSTextField(labelWithString: L("Languages to translate into:"))
         let voiceNote = caption(L("The speaker buttons use your Mac's voices. It has none for some languages, such as Latvian: with this on, a text you play in one of those is sent to Google."))
         languageMenu.addItems(withTitles: [L("Same as the Mac")] + interfaceLanguages.map(\.name))
@@ -293,7 +332,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             return page
         }
         // Page 1: how to translate.
-        let translation = page([googleBox, googleNote, aiBox, aiNote, grid, deviceBox, deviceNote, packNote, packRow, line1, defaultRow])
+        let translation = page([googleBox, googleNote, aiBox, aiNote, grid, deviceBox, deviceNote, packNote, packRow])
         translation.setCustomSpacing(2, after: googleBox)
         translation.setCustomSpacing(12, after: googleNote)
         translation.setCustomSpacing(2, after: aiBox)
@@ -302,23 +341,57 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         translation.setCustomSpacing(2, after: deviceBox)
         translation.setCustomSpacing(8, after: deviceNote)
         translation.setCustomSpacing(6, after: packNote)
-        translation.setCustomSpacing(14, after: packRow)
-        translation.setCustomSpacing(12, after: line1)
         // Page 2: into which languages, reading aloud, and the language of BTranslate itself.
-        typingMenu.target = self
-        typingMenu.action = #selector(typingChanged)
-        let typingRow = NSStackView(views: [NSTextField(labelWithString: L("Write into text fields in:")), typingMenu])
-        typingRow.spacing = 8
-        let typingNote = caption(L("For the panel the shortcut opens in a text field: what you type there is written in this language. In the panel you can pick another for that one time."))
-        languageEditor.onChange = { [weak self] in self?.refreshTyping() }
-        let languages = page([languagesLabel, languageEditor.view, typingRow, typingNote, googleVoiceBox, voiceNote, line3, ownLanguageRow])
+        languageEditor.onChange = { [weak self] in self?.refreshOtherLanguages() }
+        let languages = page([languagesLabel, languageEditor.view, googleVoiceBox, voiceNote, line3, ownLanguageRow])
         languages.setCustomSpacing(14, after: languageEditor.view)
-        languages.setCustomSpacing(2, after: typingRow)
-        languages.setCustomSpacing(14, after: typingNote)
         languages.setCustomSpacing(2, after: googleVoiceBox)
         languages.setCustomSpacing(14, after: voiceNote)
         languages.setCustomSpacing(12, after: line3)
-        // Page 3: the shortcut, the permission it needs, and starting with the Mac.
+        // Page 3: the method and the language each of the three things opens with.
+        for menu in [typingMenu, windowMenu] {
+            menu.target = self
+            menu.action = #selector(otherLanguageChanged(_:))
+        }
+        popupLanguage.textColor = .secondaryLabelColor
+        popupLanguage.lineBreakMode = .byTruncatingTail
+        popupLanguage.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        func heading(_ text: String) -> NSTextField {
+            let label = NSTextField(labelWithString: text)
+            label.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+            return label
+        }
+        var rowLabels: [NSTextField] = []
+        func rowLabel(_ text: String) -> NSTextField {
+            rowLabels.append(NSTextField(labelWithString: text))
+            return rowLabels[rowLabels.count - 1]
+        }
+        func with() -> NSTextField { rowLabel(L("Translate with:")) }
+        func into() -> NSTextField { rowLabel(L("Translate into:")) }
+        let defaultsGrid = NSGridView(views: [
+            [heading(L("Selected text"))],
+            [with(), popupMethod.control],
+            [into(), popupLanguage],
+            [heading(L("What you type in a text field"))],
+            [with(), typingMethod.control],
+            [into(), typingMenu],
+            [heading(L("A window"))],
+            [with(), windowMethod.control],
+            [into(), windowMenu],
+        ])
+        defaultsGrid.rowSpacing = 8
+        defaultsGrid.columnSpacing = 8
+        defaultsGrid.yPlacement = .center
+        // The first column is as wide as its labels, not as the headings, which run across both.
+        defaultsGrid.column(at: 0).width = rowLabels.map { ceil($0.intrinsicContentSize.width) }.max() ?? 100
+        for row in [0, 3, 6] {
+            defaultsGrid.mergeCells(inHorizontalRange: NSRange(location: 0, length: 2), verticalRange: NSRange(location: row, length: 1))
+            if row > 0 { defaultsGrid.row(at: row).topPadding = 10 }
+        }
+        let defaultsNote = caption(L("What each opens with. The popup, the typing panel and a translated window have the same selectors, to switch for that one time."))
+        let defaults = page([defaultsNote, defaultsGrid])
+        defaults.setCustomSpacing(14, after: defaultsNote)
+        // Page 4: the shortcut, the permission it needs, and starting with the Mac.
         let shortcutRow = NSStackView(views: [NSTextField(labelWithString: L("Shortcut:")), shortcutField])
         shortcutRow.spacing = 8
         shortcutField.onChange = { [weak self] in self?.shortcutChanged() }
@@ -345,9 +418,9 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         shortcut.setCustomSpacing(14, after: screenButton)
         shortcut.setCustomSpacing(12, after: line5)
         shortcut.setCustomSpacing(2, after: loginBox)
-        pages = [translation, languages, shortcut]
+        pages = [translation, languages, defaults, shortcut]
 
-        let stack = NSStackView(views: [title, intro, pageControl, translation, languages, shortcut, line2, buttons])
+        let stack = NSStackView(views: [title, intro, pageControl, translation, languages, defaults, shortcut, line2, buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
@@ -355,6 +428,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         stack.setCustomSpacing(16, after: pageControl)
         stack.setCustomSpacing(16, after: translation)
         stack.setCustomSpacing(16, after: languages)
+        stack.setCustomSpacing(16, after: defaults)
         stack.setCustomSpacing(16, after: shortcut)
         stack.setCustomSpacing(14, after: line2)
         stack.edgeInsets = NSEdgeInsets(top: 20, left: 22, bottom: 18, right: 22)
@@ -369,7 +443,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             content.widthAnchor.constraint(equalToConstant: width),
         ])
-        for view in [intro, googleNote, aiNote, deviceNote, packNote, voiceNote, typingNote, grid, line1, line2, line3, buttons, translation, languages,
+        for view in [intro, googleNote, aiNote, deviceNote, packNote, voiceNote, defaultsNote, grid, line2, line3, buttons, translation, languages, defaults,
                      shortcut, shortcutNote, shortcutStatus, accessNote, screenNote, loginNote, line4, line5] as [NSView] {
             view.widthAnchor.constraint(equalToConstant: inner).isActive = true
         }
@@ -385,7 +459,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         w.isRestorable = false
         w.delegate = self
         window = w
-        showPage(0)
+        showPage(.translation)
     }
 
     // MARK: Showing the saved settings
@@ -409,8 +483,11 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         refreshOffline()
         providerMenu.selectItem(at: providers.firstIndex { $0.id == config.providerID } ?? 0)
         urlField.stringValue = config.customURL
-        chosenDefault = config.defaultEngine
+        popupMethod.chosen = config.defaultEngine
+        typingMethod.chosen = config.typingEngine ?? config.defaultEngine
+        windowMethod.chosen = config.windowEngine ?? config.defaultEngine
         typingID = config.typingLanguageID
+        windowID = config.windowLanguageID
         languageEditor.languages = config.targets
         languageEditor.defaultID = config.startTarget.id
         languageEditor.secondID = config.secondTarget?.id ?? ""
@@ -439,21 +516,16 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         for control in [providerMenu, modelBox, urlField, keyField, testButton] as [NSControl] { control.isEnabled = ai }
         for l in aiLabels { l.textColor = ai ? .labelColor : .disabledControlTextColor }
         // "Opens with" offers the methods a popup would: the ones that are on, and the AI
-        // model only once it has what it needs. With one, there is nothing to choose.
+        // model only once it has what it needs.
         let typedKey = !keyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let aiReady = ai && (selectedProvider.id == "custom"
                              ? !urlField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                              : typedKey || AISetup.hasKey(selectedProvider.id))
         var offered: [Engine] = (googleBox.state == .on ? [.google] : []) + (aiReady ? [.ai] : []) + (deviceBox.state == .on ? [.device] : [])
         if offered.isEmpty { offered = [.google] }
-        shownMethods = offered
-        defaultControl.segmentCount = offered.count
-        for (i, method) in offered.enumerated() {
-            defaultControl.setLabel(method == .google ? "Google" : method == .ai ? L("AI") : L("Offline"), forSegment: i)
-            defaultControl.setWidth(0, forSegment: i)  // as wide as its label
-        }
-        defaultControl.selectedSegment = offered.firstIndex(of: chosenDefault) ?? 0
-        defaultControl.isEnabled = offered.count > 1
+        popupMethod.offer(offered)
+        typingMethod.offer(offered, otherwise: popupMethod.shown)
+        windowMethod.offer(offered, otherwise: popupMethod.shown)
     }
 
     private var packKind = ""  // "downloading", "installed"…: the state the page was last made to fit
@@ -504,7 +576,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         if deviceBox.isEnabled != was { deviceBox.state = deviceBox.isEnabled && config.deviceEnabled ? .on : .off }
         refreshEnabled()
         refreshOffline()
-        if let window, let content = window.contentView, pageControl.selectedSegment == 0, window.isVisible {
+        if let window, let content = window.contentView, shownPage == .translation, window.isVisible {
             let top = NSPoint(x: window.frame.minX, y: window.frame.maxY)  // the text's height may have changed
             window.setContentSize(content.fittingSize)
             window.setFrameTopLeftPoint(top)
@@ -557,21 +629,27 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         status.textColor = color
     }
 
-    // MARK: The language to write in
+    // MARK: The languages to write in, and to translate a window into
 
-    /// The menu's languages are the list's, as it stands in the window; the one shown is the
-    /// one chosen, or else the second default (see Config.typingTarget).
-    private func refreshTyping() {
+    /// Both menus' languages are the list's, as it stands in the window. The one shown is the
+    /// one chosen, or else the second default for writing (see Config.typingTarget) and the
+    /// default for a window (Config.windowTarget).
+    private func refreshOtherLanguages() {
         let list = languageEditor.languages
-        typingMenu.removeAllItems()
-        typingMenu.addItems(withTitles: list.map(\.name))
-        let shown = list.first { $0.id == typingID } ?? languageEditor.secondLanguage ?? languageEditor.defaultLanguage
-        if let shown, let index = list.firstIndex(of: shown) { typingMenu.selectItem(at: index) }
+        func show(_ shown: Target?, in menu: NSPopUpButton) {
+            menu.removeAllItems()
+            menu.addItems(withTitles: list.map(\.name))
+            if let shown, let index = list.firstIndex(of: shown) { menu.selectItem(at: index) }
+        }
+        show(list.first { $0.id == typingID } ?? languageEditor.secondLanguage ?? languageEditor.defaultLanguage, in: typingMenu)
+        show(list.first { $0.id == windowID } ?? languageEditor.defaultLanguage, in: windowMenu)
+        popupLanguage.stringValue = L("%@, the default language of your list", languageEditor.defaultLanguage?.name ?? "")
     }
 
-    @objc private func typingChanged() {
+    @objc private func otherLanguageChanged(_ menu: NSPopUpButton) {
         let list = languageEditor.languages
-        if list.indices.contains(typingMenu.indexOfSelectedItem) { typingID = list[typingMenu.indexOfSelectedItem].id }
+        guard list.indices.contains(menu.indexOfSelectedItem) else { return }
+        if menu === typingMenu { typingID = list[menu.indexOfSelectedItem].id } else { windowID = list[menu.indexOfSelectedItem].id }
     }
 
     /// The language to write in, as the menu shows it: at first, with the list's first language
@@ -579,7 +657,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     func typingForTest() -> [String] {
         var steps = [draft().typingLanguageID]
         typingMenu.selectItem(at: 0)
-        typingChanged()
+        otherLanguageChanged(typingMenu)
         steps.append(draft().typingLanguageID)
         languageEditor.select(row: 0)
         languageEditor.removeSelected()
@@ -603,7 +681,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         if accessButton.isHidden != allowed || screenButton.isHidden != screen {
             accessButton.isHidden = allowed
             screenButton.isHidden = screen
-            if pageControl.selectedSegment == 2 { showPage(2) }  // the page's height has changed
+            if shownPage == .shortcut { showPage(.shortcut) }  // the page's height has changed
         }
     }
 
@@ -624,7 +702,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             shortcutStatus.stringValue = ""
         }
         shortcutStatus.isHidden = shortcutStatus.stringValue.isEmpty
-        if pageControl.selectedSegment == 2 { showPage(2) }
+        if shownPage == .shortcut { showPage(.shortcut) }
     }
 
     /// The settings as the window shows them now.
@@ -637,12 +715,15 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         c.providerID = selectedProvider.id
         c.model = modelBox.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         c.customURL = urlField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        c.defaultEngine = shownMethods.indices.contains(defaultControl.selectedSegment) ? shownMethods[defaultControl.selectedSegment] : .google
+        c.defaultEngine = popupMethod.shown
+        c.typingEngine = typingMethod.shown
+        c.windowEngine = windowMethod.shown
         c.languageIDs = languageEditor.languages.map(\.id)
         c.defaultLanguageID = languageEditor.defaultLanguage?.id ?? ""
         c.secondLanguageID = languageEditor.secondLanguage?.id ?? ""
         let listed = languageEditor.languages
         c.typingLanguageID = listed.indices.contains(typingMenu.indexOfSelectedItem) ? listed[typingMenu.indexOfSelectedItem].id : ""
+        c.windowLanguageID = listed.indices.contains(windowMenu.indexOfSelectedItem) ? listed[windowMenu.indexOfSelectedItem].id : ""
         c.googleVoice = googleVoiceBox.state == .on
         let chosen = languageMenu.indexOfSelectedItem - 1  // -1: the first item, "Same as the Mac"
         c.languageChoice = interfaceLanguages.indices.contains(chosen) ? interfaceLanguages[chosen].code : ""
@@ -684,10 +765,6 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         setStatus("", color: .secondaryLabelColor)
         showProvider(keepModel: selectedProvider.id == config.providerID ? config.model : nil)
         refreshEnabled()
-    }
-
-    @objc private func defaultChanged() {
-        if shownMethods.indices.contains(defaultControl.selectedSegment) { chosenDefault = shownMethods[defaultControl.selectedSegment] }
     }
 
     /// A key or an address typed in: the AI model may be on offer in "Opens with" now.
@@ -735,12 +812,12 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         let c = draft()
         let typed = keyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if let p = problem(c, key: currentKey()) {
-            showPage(0)  // where the message shows
+            showPage(.translation)  // where the message shows
             setStatus(p, color: .systemRed)
             return
         }
         if let wanted = c.shortcut, !HotkeyCenter.shared.isFree(wanted) {
-            showPage(2)
+            showPage(.shortcut)
             shortcutChanged()
             return
         }
@@ -749,7 +826,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             let saved = Keychain.save(typed, account: c.providerID)
             AISetup.forget()
             if !saved {
-                showPage(0)
+                showPage(.translation)
                 setStatus(L("The key could not be saved to the Keychain."), color: .systemRed)
                 return
             }
@@ -757,7 +834,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         if (loginBox.state == .on) != LoginItem.isOn, let why = LoginItem.set(loginBox.state == .on) {
             shortcutStatus.stringValue = L("macOS did not change the login items: %@", why)
             shortcutStatus.isHidden = false
-            showPage(2)
+            showPage(.shortcut)
             return
         }
         AISetup.forget()

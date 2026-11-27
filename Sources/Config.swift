@@ -3,7 +3,12 @@ import Foundation
 // MARK: - Translation methods and AI providers
 
 /// `device` is the "Offline" method: the translation built into macOS (Sources/OnDevice.swift).
-enum Engine: String { case google, ai, device }
+enum Engine: String {
+    case google, ai, device
+
+    /// Its name on a button.
+    var label: String { self == .google ? "Google" : self == .ai ? L("AI") : L("Offline") }
+}
 
 struct Provider {
     enum API { case anthropic, openAI }  // openAI: any server with /chat/completions
@@ -57,6 +62,9 @@ struct Config {
     var secondLanguageID = ""       // the one it turns to for a text that is in the default language already;
                                     // "" or gone from the list: the first other language of the list
     var typingLanguageID = ""       // the language the typing panel writes in; "" or gone from the list: the second default
+    var windowLanguageID = ""       // the language a window is translated into; "" or gone from the list: the default
+    var typingEngine: Engine?       // the method the typing panel opens with; nil or not to be had: the popup's
+    var windowEngine: Engine?       // the method a window is translated with; the same
     var googleVoice = true          // read aloud with Google's voice where the Mac has none
     var languageChoice = ""         // BTranslate's own language: "en", "ru", or "" to follow the Mac
     var shortcut: Shortcut? = .standard  // brings BTranslate up from any app; nil: none
@@ -87,6 +95,11 @@ struct Config {
 
     var startEngine: Engine { engines.contains(defaultEngine) ? defaultEngine : engines[0] }
 
+    /// The methods the typing panel and a window's picture open with: the one chosen for each
+    /// in Settings while it can be used, or else the popup's.
+    var typingStartEngine: Engine { typingEngine.flatMap { engines.contains($0) ? $0 : nil } ?? startEngine }
+    var windowStartEngine: Engine { windowEngine.flatMap { engines.contains($0) ? $0 : nil } ?? startEngine }
+
     /// The languages the popup offers. Never empty.
     var targets: [Target] {
         let list = languageIDs.compactMap(target(id:))
@@ -107,6 +120,10 @@ struct Config {
     /// or else the second default (what one mostly writes to others in), or else the only language.
     var typingTarget: Target { targets.first { $0.id == typingLanguageID } ?? secondTarget ?? startTarget }
 
+    /// The language a window is translated into (Sources/PictureWindow.swift): the one chosen
+    /// in Settings, or else the default.
+    var windowTarget: Target { targets.first { $0.id == windowLanguageID } ?? startTarget }
+
     static var isSetUp: Bool { UserDefaults.standard.bool(forKey: "setupDone") }
 
     static func load() -> Config {
@@ -124,6 +141,9 @@ struct Config {
         c.defaultLanguageID = d.string(forKey: "defaultLanguage") ?? ""
         c.secondLanguageID = d.string(forKey: "secondLanguage") ?? ""
         c.typingLanguageID = d.string(forKey: "typingLanguage") ?? ""
+        c.windowLanguageID = d.string(forKey: "windowLanguage") ?? ""
+        c.typingEngine = Engine(rawValue: d.string(forKey: "typingEngine") ?? "")
+        c.windowEngine = Engine(rawValue: d.string(forKey: "windowEngine") ?? "")
         c.googleVoice = d.bool(forKey: "googleVoice")
         c.languageChoice = chosenInterfaceLanguage()
         // "" is "none"; a shortcut that can't be read is the standard one.
@@ -152,6 +172,9 @@ struct Config {
         d.set(startTarget.id, forKey: "defaultLanguage")
         d.set(secondTarget?.id ?? "", forKey: "secondLanguage")
         d.set(typingTarget.id, forKey: "typingLanguage")
+        d.set(windowTarget.id, forKey: "windowLanguage")
+        d.set(typingEngine?.rawValue ?? "", forKey: "typingEngine")
+        d.set(windowEngine?.rawValue ?? "", forKey: "windowEngine")
         d.set(googleVoice, forKey: "googleVoice")
         d.set(shortcut?.saved ?? "", forKey: "shortcut")
         if languageChoice != chosenInterfaceLanguage() { chooseInterfaceLanguage(languageChoice) }

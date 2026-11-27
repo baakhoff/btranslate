@@ -5,7 +5,8 @@ import Cocoa
 // a moment after the last key (a finished sentence is translated once and stays as it is), and
 // written into the text field through macOS's Accessibility (Sources/Focus.swift). Return keeps
 // it, Esc takes it back out. For an app that does not take text that way, the panel shows the
-// translation itself and Return pastes it.
+// translation itself and Return pastes it. The language and the method can be changed in the
+// panel, for that one time; the ones it opens with are set in the settings.
 
 enum LiveText {
     struct Piece: Equatable {
@@ -58,12 +59,13 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
     let input = NSTextView()
     private let sink: TextSink
     private let config = Config.load()
-    private let engine: Engine
+    private(set) var engine: Engine
     private(set) var target: Target
     private let arrow = NSTextField(labelWithString: "→")
     private let menu = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let methodLabel = NSTextField(labelWithString: "")
+    private let engineControl = NSSegmentedControl()
     private let windowButton = NSButton()
+    private let settingsButton = NSButton()
     private let scroll = NSScrollView()
     private let placeholder = NSTextField(labelWithString: L("Type in any language…"))
     private let preview = NSTextField(wrappingLabelWithString: "")
@@ -93,14 +95,16 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
     }
     var shownNote: String { preview.isHidden ? "" : preview.stringValue }  // (tests)
     var shownHint: String { hint.stringValue }
-    /// The wait after the last key before a translation is asked for.
-    var pause: Double
+    /// The wait after the last key before a translation is asked for: an AI model is given
+    /// more time to be typed to, for every question to it costs. (A check sets its own.)
+    var pause: Double?
+    private var delay: Double { pause ?? (engine == .ai ? 0.8 : 0.35) }
 
     init(sink: TextSink) {
         self.sink = sink
-        engine = config.startEngine
-        target = config.typingTarget  // set on the Languages page of the settings; the menu here is for this time only
-        pause = engine == .ai ? 0.8 : 0.35
+        // Both are set in the settings; the menu and the selector here are for this time only.
+        engine = config.typingStartEngine
+        target = config.typingTarget
         super.init()
         build()
     }
@@ -119,19 +123,17 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
         menu.selectItem(at: config.targets.firstIndex(of: target) ?? 0)
         menu.target = self
         menu.action = #selector(targetChanged)
-        menu.toolTip = L("The language your text is written in there. The one the panel opens with is set in BTranslate's settings, on the Languages page.")
-        methodLabel.stringValue = engine == .google ? "Google" : engine == .ai ? L("AI") : L("Offline")
-        methodLabel.font = .systemFont(ofSize: 10)
-        methodLabel.textColor = .secondaryLabelColor
-        methodLabel.toolTip = L("The method that translates what you type. It is the one BTranslate opens with.")
-        windowButton.image = NSImage(systemSymbolName: "macwindow.on.rectangle", accessibilityDescription: L("Translate a window instead"))
-        windowButton.imageScaling = .scaleProportionallyDown
-        windowButton.isBordered = false
-        windowButton.contentTintColor = .secondaryLabelColor
-        windowButton.toolTip = L("Translate a window instead")
+        menu.toolTip = L("The language your text is written in there. The one the panel opens with is set in BTranslate's settings, on the Defaults page.")
+        menu.refusesFirstResponder = true
+        engineControl.offerMethods(of: config, showing: engine)
+        engineControl.target = self
+        engineControl.action = #selector(engineChanged)
+        windowButton.beSymbol("macwindow.on.rectangle", size: 12, tip: L("Translate a window instead"))
         windowButton.target = self
         windowButton.action = #selector(pictureInstead)
-        windowButton.refusesFirstResponder = true
+        settingsButton.beSymbol("gearshape", size: 13, tip: L("BTranslate settings"))
+        settingsButton.target = self
+        settingsButton.action = #selector(openSettings)
 
         input.font = .systemFont(ofSize: 13)
         input.textColor = .labelColor
@@ -161,7 +163,7 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
         hint.textColor = .secondaryLabelColor
         hint.lineBreakMode = .byTruncatingTail
 
-        for view in [arrow, menu, methodLabel, windowButton, scroll, placeholder, preview, hint] as [NSView] {
+        for view in [arrow, menu, engineControl, windowButton, settingsButton, scroll, placeholder, preview, hint] as [NSView] {
             background.addSubview(view)
         }
         NotificationCenter.default.addObserver(self, selector: #selector(menuDidOpen), name: NSMenu.didBeginTrackingNotification, object: nil)
@@ -277,6 +279,13 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
         WindowPicture.start()
     }
 
+    /// The gear: the panel is put away as a click elsewhere puts it away (what is written
+    /// there stays), and the settings open.
+    @objc private func openSettings() {
+        if message == nil { finish(byReturn: false) } else { close() }
+        (NSApp.delegate as? AppDelegate)?.showSettings()
+    }
+
     // MARK: Typing and translating
 
     /// Types for the user (tests).
@@ -289,7 +298,7 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
         placeholder.isHidden = !input.string.isEmpty
         layout()
         guard !input.hasMarkedText() else { return }  // a letter still being put together
-        schedule(after: pause)
+        schedule(after: delay)
     }
 
     func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
@@ -314,6 +323,21 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
         guard let index = config.targets.firstIndex(of: language) else { return }
         menu.selectItem(at: index)
         targetChanged()
+    }
+
+    /// Another method: all that is typed is translated anew by it.
+    @objc private func engineChanged() {
+        guard config.engines.indices.contains(engineControl.selectedSegment) else { return }
+        engine = config.engines[engineControl.selectedSegment]
+        schedule(after: 0)
+    }
+
+    /// Chooses the method as the selector does (tests). false: it is not among the methods.
+    func choose(_ method: Engine) -> Bool {
+        guard let index = config.engines.firstIndex(of: method) else { return false }
+        engineControl.selectedSegment = index
+        engineChanged()
+        return true
     }
 
     private func schedule(after wait: Double) {
@@ -373,7 +397,7 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
         return true
     }
 
-    private func key(_ sentence: String) -> String { "\(target.id)|\(sentence)" }
+    private func key(_ sentence: String) -> String { "\(engine.rawValue)|\(target.id)|\(sentence)" }
 
     private func translated(_ sentence: String) async throws -> String {
         // A keyboard layout that is one language's own says what the text is in; with Latin
@@ -423,12 +447,15 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
         var y = H - pad - row
         arrow.sizeToFit()
         arrow.frame.origin = NSPoint(x: pad, y: y + (row - arrow.frame.height) / 2)
+        settingsButton.frame = NSRect(x: W - pad - 20, y: y - 1, width: 22, height: 22)
+        windowButton.frame = NSRect(x: settingsButton.frame.minX - 24, y: y - 1, width: 22, height: 22)
+        engineControl.sizeToFit()
+        engineControl.frame.origin = NSPoint(x: windowButton.frame.minX - 6 - engineControl.frame.width, y: y + (row - engineControl.frame.height) / 2)
+        // The language's name is cut short if it has to be: the buttons at the right keep their place.
+        let room = (engineControl.isHidden ? windowButton.frame.minX : engineControl.frame.minX) - 8 - (arrow.frame.maxX + 2)
         menu.sizeToFit()
         menu.frame = NSRect(x: arrow.frame.maxX + 2, y: y + (row - menu.frame.height) / 2,
-                            width: min(menu.frame.width, 220), height: menu.frame.height)
-        windowButton.frame = NSRect(x: W - pad - 18, y: y + 1, width: 20, height: 18)
-        methodLabel.sizeToFit()
-        methodLabel.frame.origin = NSPoint(x: windowButton.frame.minX - 8 - methodLabel.frame.width, y: y + (row - methodLabel.frame.height) / 2)
+                            width: min(menu.frame.width, room), height: menu.frame.height)
         y -= 6 + typedHeight
         scroll.frame = NSRect(x: pad, y: y, width: textWidth, height: typedHeight)
         input.frame.size.width = textWidth

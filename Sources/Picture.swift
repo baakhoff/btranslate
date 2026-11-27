@@ -120,6 +120,50 @@ enum PictureReader {
         }
     }
 
+    /// A picture to make the reader ready with. macOS prepares its reader for a program in
+    /// pieces, some twelve seconds each, and keeps them. Three it prepares at the first
+    /// picture, whatever is in it. Two more it prepares only when a picture has text that is
+    /// hard to read: small, half covered, run into its neighbour, as every real window has
+    /// somewhere. A tidy picture so leaves those two for the first window that someone wants
+    /// translated, which then takes half a minute. This one is a page of five hundred short
+    /// texts in two alphabets, set too close, so that many run into the next: found by trying
+    /// to have all five pieces prepared. (Letters, languages, the picture's size, light on dark
+    /// and the number of lines made no difference.) The same every time: nothing in it is
+    /// left to chance.
+    @MainActor
+    static func warmUpPicture() -> CGImage? {
+        let width = 3000, height = 3200, columns = 6, rows = 84, scale: CGFloat = 2
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.scaleBy(x: scale, y: scale)
+        context.translateBy(x: 0, y: CGFloat(height) / scale)
+        context.scaleBy(x: 1, y: -1)  // y runs downward from the top
+        let before = NSGraphicsContext.current
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        defer { NSGraphicsContext.current = before }
+        NSColor.white.setFill()
+        NSRect(x: 0, y: 0, width: CGFloat(width) / scale, height: CGFloat(height) / scale).fill()
+        let latin = "The quick brown fox jumps over the lazy dog near the river bank and it was a bright cold day in April when the clocks were striking thirteen while nobody in the village noticed anything at all about the weather or the harvest that year".split(separator: " ").map(String.init)
+        let cyrillic = "Сегодня хорошая погода и быстрая коричневая лиса перепрыгивает через ленивую собаку на берегу реки был ясный холодный апрельский день когда часы пробили тринадцать и никто в деревне вообще ничего не заметил о погоде или урожае".split(separator: " ").map(String.init)
+        var seed: UInt64 = 42
+        func next(_ below: Int) -> Int {  // the next of a fixed row of numbers
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Int((seed >> 33) % UInt64(below))
+        }
+        let wide = CGFloat(width) / scale / CGFloat(columns), tall = (CGFloat(height) / scale - 20) / CGFloat(rows)
+        for row in 0..<rows {
+            for column in 0..<columns {
+                let words = (row + column) % 2 == 0 ? latin : cyrillic
+                var picked: [String] = []
+                for _ in 0..<(1 + next(3)) { picked.append(words[next(words.count)]) }
+                let font = NSFont.systemFont(ofSize: 12, weight: next(4) == 0 ? .bold : .regular)
+                (picked.joined(separator: " ") as NSString).draw(at: NSPoint(x: 14 + CGFloat(column) * wide, y: 10 + CGFloat(row) * tall),
+                                                                 withAttributes: [.font: font, .foregroundColor: NSColor.black])
+            }
+        }
+        return context.makeImage()
+    }
+
     /// Has macOS make its reader of pictures ready for this app, apart and at leisure: the first
     /// reading an app ever asks for can take a minute, later ones a fraction of a second.
     static func prepare() {
@@ -254,15 +298,44 @@ func translateMany(_ texts: [String], engine: Engine, target: Target, config: Co
         if !now.isEmpty { all.append(now) }
         return all
     }
+    /// Asks for each group's translations, a few groups at a time, and hands each answer to
+    /// `take` as it comes, in whatever order: a window's texts take as long as one request
+    /// then, not as all of them one after another. Once the task is cancelled (the window
+    /// closed, another method or language chosen), no request is sent and no answer is taken,
+    /// not even one that was on its way already.
+    func together<Answer: Sendable>(_ all: [[Int]], atOnce: Int, ask: @escaping @MainActor ([String]) async throws -> Answer,
+                                    take: ([Int], Answer) -> Void) async throws {
+        try await withThrowingTaskGroup(of: (Int, Answer).self) { pool in
+            var next = 0, taken = 0
+            while next < all.count || !pool.isEmpty {
+                try Task.checkCancellation()
+                while next < all.count, next - taken < atOnce {
+                    let number = next, part = all[number].map { texts[$0] }
+                    pool.addTask { @MainActor in (number, try await ask(part)) }
+                    next += 1
+                }
+                guard let (number, answer) = try await pool.next() else { break }
+                try Task.checkCancellation()
+                taken += 1
+                take(all[number], answer)
+            }
+        }
+    }
     var failed = 0
     var reason: String?
 
     switch engine {
     case .google:
-        for (round, group) in groups(count: 40, letters: 3500).enumerated() {
-            try Task.checkCancellation()
-            if round > 0 { try await Task.sleep(nanoseconds: 250_000_000) }  // gently: Google limits how fast one address may ask
-            let answers = try await googleTranslateMany(group.map { texts[$0] }, to: target.google)
+        // Three at a time and no more: Google limits how fast one address may ask.
+        let code = target.google
+        try await together(groups(count: 40, letters: 3500), atOnce: 3) { part in
+            do {
+                return try await googleTranslateMany(part, to: code)
+            } catch TranslateError.http(429, _) {  // too fast after all: once more, after a breath
+                try await Task.sleep(nanoseconds: 1_200_000_000)
+                return try await googleTranslateMany(part, to: code)
+            }
+        } take: { group, answers in
             for (i, answer) in zip(group, answers) {
                 var made = target.latin ? latinize(answer.text) : answer.text
                 if target.id == "sr" && isMostlyLatin(made) { made = cyrillize(made) }
@@ -274,12 +347,16 @@ func translateMany(_ texts: [String], engine: Engine, target: Target, config: Co
         guard !config.baseURL.isEmpty else { throw TranslateError.noServer }
         let key = AISetup.key(config.providerID) ?? ""
         if key.isEmpty && config.providerID != "custom" { throw TranslateError.noKey(config.provider.name) }
-        for group in groups(count: 60, letters: 6000) {
-            try Task.checkCancellation()
-            let numbered = group.enumerated().map { "\($0.offset + 1)| \(texts[$0.element])" }.joined(separator: "\n")
+        // A provider answers several short questions at once sooner than one long one. A
+        // server of your own (the Custom provider) has one model to answer with: one at a time.
+        let own = config.providerID == "custom"
+        try await together(groups(count: own ? 60 : 25, letters: own ? 6000 : 2500), atOnce: own ? 1 : 4) { part in
+            let numbered = part.enumerated().map { "\($0.offset + 1)| \($0.element)" }.joined(separator: "\n")
             var answer = ""
             try await aiTranslate(numbered, target: target, config: config, key: key,
                                   system: manyPrompt(target), user: numbered) { _, soFar in answer = soFar }
+            return answer
+        } take: { group, answer in
             let lines = parseNumbered(answer)
             for (place, i) in group.enumerated() {
                 guard let made = lines[place + 1], !made.isEmpty else {
@@ -292,14 +369,10 @@ func translateMany(_ texts: [String], engine: Engine, target: Target, config: Co
             }
         }
     case .device:
-        for (i, text) in texts.enumerated() {
-            try Task.checkCancellation()
-            do {
-                let (made, _) = try await OnDevice.translate(text, from: nil, to: target) { _, _ in }
-                each(i, same(made, text) ? nil : made)
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
+        try await OnDevice.translateMany(texts, to: target) { i, result in
+            switch result {
+            case .success(let made): each(i, same(made, texts[i]) ? nil : made)
+            case .failure(let error):
                 failed += 1
                 reason = reason ?? describe(error)
                 each(i, nil)

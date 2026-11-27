@@ -79,8 +79,6 @@
 "Paste an API key for %@, or turn the AI model off." = "Вставьте ключ API для %@ или отключите модель ИИ.";
 "That doesn't look like an API key: it has spaces or quotes in it." = "Это не похоже на ключ API: в нем есть пробелы или кавычки.";
 "The key could not be saved to the Keychain." = "Не удалось сохранить ключ в Связке ключей.";
-/* Followed by the two methods: Google | ИИ */
-"BTranslate opens with:" = "По умолчанию переводить через:";
 
 /* Its Languages page */
 "Languages to translate into:" = "Языки перевода:";
@@ -209,10 +207,17 @@
 
 /* Typing in another language (Sources/TypeIn.swift) */
 "Type in any language…" = "Пишите на любом языке…";
-"The language your text is written in there. The one the panel opens with is set in BTranslate's settings, on the Languages page." = "Язык, на котором ваш текст записывается в поле. Язык, с которым панель открывается, задается в настройках BTranslate, на странице «Языки».";
-"Write into text fields in:" = "Язык для записи в текстовые поля:";
-"For the panel the shortcut opens in a text field: what you type there is written in this language. In the panel you can pick another for that one time." = "Для панели, которую сочетание клавиш открывает в текстовом поле: то, что вы в ней пишете, записывается на этом языке. В самой панели можно выбрать другой на один раз.";
-"The method that translates what you type. It is the one BTranslate opens with." = "Способ, которым переводится то, что вы пишете. Это способ, с которым открывается BTranslate.";
+"The language your text is written in there. The one the panel opens with is set in BTranslate's settings, on the Defaults page." = "Язык, на котором ваш текст записывается в поле. Язык, с которым панель открывается, задается в настройках BTranslate, на странице «По умолчанию».";
+
+/* The Defaults page of the settings: the method and the language each of the three opens with */
+"Defaults" = "По умолчанию";
+"What each opens with. The popup, the typing panel and a translated window have the same selectors, to switch for that one time." = "С чем открывается каждое из них. В окне перевода, в панели ввода и в переведенном окне есть такие же переключатели: там способ и язык можно сменить на один раз.";
+"Selected text" = "Выделенный текст";
+"What you type in a text field" = "Ввод в текстовое поле";
+"A window" = "Окно";
+"Translate with:" = "Способ перевода:";
+"Translate into:" = "Язык перевода:";
+"%@, the default language of your list" = "%@, основной язык вашего списка";
 "Translate a window instead" = "Перевести окно";
 "↩ done   ⎋ take it back" = "↩ готово   ⎋ убрать текст";
 "This app can't be written into while you type: ↩ puts the translation in." = "В это приложение нельзя писать по ходу ввода: ↩ вставит перевод.";
@@ -226,6 +231,7 @@
 "Reading the text in the picture… The first time, macOS makes its reader ready, which can take a minute." = "Читаю текст на снимке… В первый раз macOS готовит распознавание текста, это может занять минуту.";
 "✓ macOS lets BTranslate take the picture of a window you choose." = "✓ macOS разрешает BTranslate делать снимок окна, которое вы выбираете.";
 "To translate a window, macOS needs one more permission, to record the screen: it asks the first time you choose a window. The switch is in System Settings → Privacy & Security → Screen & System Audio Recording. BTranslate takes a picture only of the window you choose, when you choose it." = "Чтобы перевести окно, macOS нужно еще одно разрешение, на запись экрана: она спросит, когда вы в первый раз выберете окно. Переключатель находится в Системных настройках → Конфиденциальность и безопасность → Запись экрана и системного звука. BTranslate делает снимок только того окна, которое вы выбрали, и только в этот момент.";
+"The language this window is translated into. The one it opens with is set in BTranslate's settings, on the Defaults page." = "Язык, на который переведено это окно. Язык, с которым оно открывается, задается в настройках BTranslate, на странице «По умолчанию».";
 "Original" = "Оригинал";
 "Shows the window as it is, without the translations" = "Показывает окно как есть, без перевода";
 "Copies the picture" = "Копирует снимок";
