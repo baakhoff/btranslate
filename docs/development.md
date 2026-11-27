@@ -58,7 +58,7 @@ things. `Sources/main.swift` lists them all; the useful ones:
 |---|---|
 | `--print [--engine google\|ai\|device] [--from lv] [--to Russian] "text"` | Prints a translation. `-key value` settings go before the text. |
 | `--detect "text"` | What the pack's detector, the Mac's recognizer and both together take a text for |
-| `--picture-check FILE [--engine …] [--to …] --times` | A picture file read and translated as a window's picture is, with how long each step took |
+| `--picture-check FILE [--engine …] [--to …] [--times]` | A picture file read and translated as a window's picture is, with how long each step took |
 | `--prepare-reading` | Has macOS make its reader of pictures ready, and says how long that took (a fraction of a second once it is) |
 | `--offline [FROM TO]` | Whether this Mac has the Offline method, and which languages |
 | `--pack`, `--pack-install`, `--pack-remove` | The language pack: its state, its download, its removal |

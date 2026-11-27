@@ -211,7 +211,7 @@ func runTypeCheck(_ text: String) async -> Int32 {
 
 // MARK: - A window's picture
 
-/// Draws a picture that stands for a window (for --picture-make and --prepare-reading): a heading,
+/// Draws a picture that stands for a window (for --picture-make): a heading,
 /// a paragraph of three lines, a list on a dark side bar, a button, and lines in several languages.
 @MainActor
 func makeTestPicture(at path: String) -> Bool {

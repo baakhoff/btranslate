@@ -8,7 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 - **A method selector in the typing panel and under a translated window,** the one the popup has: another method translates what is typed, or the window's texts, anew.
-- **Defaults for each of the three things BTranslate translates,** on a new Defaults page of the settings: the method for selected text, the method and the language for what you type in a text field, and the method and the language for a window. Until one is chosen for them, typing and windows use the popup's method, and a window the default language.
+- **Defaults for each of the three things BTranslate translates,** on a new Defaults page of the settings: the method for selected text, the method and the language for what you type in a text field, and the method and the language for a window. Until the settings are saved, typing and windows use the popup's method, and a window the default language; saving keeps what the page shows.
 - **A gear button in the typing panel and under a translated window,** which opens the settings, as the popup's does.
 
 ### Changed

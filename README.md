@@ -180,8 +180,11 @@ The same page in Russian. A language is found by its Russian name, its English n
 **Defaults:** what each of the three things BTranslate translates opens with.
 
 1. **Selected text:** the method the popup opens with. Its language is the default of your list.
-2. **What you type in a text field:** the method and the language of the typing panel. Until you choose, they are the popup's method and the second default language.
-3. **A window:** the method and the language a window is translated with. Until you choose, they are the popup's method and the default language.
+2. **What you type in a text field:** the method and the language of the typing panel. At first, they are the popup's method and the second default language.
+3. **A window:** the method and the language a window is translated with. At first, they are the popup's method and the default language.
+
+Saving the settings keeps all of these as the page shows them, also the ones you left as they
+were: from then on they no longer follow the popup's method or the list's defaults.
 
 A method is on offer here once it can be used: the AI model once it has a key (or, for a
 server of your own, its address). The popup, the typing panel and a translated window have

@@ -79,7 +79,6 @@
 "Paste an API key for %@, or turn the AI model off." = "Вставьте ключ API для %@ или отключите модель ИИ.";
 "That doesn't look like an API key: it has spaces or quotes in it." = "Это не похоже на ключ API: в нем есть пробелы или кавычки.";
 "The key could not be saved to the Keychain." = "Не удалось сохранить ключ в Связке ключей.";
-/* Followed by the two methods: Google | ИИ */
 
 /* Its Languages page */
 "Languages to translate into:" = "Языки перевода:";
