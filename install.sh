@@ -247,22 +247,24 @@ update (tools/local-signing.sh has made no certificate here)." \
 
     [ "$(uname -s)" = Darwin ] || die "BTranslate is a macOS app."
 
-    # For tests/run.sh: only the language pack's step, as on a first install, for the app at
-    # BTRANSLATE_TEST_APP.
     # The running app is ended before its place is taken, also when it is the app that started
     # this installer (its own Update): pkill leaves its own ancestors alone unless told
     # otherwise (-a), and the app would go on running, the old one, with the new one on disk.
     end_app() { pkill -a -x "$1" 2>/dev/null || true; }
 
     # For tests/run.sh: only that step, for a stand-in of the tests' own (never a BTranslate).
+    # pkill takes the name as a pattern: BTStandIn and digits only, or a name such as
+    # "BTStandIn.*" or "BTStandIn1|BTranslate" would end more than the one stand-in.
     if [ "${BTRANSLATE_INSTALLER_TEST:-}" = end ]; then
         case "${BTRANSLATE_TEST_PROCESS:-}" in
-            BTStandIn?*) end_app "$BTRANSLATE_TEST_PROCESS" ;;
-            *) die "BTRANSLATE_TEST_PROCESS has to name a stand-in (BTStandIn…)." ;;
+            BTStandIn*[!0-9]*) ;;
+            BTStandIn?*) end_app "$BTRANSLATE_TEST_PROCESS"; return 0 ;;
         esac
-        return 0
+        die "BTRANSLATE_TEST_PROCESS has to name a stand-in (BTStandIn and digits)."
     fi
 
+    # For tests/run.sh: only the language pack's step, as on a first install, for the app at
+    # BTRANSLATE_TEST_APP.
     if [ "${BTRANSLATE_INSTALLER_TEST:-}" = pack ]; then
         APP="$BTRANSLATE_TEST_APP"
         local first=1 hint=""

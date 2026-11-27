@@ -40,9 +40,9 @@ What the plain run covers:
 - the method and the language each of the three opens with, as the settings give them and as the Defaults page shows them; and that no page of the settings window is taller than a 13-inch screen has room for;
 - updates: the check against the mock server (a newer version with its release, one without, the same, an older one, nonsense, nothing answering, the setting off, a check less than a day old), versions compared (in `--selftest`), the Update button with a stand-in command (what it is told, its log, a failure's last line), the automatic update (with nothing showing, while a popup shows, with the setting off), the note of a started update at the next start, the gears while a version waits, and the About page in every state, signed ad hoc and not, in English and in Russian;
 - the installer's question about automatic updates, with each answer, with and without the certificate (stood in for), in both languages, and that nothing is asked when the setting is there already;
-- the installer ending the app that started it: `BTRANSLATE_INSTALLER_TEST=end` runs only that step, for a stand-in named in `BTRANSLATE_TEST_PROCESS` (it takes none but a `BTStandIn…`), which `tests/run.sh` makes from the built program.
+- the installer ending the app that started it: `BTRANSLATE_INSTALLER_TEST=end` runs only that step, for a stand-in named in `BTRANSLATE_TEST_PROCESS` (it takes none but `BTStandIn` and digits: `pkill` reads the name as a pattern), which `tests/run.sh` makes from the built program.
 
-No check asks GitHub or runs the installer for real: `tests/run.sh` gives every run a `BTRANSLATE_UPDATE_URL` where nothing listens, and the command-line modes refuse an update without `BTRANSLATE_UPDATE_COMMAND`. What the update's bookkeeping would save stays in memory in every mode but the app itself. The app itself, in turn, takes none of the update's stand-ins below (`BTRANSLATE_VERSION`, `BTRANSLATE_UPDATE_*`, `BTRANSLATE_SIGNED`): they work in the command-line modes only.
+No check asks GitHub or runs the installer for real: `tests/run.sh` gives every run a `BTRANSLATE_UPDATE_URL` where nothing listens, and the command-line modes refuse an update without `BTRANSLATE_UPDATE_COMMAND`. What the update's bookkeeping would save stays in memory in every mode but the app itself. The app itself, in turn, takes none of the update's stand-ins below (`BTRANSLATE_VERSION`, `BTRANSLATE_UPDATE_*`, `BTRANSLATE_DISK_VERSION`, `BTRANSLATE_SIGNED`): they work in the command-line modes only.
 
 One check is run by hand, because it opens a small window of BTranslate's own for a few
 seconds: `BTranslate --ax-check KIND` writes into a real field through Accessibility, as the
@@ -93,6 +93,7 @@ For one run, the environment can stand in for the world:
 | `BTRANSLATE_UPDATE_COMMAND` | What an update runs, instead of the install line. The command-line modes run no update without it |
 | `BTRANSLATE_UPDATE_LOG` | Where the update's output goes, instead of `~/Library/Logs/BTranslate-update.log` |
 | `BTRANSLATE_UPDATE_WAITING=X.Y.Z` | As if a check had found that version (the gears, the Update button) |
+| `BTRANSLATE_DISK_VERSION=X.Y.Z` | The version of the copy on disk once an update's command has ended well, instead of the one in the app's `Info.plist` |
 | `BTRANSLATE_SIGNED=adhoc\|own` | How the app takes itself to be signed |
 
 Any setting can be given for one run as `-key value` (`-defaultEngine google -languages '(en, ru)'`),
