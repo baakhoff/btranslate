@@ -21,7 +21,7 @@ final class PackDetector {
 
     let labels: [String]  // NLLB's codes, "lvs_Latn"
     private let data: Data
-    private let width, words, groups, buckets, shortest, longest, top: Int
+    private let width, words, groups, buckets, shortest, longest, top, letters: Int
     private let outputAt, startsAt, lettersAt, groupsAt, scalesAt, rowsAt: Int
     private var rowBytes: Int { width * 3 / 8 }
 
@@ -33,13 +33,14 @@ final class PackDetector {
         width = number(8); words = number(16); groups = number(20); buckets = number(24)
         shortest = number(28); longest = number(32); top = number(36)
         let count = number(12)
-        guard width > 0, width % 8 == 0, count > 0, buckets > 0, shortest > 0, longest >= shortest, top == 3 else { return nil }
+        guard width > 0, width % 8 == 0, count > 0, buckets > 0, shortest > 0, longest >= shortest, top == 3,
+              [width, count, words, groups].allSatisfy({ $0 < 1 << 26 }) else { return nil }  // (a damaged file's numbers go no further)
         let labelsAt = 40
         outputAt = labelsAt + 8 * count
         startsAt = outputAt + 4 * count * width
         lettersAt = startsAt + 4 * (words + 1)
         guard data.count > lettersAt else { return nil }
-        let letters = number(lettersAt - 4)
+        letters = number(lettersAt - 4)
         groupsAt = lettersAt + letters + (4 - letters % 4) % 4
         scalesAt = groupsAt + 4 * groups
         rowsAt = scalesAt + 4 * (words + groups)
@@ -95,6 +96,7 @@ final class PackDetector {
                     let middle = (low + high) / 2
                     let from = Int(UInt32(littleEndian: raw.loadUnaligned(fromByteOffset: startsAt + 4 * middle, as: UInt32.self)))
                     let to = Int(UInt32(littleEndian: raw.loadUnaligned(fromByteOffset: startsAt + 4 * middle + 4, as: UInt32.self)))
+                    guard from <= to, to <= letters else { return nil }
                     var order = 0, i = 0
                     while order == 0, i < word.count, i < to - from {
                         order = Int(word[word.startIndex + i]) - Int(bytes[lettersAt + from + i])

@@ -126,7 +126,7 @@
 "Translation on the Mac itself, without internet: BTranslate turns to it by itself when there is none, and the text stays on your Mac. macOS has about 25 languages for it (macOS 26 or later)." = "Перевод на самом Mac, без интернета: BTranslate сам переходит на него, когда интернета нет, и текст не покидает ваш Mac. В macOS для этого около 25 языков (macOS 26 и новее).";
 
 /* The language pack: NLLB-200, an optional download for the Offline method */
-/* %@: a size, "886 МБ" */
+/* %@: a size, "906 МБ" */
 "Language pack NLLB-200 (Meta AI): about 140 more languages for it, Latvian and Serbian among them, on the Neural Engine. %@; non-commercial use only." = "Языковой пакет NLLB-200 (Meta AI): еще около 140 языков, в том числе латышский и сербский, на Neural Engine. %@; только для некоммерческого использования.";
 "Downloading the language pack: %@ of %@." = "Загрузка языкового пакета: %@ из %@.";
 "%ld MB" = "%ld МБ";
@@ -139,6 +139,7 @@
 "The language pack could not translate this: %@" = "Языковой пакет не смог это перевести: %@";
 "its list of files can't be read" = "не удалось прочитать список его файлов";
 "the file %@ arrived damaged" = "файл %@ загрузился с повреждениями";
+"another BTranslate is downloading it right now" = "его прямо сейчас загружает другой экземпляр BTranslate";
 "macOS could not load the model (%@)" = "macOS не смогла загрузить модель (%@)";
 "the model gave no answer" = "модель не дала ответа";
 /* %@, %@: the model's own codes of two languages, "lvs_Latn" */
@@ -163,6 +164,7 @@
 "No API key for %@ yet. Open Settings (the gear button) and paste one." = "Для %@ еще нет ключа API. Откройте настройки (кнопка с шестеренкой) и вставьте его.";
 "No server address for the AI model yet. Open Settings (the gear button) and add one." = "Для модели ИИ еще не указан адрес сервера. Откройте настройки (кнопка с шестеренкой) и укажите его.";
 "Too many requests right now. Wait a minute and try again, or switch to the other method." = "Сейчас слишком много запросов. Подождите минуту и попробуйте снова или переключитесь на другой способ перевода.";
+"Google Translate answered HTTP %ld. Try again later, or switch to another method." = "Google Переводчик ответил: HTTP %ld. Попробуйте позже или переключитесь на другой способ перевода.";
 "The API key was refused (HTTP %ld): %@" = "Ключ API отклонен (HTTP %ld): %@";
 "The account has no credit left (HTTP 402): %@" = "На счете закончились средства (HTTP 402): %@";
 "Not found (HTTP 404). Check the model name in Settings. %@" = "Не найдено (HTTP 404). Проверьте название модели в настройках. %@";
@@ -174,6 +176,7 @@
 "The model declined to translate this text." = "Модель отказалась переводить этот текст.";
 "The model sent back an empty answer." = "Модель прислала пустой ответ.";
 "[Cut off here: the text is too long for one answer.]" = "[Здесь перевод обрывается: текст слишком длинный для одного ответа.]";
+"[The model stopped here and declined the rest.]" = "[Здесь модель остановилась и отказалась переводить дальше.]";
 "The server's model list can't be read." = "Не удалось прочитать список моделей сервера.";
 
 /* The menu bar (its shortcuts work in the settings window) */

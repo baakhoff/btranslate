@@ -121,12 +121,7 @@ struct Config {
         c.customURL = d.string(forKey: "aiBaseURL") ?? ""
         c.defaultEngine = Engine(rawValue: d.string(forKey: "defaultEngine") ?? "") ?? .google
         c.languageIDs = d.stringArray(forKey: "languages") ?? defaultLanguageIDs()
-        if let chosen = d.string(forKey: "defaultLanguage") {
-            c.defaultLanguageID = chosen
-        } else if let last = d.string(forKey: "target") {
-            // Settings from before the default could be chosen: the language that was used last.
-            c.defaultLanguageID = c.targets.first { $0.id == last || $0.english == last }?.id ?? ""
-        }
+        c.defaultLanguageID = d.string(forKey: "defaultLanguage") ?? ""
         c.secondLanguageID = d.string(forKey: "secondLanguage") ?? ""
         c.typingLanguageID = d.string(forKey: "typingLanguage") ?? ""
         c.googleVoice = d.bool(forKey: "googleVoice")
@@ -173,12 +168,17 @@ struct Config {
 enum Keychain {
     static let service = "BTranslate"
 
-    static func read(_ account: String) -> String? {
-        if let k = ProcessInfo.processInfo.environment["BTRANSLATE_API_KEY"], !k.isEmpty { return k }
-        if ProcessInfo.processInfo.environment["BTRANSLATE_KEYCHAIN"] == "off" { return nil }  // for tests: a Mac without saved keys
-        guard let out = run(["find-generic-password", "-a", account, "-s", service, "-w"]) else { return nil }
-        let key = out.trimmingCharacters(in: .whitespacesAndNewlines)
-        return key.isEmpty ? nil : key
+    static func read(_ account: String) -> String? { lookUp(account).key }
+
+    /// The saved key, and whether that is the Keychain's answer (`sure`), not a failure to ask it.
+    static func lookUp(_ account: String) -> (key: String?, sure: Bool) {
+        if let k = ProcessInfo.processInfo.environment["BTRANSLATE_API_KEY"], !k.isEmpty { return (k, true) }
+        if ProcessInfo.processInfo.environment["BTRANSLATE_KEYCHAIN"] == "off" { return (nil, true) }  // for tests: a Mac without saved keys
+        guard let answer = run(["find-generic-password", "-a", account, "-s", service, "-w"]) else { return (nil, false) }
+        let key = answer.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        // `security` ends with 44 when there is no such item; anything else is no answer (a locked Keychain, say).
+        if answer.status == 0 { return (key.isEmpty ? nil : key, true) }
+        return (nil, answer.status == 44)
     }
 
     static func isValid(_ key: String) -> Bool {
@@ -188,7 +188,7 @@ enum Keychain {
     @discardableResult
     static func save(_ key: String, account: String) -> Bool {
         guard isValid(key) else { return false }
-        return run(["-i"], input: "add-generic-password -U -a \"\(account)\" -s \"\(service)\" -w \"\(key)\"\n") != nil
+        return run(["-i"], input: "add-generic-password -U -a \"\(account)\" -s \"\(service)\" -w \"\(key)\"\n")?.status == 0
             && read(account) == key
     }
 
@@ -196,8 +196,8 @@ enum Keychain {
         _ = run(["delete-generic-password", "-a", account, "-s", service])
     }
 
-    /// Runs /usr/bin/security; returns its output, or nil if it failed.
-    private static func run(_ arguments: [String], input: String? = nil) -> String? {
+    /// Runs /usr/bin/security; returns how it ended and what it printed, or nil if it did not start.
+    private static func run(_ arguments: [String], input: String? = nil) -> (status: Int32, output: String)? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/security")
         p.arguments = arguments
@@ -207,27 +207,29 @@ enum Keychain {
         if input != nil { p.standardInput = inPipe }
         do { try p.run() } catch { return nil }
         if let input {
-            inPipe.fileHandleForWriting.write(Data(input.utf8))
-            inPipe.fileHandleForWriting.closeFile()
+            try? inPipe.fileHandleForWriting.write(contentsOf: Data(input.utf8))
+            try? inPipe.fileHandleForWriting.close()
         }
         let data = out.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
-        return p.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil
+        return (p.terminationStatus, String(decoding: data, as: UTF8.self))
     }
 }
 
-/// Whether a provider has a key, remembered while the app runs: reading the Keychain starts a
-/// program, too slow to do for every popup. `forget` after a key was saved or deleted.
+/// A provider's key, remembered while the app runs: reading the Keychain starts a program,
+/// too slow to do for every translation. `forget` after a key was saved or deleted.
 enum AISetup {
-    private static var known: [String: Bool] = [:]
+    private static var known: [String: String?] = [:]
     private static let lock = NSLock()
 
-    static func hasKey(_ provider: String) -> Bool {
+    static func key(_ provider: String) -> String? {
         if let answer = lock.withLock({ known[provider] }) { return answer }
-        let answer = Keychain.read(provider) != nil
-        lock.withLock { known[provider] = answer }
-        return answer
+        let (key, sure) = Keychain.lookUp(provider)
+        if sure { lock.withLock { known[provider] = .some(key) } }
+        return key
     }
+
+    static func hasKey(_ provider: String) -> Bool { key(provider) != nil }
 
     static func forget() {
         lock.withLock { known = [:] }

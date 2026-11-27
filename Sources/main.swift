@@ -15,6 +15,8 @@
 //                                  whether a pair of them is downloaded
 //   --pack                         whether the NLLB-200 language pack is installed, and where
 //   --pack-install | --pack-remove  download and install it (from BTRANSLATE_PACK_URL if set), or remove it
+//   --pack-prepare                 (the app's own helper) have macOS prepare the pack's models for the
+//                                  Neural Engine: what that leaves in memory goes with this process
 //   --pack-check FILE              the pack's tokenizer against Meta's (tests/nllb-tokens.json), and
 //                                  that the model is let go after a translation
 //   --pack-languages               which of Google's languages the pack has, and under which of its codes
@@ -39,7 +41,7 @@
 //   --type-check "text" [--field live|none|stuck] [--to LANGUAGE] [--esc] [--picture DIR]
 //                                  the panel for typing in another language, off screen (runTypeCheck)
 //   --picture-make FILE            draw a picture that stands for a window
-//   --picture-check FILE [--engine …] [--to …] [--boxes] [--picture DIR]
+//   --picture-check FILE [--engine …] [--to …] [--picture DIR]
 //                                  read a picture as a window's is read, translate its texts, print them
 //   --picture-window-check FILE [--picture DIR]  the window that shows it, off screen
 //   --read-picture LANGUAGES       (the app's own helper) a picture on standard input, its lines as JSON
@@ -56,9 +58,7 @@
 //   --language-test                choose Russian for BTranslate as its settings do, read the choice
 //                                  back, and put back what was chosen
 //   --uitest DIR                   draw the popup and the settings window into DIR as PNGs, off screen
-//   open -g BTranslate.app --args --background --restart-check
-//                                  (while it is not running) the app starts itself anew once, as it
-//                                  does after a change of its language
+//   --background                   the app itself, without its settings window (as after an update)
 // Env: BTRANSLATE_KEYCHAIN=off is a Mac without saved API keys, BTRANSLATE_CONNECTION=off one
 //      without a network; BTRANSLATE_ACCESSIBILITY=on|off and BTRANSLATE_SCREEN=on|off stand
 //      for macOS's answers about the permissions, BTRANSLATE_LOGIN=on|off for its login items:
@@ -112,14 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         useShortcut()
         // The first reading of a picture can take macOS a minute: have it done now, apart.
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { PictureReader.prepare() }
-        let args = CommandLine.arguments
-        if args.contains("--restart-check") {
-            restart()  // a check of restart(): the app started anew has no such argument
-        } else if let i = args.firstIndex(of: "--text"), i + 1 < args.count {
-            showPopup(args[i + 1])
-        } else if args.contains("--settings") {
-            showSettings()
-        } else if !args.contains("--background"),
+        if !CommandLine.arguments.contains("--background"),
                   !LoginItem.startedThisRun,
                   notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool ?? true {
             // Started by you, not by the Services menu: show the settings. (A moment's wait
@@ -142,22 +135,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SettingsController.shared.show()
     }
 
-    /// Listens for the shortcut of the settings. false: macOS would not have it.
-    @discardableResult
-    func useShortcut() -> Bool {
+    /// Listens for the shortcut of the settings.
+    func useShortcut() {
         let shortcut = Config.load().shortcut
-        let taken = HotkeyCenter.shared.use(shortcut)
-        if !taken { Log.note("shortcut: macOS would not have \(shortcut?.saved ?? "")") }
-        return taken
+        if !HotkeyCenter.shared.use(shortcut) { Log.note("shortcut: macOS would not have \(shortcut?.saved ?? "")") }
     }
+
+    private var looking = false          // a press is being looked into: another one meanwhile is left alone
+    private var asked: Set<pid_t> = []   // the apps that were asked to show their text fields (see below)
 
     /// The shortcut, pressed in whatever app is in front. With text selected there: its
     /// translation in a popup. In a text field with nothing selected: the panel to type in
     /// another language. Otherwise: a window of your choice, translated as a picture.
     /// Pressed while one of those is showing, it puts it away.
     func shortcutPressed() {
+        // Two presses looked into at once would each save and put back the other's clipboard.
+        guard !looking else { return }
         if let popup = Popup.current { popup.close(); return }
-        if let typing = TypePanel.current { typing.finish(); return }
+        if let typing = TypePanel.current { typing.putAway(); return }
         if WindowShot.shared.isChoosing { WindowShot.shared.cancel(); return }
         if let picture = PictureWindow.current, picture.panel.isKeyWindow { picture.close(); return }
         // What is selected, and where the cursor is, macOS tells only with your permission.
@@ -170,12 +165,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
         var focus = Focus.read()
+        looking = true
+        // An app built with Electron shows its text fields to other apps only once it is
+        // asked, and takes a moment over it: read again until it has, for up to a second.
+        // Once per app: asked a second time it says yes again, with nothing new to show.
+        let firstAsk = focus.waking && (focus.app.map { asked.insert($0.processIdentifier).inserted } ?? false)
         Task { @MainActor in
-            // An app built with Electron shows its text fields to other apps only once it is
-            // asked, and takes a moment over it: read again until it has, for up to a second.
+            defer { self.looking = false }
             var tries = 0
-            while focus.waking, focus.selection == nil, focus.field == nil, tries < 10 {
-                try? await Task.sleep(nanoseconds: 100_000_000)
+            while firstAsk, focus.selection == nil, focus.field == nil, tries < 10 {
+                await waitOut(0.1)
                 tries += 1
                 let again = Focus.read()
                 if again.selection != nil || again.field != nil || !again.waking { focus = again }
@@ -225,7 +224,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let again = Process()
         again.executableURL = URL(fileURLWithPath: "/bin/sh")
         // Wait until this one is gone (the Services menu knows one BTranslate), then open the app.
-        again.arguments = ["-c", "while kill -0 \"$1\" 2>/dev/null; do sleep 0.1; done; exec /usr/bin/open -g \"$0\" --args --background",
+        // (A moment more: macOS itself has to know that it is gone, or `open` turns to the one that was.)
+        again.arguments = ["-c", "while kill -0 \"$1\" 2>/dev/null; do sleep 0.1; done; sleep 0.5; "
+                               + "/usr/bin/open -g \"$0\" --args --background || { sleep 1; exec /usr/bin/open -g \"$0\" --args --background; }",
                            Bundle.main.bundlePath, String(ProcessInfo.processInfo.processIdentifier)]
         guard (try? again.run()) != nil else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }  // after the front is handed back
@@ -360,7 +361,7 @@ func runUITest(into dir: String) {
     print("settings window, every text fits: \(cut.isEmpty ? "yes" : "NO (\(cut.joined(separator: " | ")))")")
     if !cut.isEmpty { exit(1) }
 
-    let popup = Popup(text: argument(after: "--text") ?? "Labdien! Kā jums klājas? Rīt es būšu birojā no deviņiem līdz pieciem.")
+    let popup = Popup(text: "Labdien! Kā jums klājas? Rīt es būšu birojā no deviņiem līdz pieciem.")
     Popup.current = popup
     popup.prepare()
     let lithuanian = sourceLanguages.first { $0.id == "lt" }?.name ?? "Lithuanian"  // as the bar shows it
@@ -398,7 +399,7 @@ func runUITest(into dir: String) {
         case 3 where popup.sections.count > 1 && popup.shownSource != lithuanian:
             if let view = popup.panel.contentView { snapshot(view, to: dir + "/popup-several.png") }
             let texts = popup.shownTexts
-            let several = texts.allSatisfy { !$0.isEmpty && $0 != L("Translating…") } && Set(texts).count == texts.count
+            let several = popup.sections.allSatisfy { !$0.translation.isEmpty } && Set(texts).count == texts.count  // (an error is no translation)
             print("several languages at once: \(several ? "yes" : "NO") (\(popup.sections.map(\.target.id).joined(separator: ", ")))")
             if !several { exit(1) }
             popup.setSource(sourceLanguages.first { $0.id == "lt" }, remember: false)
@@ -421,7 +422,7 @@ func runUITest(into dir: String) {
 @MainActor
 func runOfflineUITest(_ scenario: String, into dir: String) {
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-    let popup = Popup(text: argument(after: "--text") ?? "Guten Tag! Ich bin morgen von neun bis fünf im Büro.")
+    let popup = Popup(text: "Guten Tag! Ich bin morgen von neun bis fünf im Büro.")
     Popup.current = popup
     popup.prepare()
     var stage = "without a connection"
@@ -461,10 +462,6 @@ func runPopupCheck(text: String) {
     let popup = Popup(text: text)
     Popup.current = popup
     popup.prepare()
-    // --on-screen: the popup is really shown for the check's few seconds. It does not take the keyboard.
-    let onScreen = arguments.contains("--on-screen")
-    let frontBefore = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
-    if onScreen { popup.panel.orderFrontRegardless() }
     var pressed = false
     func report(_ stage: String) {
         print("\(stage): methods \(popup.config.engines.map(\.rawValue).joined(separator: ", ")); the original: \(popup.shownSource)")
@@ -477,7 +474,6 @@ func runPopupCheck(text: String) {
             snapshot(view, to: "\(dir)/popup-check\(pressed ? "-after" : "").png")
         }
     }
-    var observer: NSObjectProtocol?
     popup.onSettled = {
         report(pressed ? "with the pack" : "popup")
         if arguments.contains("--speak") {
@@ -488,17 +484,8 @@ func runPopupCheck(text: String) {
                 MainActor.assumeIsolated {
                     Speaker.shared.stop()
                     print("the speaker's notice: \(popup.shownNotice ?? "none")")
-                    if onScreen, let bubble = popup.noticeWindow, let button = popup.speakerFrame {
-                        let screen = (popup.panel.screen ?? NSScreen.main)?.visibleFrame ?? .zero
-                        let under = bubble.frame.maxY <= button.minY || bubble.frame.minY >= button.maxY
-                        let near = abs(bubble.frame.midX - button.midX) < bubble.frame.width / 2 + 1
-                        let front = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
-                        print("on screen: note showing \(bubble.isVisible ? "yes" : "NO"), by the speaker button \(under && near ? "yes" : "NO"), "
-                              + "inside the screen \(screen.contains(bubble.frame) ? "yes" : "NO"), attached to the popup \(bubble.parent === popup.panel ? "yes" : "NO"), "
-                              + "can take the keyboard \(bubble.canBecomeKey ? "YES" : "no"), app in front before and after: \(frontBefore) / \(front)")
-                    }
-                    popup.close()
                     if let dir = argument(after: "--picture"), let view = popup.noticeView { snapshot(view, to: "\(dir)/popup-notice.png") }
+                    popup.close()
                     exit(0)
                 }
             }
@@ -506,7 +493,7 @@ func runPopupCheck(text: String) {
         }
         guard arguments.contains("--download"), !pressed, popup.packOffered.contains(true) else { exit(0) }
         pressed = true
-        observer = NotificationCenter.default.addObserver(forName: PackInstaller.changed, object: nil, queue: .main) { _ in
+        _ = NotificationCenter.default.addObserver(forName: PackInstaller.changed, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated {
                 if case .failed(let why) = PackInstaller.shared.state {
                     report("the download failed (\(why))")
@@ -514,7 +501,6 @@ func runPopupCheck(text: String) {
                 }
             }
         }
-        _ = observer
         popup.downloadPack()
         if PackInstaller.shared.state == .waiting {  // no network: the download is put off until there is one
             report("waiting for a connection")
@@ -557,7 +543,7 @@ func runScreenCheck() {
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { MainActor.assumeIsolated(work) }
     }
     let before = front()
-    let popup = Popup(text: argument(after: "--text") ?? "Labdien! Kā jums klājas?")
+    let popup = Popup(text: "Labdien! Kā jums klājas?")
     Popup.current = popup
     popup.show()
     var activeAt: [String] = []
@@ -630,7 +616,7 @@ func runScreenCheck() {
                                     done = true
                                     let texts = popup.shownTexts
                                     let grew = popup.panel.frame.height > heightBefore + 20
-                                    let several = texts.count == 2 && texts.allSatisfy { !$0.isEmpty && $0 != L("Translating…") } && grew
+                                    let several = texts.count == 2 && popup.sections.allSatisfy { !$0.translation.isEmpty } && grew
                                         && popup.panel.isKeyWindow
                                     print("+ \(other.name): \(texts.count) translations showing, popup \(Int(heightBefore)) → \(Int(popup.panel.frame.height)) points tall, "
                                         + "top edge \(abs(popup.panel.frame.maxY - topBefore) < 1 || popup.panel.frame.maxY < topBefore ? "in place" : "MOVED UP")")
@@ -648,6 +634,8 @@ func runScreenCheck() {
 }
 
 let arguments = CommandLine.arguments
+setlinebuf(stdout)        // read through a pipe (the installer's progress), a line must not wait for the end
+signal(SIGPIPE, SIG_IGN)  // a helper that ends early must not take the app with it
 if arguments.contains("--selftest") {
     let failures = selfTest()
     print(failures.isEmpty ? "selftest: ok" : "selftest FAILED: " + failures.joined(separator: "; "))
@@ -671,11 +659,13 @@ if arguments.contains("--selftest") {
     exit(ok ? 0 : 1)
 } else if arguments.contains("--language-test") {
     let was = chosenInterfaceLanguage()
+    let stored = UserDefaults.standard.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "")?["AppleLanguages"]
     chooseInterfaceLanguage("ru")
     let russian = chosenInterfaceLanguage() == "ru"
     chooseInterfaceLanguage("")
     let theMacs = chosenInterfaceLanguage().isEmpty
-    chooseInterfaceLanguage(was)
+    // Put back exactly what was there, also a language BTranslate does not come in.
+    if let stored { UserDefaults.standard.set(stored, forKey: "AppleLanguages") }
     let ok = russian && theMacs && chosenInterfaceLanguage() == was
     print(ok ? "language choice: ok" : "language choice FAILED (Russian chosen: \(russian), the Mac's again: \(theMacs))")
     exit(ok ? 0 : 1)
@@ -716,6 +706,16 @@ if arguments.contains("--selftest") {
         case .installed: print("language pack: installed"); return 0
         case .failed(let why): print("language pack: FAILED: \(why)"); return 1
         default: print("language pack: not installed (\(installer.state))"); return 1
+        }
+    }
+} else if arguments.contains("--pack-prepare") {
+    runHeadless {
+        do {
+            try await NLLBEngine.shared.prepare()
+            return 0
+        } catch {
+            print(error.localizedDescription)  // the app shows it
+            return 1
         }
     }
 } else if let file = argument(after: "--pack-check") {
@@ -774,7 +774,7 @@ if arguments.contains("--selftest") {
     let started = Date()
     for item in cases {
         let mine = detector.chances(of: item.text, count: 3)
-        let same = zip(mine, item.best).allSatisfy { abs($0.chance - $1.chance) < 0.002 && ($0.label == $1.label || abs($0.chance - $1.chance) < 0.0002 && $1.chance < 0.001) }
+        let same = mine.count == item.best.count && zip(mine, item.best).allSatisfy { abs($0.chance - $1.chance) < 0.002 && ($0.label == $1.label || abs($0.chance - $1.chance) < 0.0002 && $1.chance < 0.001) }
         if !same {
             wrong += 1
             print("DIFFERENT: \(item.text.debugDescription)\n   mine \(mine)\n   file \(item.best.map { ($0.label, $0.chance) })")
@@ -926,9 +926,10 @@ if arguments.contains("--selftest") {
     // takes some twenty seconds: the installer and the app have it done here, in the background.
     MainActor.assumeIsolated {
         let made = NSTemporaryDirectory() + "btranslate-prepare-\(ProcessInfo.processInfo.processIdentifier).png"
-        defer { try? FileManager.default.removeItem(atPath: made) }
-        guard makeTestPicture(at: made), let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: made) as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { exit(1) }
+        let drawn = makeTestPicture(at: made)
+        let image = CGImageSourceCreateWithURL(URL(fileURLWithPath: made) as CFURL, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) }
+        try? FileManager.default.removeItem(atPath: made)  // (not in a `defer`: this ends with exit())
+        guard drawn, let image else { exit(1) }
         let start = Date()
         let lines = (try? PictureReader.lines(in: image, languages: [])) ?? []
         print(String(format: "reading is ready: %d lines in %.1f s", lines.count, Date().timeIntervalSince(start)))
@@ -969,13 +970,6 @@ if arguments.contains("--selftest") {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         AXTarget.shared = AXTarget(kind: kind, file: arguments.last ?? "")
-        app.run()
-    }
-} else if let kind = argument(after: "--ax-probe") {
-    MainActor.assumeIsolated {
-        let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)
-        Task { @MainActor in exit(await runAXProbe(kind)) }
         app.run()
     }
 } else if let kind = argument(after: "--ax-check") {
@@ -1042,7 +1036,18 @@ if arguments.contains("--selftest") {
         runUITest(into: dir)
         app.run()
     }
+} else if let unknown = arguments.dropFirst().first(where: { $0.hasPrefix("--") && $0 != "--background" }) {
+    // Not the app itself by mistake: a second one running would answer the shortcut too.
+    FileHandle.standardError.write(Data("BTranslate: unknown option \(unknown), or one without its value. Sources/main.swift lists them.\n".utf8))
+    exit(2)
 } else {
+    // One BTranslate at a time: two would both answer the shortcut. (macOS sees to that for
+    // one copy of the app, not for two copies in different folders.)
+    let lock = open(NSTemporaryDirectory() + "io.github.baakhoff.btranslate.lock", O_CREAT | O_RDWR, 0o600)
+    if lock >= 0, flock(lock, LOCK_EX | LOCK_NB) != 0 {
+        FileHandle.standardError.write(Data("BTranslate is running already.\n".utf8))
+        exit(0)
+    }
     MainActor.assumeIsolated {  // top-level code runs on the main thread
         let app = NSApplication.shared
         let delegate = AppDelegate()

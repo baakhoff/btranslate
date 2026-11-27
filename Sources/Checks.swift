@@ -25,7 +25,7 @@ func runShortcutCheck() -> Int32 {
     let taken = HotkeyCenter.shared.use(rare)
     print("macOS takes a shortcut: \(taken ? "yes" : "NO") (\(rare.text))")
     HotkeyCenter.shared.use(nil)
-    print("and lets it go: \(HotkeyCenter.shared.current == nil ? "yes" : "NO")")
+    print("and lets it go: \(HotkeyCenter.shared.current == nil && HotkeyCenter.shared.isFree(rare) ? "yes" : "NO")")
     print("permission to read the app in front: \(Accessibility.isAllowed ? "yes" : "no")")
     print("permission to take a window's picture: \(ScreenAccess.isAllowed ? "yes" : "no")")
     print("opens at login: \(LoginItem.isOn ? "yes" : "no")")
@@ -78,20 +78,32 @@ func runShortcutPageCheck() -> Int32 {
 
 // MARK: - Typing in another language
 
-/// A stand-in for another app's text field: it takes a number of writings, then no more.
+/// A stand-in for another app's text field: it takes a number of writings, then no more;
+/// a slow one takes a fifth of a second over each, as an app that is busy does.
 @MainActor
 final class FakeField: TextSink {
     private let takes: Int
+    private let slow: Bool
     private(set) var written = ""
     private(set) var writings = 0
     private(set) var pasted: String?
+    private(set) var busy = false
 
-    init(takes: Int) { self.takes = takes }
+    init(takes: Int, slow: Bool = false) {
+        self.takes = takes
+        self.slow = slow
+    }
 
     var place: NSRect? { NSRect(x: 300, y: 500, width: 0, height: 16) }
 
     func write(_ text: String) async -> Bool {
+        if text == written { return true }  // as a real field: there is nothing to do
         guard writings < takes else { return false }
+        if slow {
+            busy = true
+            await waitOut(0.2)
+            busy = false
+        }
         writings += 1
         written = text
         return true
@@ -101,14 +113,16 @@ final class FakeField: TextSink {
 }
 
 /// The typing panel off screen, with a stand-in for the text field. The text is typed in two
-/// goes (its first sentence, then all of it), then Return is pressed, or Esc with --esc.
-///   --field live|none|stuck   the field takes every writing, none, or only the first
+/// goes (its first sentence, then all of it), then Return is pressed, or Esc with --esc, or
+/// the panel is ended as a click elsewhere ends it with --click.
+///   --field live|none|stuck|slow   the field takes every writing, none, only the first, or each slowly
+///   --esc-early               Esc while the first writing is still on its way into a slow field
 ///   --to LANGUAGE             the language chosen in the panel
 @MainActor
 func runTypeCheck(_ text: String) async -> Int32 {
     beginCheck()
     let kind = argument(after: "--field") ?? "live"
-    let field = FakeField(takes: kind == "live" ? .max : kind == "stuck" ? 1 : 0)
+    let field = FakeField(takes: kind == "live" || kind == "slow" ? .max : kind == "stuck" ? 1 : 0, slow: kind == "slow")
     let panel = TypePanel(sink: field)
     panel.pause = 0.05
     var copied: String?
@@ -144,6 +158,19 @@ func runTypeCheck(_ text: String) async -> Int32 {
     }
     func show(_ what: String) -> String { what.isEmpty ? "(nothing)" : what.replacingOccurrences(of: "\n", with: " / ") }
 
+    if arguments.contains("--esc-early") {
+        panel.type(text)
+        var waited = 0
+        while !field.busy, waited < 100 {
+            await waitOut(0.02)
+            waited += 1
+        }
+        print("Esc while the text is on its way: \(field.busy ? "yes" : "NO (it was not)")")
+        panel.cancel()
+        await waitOut(0.8)
+        print("after Esc: panel \(closed ? "closed" : "STILL OPEN"), in the field: \(show(field.written))")
+        return closed && field.written.isEmpty ? 0 : 1
+    }
     let first = LiveText.pieces(of: text).first.map { $0.lead + $0.core + $0.trail } ?? text
     for typed in first == text ? [text] : [first, text] {
         panel.type(typed)
@@ -158,14 +185,15 @@ func runTypeCheck(_ text: String) async -> Int32 {
         let cut = cutOffTexts(in: view)
         print("every text of the panel fits: \(cut.isEmpty ? "yes" : "NO (\(cut.joined(separator: " | ")))")")
     }
-    if arguments.contains("--esc") { panel.cancel() } else { panel.finish() }
+    let ending = arguments.contains("--esc") ? "after Esc" : arguments.contains("--click") ? "after a click elsewhere" : "after Return"
+    if arguments.contains("--esc") { panel.cancel() } else { panel.finish(byReturn: !arguments.contains("--click")) }
     var waited = 0
     while !closed, waited < 80 {
         try? await Task.sleep(nanoseconds: 50_000_000)
         waited += 1
     }
     try? await Task.sleep(nanoseconds: 100_000_000)  // what Esc takes back out goes after the panel
-    print("\(arguments.contains("--esc") ? "after Esc" : "after Return"): panel \(closed ? "closed" : "STILL OPEN"), "
+    print("\(ending): panel \(closed ? "closed" : "STILL OPEN"), "
           + "in the field: \(show(field.written)), pasted: \(show(field.pasted ?? "")), copied: \(show(copied ?? "")), writings: \(field.writings)")
     return closed ? 0 : 1
 }
@@ -243,11 +271,6 @@ func runPictureCheck(_ file: String) async -> Int32 {
             blocks[worth[place]].translation = made
         }
         for block in blocks.sorted(by: { $0.box.minY < $1.box.minY }) {
-            if arguments.contains("--boxes") {  // where each line was found, in pixels
-                for line in block.lines {
-                    print("      \(Int(line.box.minX)),\(Int(line.box.minY)) \(Int(line.box.width))x\(Int(line.box.height)): \(line.text)")
-                }
-            }
             let lines = block.lines.count > 1 ? "(\(block.lines.count) lines) " : ""
             print("   \(lines)\(block.text)\(block.translation.map { " → \($0)" } ?? (block.hasWords ? " = stays" : " = no words"))")
         }
@@ -424,16 +447,6 @@ func runAXCheck(_ kind: String) async -> Int32 {
     let whole = AXTarget.text as NSString
     let before = empty ? "" : whole.substring(to: AXTarget.cursor), after = empty ? "" : whole.substring(from: AXTarget.cursor)
     print("field: \(element.text(kAXRoleAttribute) ?? "?"), holds \"\(held())\"")
-    if arguments.contains("--describe") {  // what the field says of itself: to tell kinds of fields apart by
-        var names: CFArray?
-        AXUIElementCopyAttributeNames(element, &names)
-        print("   attributes: \(((names as? [String]) ?? []).sorted().joined(separator: " "))")
-        print("   subrole: \(element.text(kAXSubroleAttribute) ?? "none"); described as: \(element.text(kAXRoleDescriptionAttribute) ?? "none"); "
-              + "children: \(element.children().map { $0.text(kAXRoleAttribute) ?? "?" }.joined(separator: ", "))")
-        for name in ["AXEditableAncestor", "AXHighestEditableAncestor", "AXDOMClassList", "AXARIARole", "AXHasDocumentRoleAncestor", "AXIsMultiline", "AXTextInputMarkedRange"] {
-            if let value = element.raw(name) { print("   \(name): \(CFGetTypeID(value) == AXUIElementGetTypeID() ? "an element" : "\(value)")") }
-        }
-    }
     var failures = 0
 
     // What is selected, as the shortcut reads it.
@@ -468,98 +481,6 @@ func runAXCheck(_ kind: String) async -> Int32 {
     print("app in front before and after: \(front) / \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "?")")
     print(failures == 0 ? "ax-check \(kind): ok" : "ax-check \(kind): \(failures) FAILED")
     return failures == 0 ? 0 : 1
-}
-
-/// Tries each way macOS has of writing into a text field on a window of BTranslate's own
-/// (see AXTarget), a fresh one for each way, and prints what the field held afterwards: to
-/// find out which way a kind of field takes. Run like --ax-check; needs the permission.
-@MainActor
-func runAXProbe(_ kind: String) async -> Int32 {
-    beginCheck()
-    guard AXIsProcessTrusted() else {
-        print("skipped: this copy of BTranslate has no Accessibility permission")
-        return 2
-    }
-    func pause(_ seconds: Double) async { try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
-    func find(_ element: AXUIElement, depth: Int = 0) -> AXUIElement? {
-        let role = element.text(kAXRoleAttribute) ?? ""
-        if [kAXTextAreaRole, kAXTextFieldRole].contains(role) { return element }
-        guard depth < 14 else { return nil }
-        for child in element.children() {
-            if let found = find(child, depth: depth + 1) { return found }
-        }
-        return nil
-    }
-    func value(_ range: CFRange) -> AXValue {
-        var range = range
-        return AXValueCreate(.cfRange, &range)!
-    }
-    // Each way: put "Hello" at the cursor, then "Hello, world!" in its place, then take it out.
-    typealias Way = (name: String, write: (AXUIElement, CFRange, String) -> Bool)
-    let ways: [Way] = [
-        ("select, then set the selected text", { element, range, text in
-            element.select(range) && element.set(kAXSelectedTextAttribute, text as CFString)
-        }),
-        ("AXReplaceRangeWithText", { element, range, text in
-            element.answer("AXReplaceRangeWithText", ["AXRange": value(range), "AXString": text] as CFDictionary) != nil
-        }),
-        ("select, then AXInsertText", { element, range, text in
-            element.select(range) && element.answer("AXInsertText", text as CFString) != nil
-        }),
-        ("set the whole value", { element, range, text in
-            guard let whole = element.text(kAXValueAttribute) else { return false }
-            let made = (whole as NSString).replacingCharacters(in: NSRange(location: range.location, length: range.length), with: text)
-            return element.set(kAXValueAttribute, made as CFString)
-        }),
-    ]
-    for (number, way) in ways.enumerated() {
-        let file = NSTemporaryDirectory() + "btranslate-probe-\(ProcessInfo.processInfo.processIdentifier)-\(number).txt"
-        let target = Process()
-        target.executableURL = Bundle.main.executableURL
-        target.arguments = ["--ax-target", kind, file]
-        guard (try? target.run()) != nil else { continue }
-        defer {
-            target.terminate()
-            try? FileManager.default.removeItem(atPath: file)
-        }
-        func held() -> String {
-            ((try? String(contentsOfFile: file, encoding: .utf8)) ?? "?").replacingOccurrences(of: "\u{a0}", with: " ").trimmingCharacters(in: .newlines)
-        }
-        let app = AXUIElementCreateApplication(target.processIdentifier)
-        AXUIElementSetMessagingTimeout(app, 1)
-        var element: AXUIElement?
-        for _ in 0..<50 where element == nil {
-            await pause(0.1)
-            element = app.children(kAXWindowsAttribute).lazy.compactMap { find($0) }.first
-        }
-        guard let element else {
-            print("\(way.name): no text field found")
-            continue
-        }
-        await pause(0.3)
-        if number == 0 {
-            var names: CFArray?
-            AXUIElementCopyParameterizedAttributeNames(element, &names)
-            print("the field answers to: \(((names as? [String]) ?? []).joined(separator: ", "))")
-            print("it lets these be set: \(["AXValue", "AXSelectedText", "AXSelectedTextRange"].filter { element.canSet($0) }.joined(separator: ", "))")
-        }
-        element.select(CFRange(location: AXTarget.cursor, length: 0))
-        await pause(0.2)
-        var steps: [String] = []
-        let at = AXTarget.cursor
-        for (range, text) in [(CFRange(location: at, length: 0), "Hello"), (CFRange(location: at, length: 5), "Hello, world!"), (CFRange(location: at, length: 13), "")] {
-            let said = way.write(element, range, text)
-            await pause(0.35)
-            let caret = element.range(kAXSelectedTextRangeAttribute)
-            steps.append("\(said ? "ok" : "refused") → \"\(held())\" (cursor \(caret.map { "\($0.location)+\($0.length)" } ?? "?"), value \"\(element.text(kAXValueAttribute) ?? "?")\")")
-        }
-        print("\(way.name):")
-        for step in steps { print("   \(step)") }
-        target.terminate()
-        await pause(0.2)
-    }
-    print("ax-probe \(kind): done")
-    return 0
 }
 
 // MARK: - Checks that need nothing (part of --selftest)
@@ -597,6 +518,12 @@ func shortcutSelfTest() -> [String] {
 
     expect("field: texts alike but for their blanks", AXField.alike("Hello,\u{a0}world \n", "Hello, world") && !AXField.alike("Hello world", "Helloworld")
            && !AXField.alike(nil, ""))
+    expect("field: still holding what was written, give or take a correction of the app's own",
+           AXField.near("Hello world", "Hello world") && AXField.near("Hello wörld", "Hello world") && AXField.near("", " \n")
+           && AXField.near("He said “hi” and “bye” to all of them.", "He said \"hi\" and \"bye\" to all of them."))
+    expect("field: another text in its place is not ours to write over",
+           !AXField.near("Lunch at one? I'll book a table.", "Hello world") && !AXField.near("", "Hello world")
+           && !AXField.near("Hello world", "") && !AXField.near(nil, "Hello world"))
 
     let answer = parseNumbered("1| Привет\n 2 |  Открыть файл\nnoise\n4| a | b\n")
     expect("many texts: numbered lines read", answer[1] == "Привет" && answer[2] == "Открыть файл" && answer[3] == nil && answer[4] == "a | b")

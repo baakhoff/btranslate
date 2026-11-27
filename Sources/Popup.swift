@@ -9,7 +9,11 @@ final class PopupPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 
     override func sendEvent(_ event: NSEvent) {
-        if event.type == .keyDown, event.keyCode == 53 { onClose?(); return }  // Esc
+        // Esc closes; while a letter is being put together (Japanese, Chinese, Korean), Esc is that letter's.
+        if event.type == .keyDown, event.keyCode == 53, (firstResponder as? NSTextView)?.hasMarkedText() != true {
+            onClose?()
+            return
+        }
         super.sendEvent(event)
     }
 
@@ -125,14 +129,13 @@ final class Popup: NSObject, NSWindowDelegate {
     private var noConnection = false   // a request has failed for lack of a connection
     private var autoOffline: Engine?   // the method the popup had before it went over to Offline by itself
     private var listening = false      // waiting to be told that the connection is back
+    private var asking: Task<Void, Never>?  // meanwhile asking the server itself (askWhileWaiting)
     private var closed = false
     private var notice: NSPanel?
     private var noticeNumber = 0       // which note is showing: an older one's timer must not take a newer one away
     private(set) var shownNotice: String?
     var noticeView: NSView? { notice?.contentView }  // (UI test)
-    var noticeWindow: NSWindow? { notice }           // (UI test)
     /// Where the first translation's speaker button is on the screen (UI test).
-    var speakerFrame: NSRect? { sections.first.map { panel.convertToScreen($0.speakButton.convert($0.speakButton.bounds, to: nil)) } }
 
     init(text: String, by place: NSRect? = nil) {
         source = text
@@ -247,6 +250,7 @@ final class Popup: NSObject, NSWindowDelegate {
         guard !closed else { return }
         closed = true
         for section in sections { section.task?.cancel() }
+        asking?.cancel()
         Speaker.shared.stop()
         Speaker.shared.onChange = nil
         Speaker.shared.onError = nil
@@ -439,6 +443,7 @@ final class Popup: NSObject, NSWindowDelegate {
     }
 
     private func start(_ section: TranslationSection) {
+        guard !closed else { return }
         section.task?.cancel()
         if Speaker.shared.playing == section.name { Speaker.shared.stop() }
         section.translation = ""
@@ -548,7 +553,7 @@ final class Popup: NSObject, NSWindowDelegate {
     }
 
     @objc private func packChanged() {
-        guard !closed else { return }
+        guard !closed, sections.contains(where: { $0.packOffer != nil }) else { return }
         for section in sections where section.packOffer != nil { showPackOffer(in: section) }
         layout()
     }
@@ -592,6 +597,7 @@ final class Popup: NSObject, NSWindowDelegate {
 
     private func waitForConnection() {
         noConnection = true
+        askWhileWaiting()
         guard !listening else { return }
         listening = true
         Connection.shared.whenBack { [weak self] in
@@ -600,10 +606,35 @@ final class Popup: NSObject, NSWindowDelegate {
         }
     }
 
+    /// A Mac can have a network and still no way to the server (a router without internet, a
+    /// VPN changing hands), and nothing tells when that is over. So while the popup waits, the
+    /// server is asked now and then, without any text, whether it answers again.
+    private func askWhileWaiting() {
+        asking?.cancel()
+        let address = (autoOffline ?? engine) == .ai ? config.baseURL
+            : ProcessInfo.processInfo.environment["BTRANSLATE_GOOGLE_URL"] ?? "https://translate.googleapis.com"
+        guard let url = URL(string: address) else { return }
+        asking = Task { [weak self] in
+            while true {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                guard let self, !Task.isCancelled, !self.closed, self.noConnection else { return }
+                guard Connection.shared.isOnline else { continue }  // no network at all: macOS tells when there is one
+                var request = URLRequest(url: url)
+                request.httpMethod = "HEAD"
+                request.timeoutInterval = 8
+                if (try? await net.data(for: request)) != nil, !Task.isCancelled {
+                    self.connectionIsBack()  // any answer will do: the way there is open
+                    return
+                }
+            }
+        }
+    }
+
     /// Translates what is still waiting. What the Offline method has translated stays as it
     /// is; if it left a language untranslated, the method the popup had takes over again.
     func connectionIsBack() {
         guard !closed, noConnection else { return }
+        asking?.cancel()
         noConnection = false
         let before = autoOffline
         autoOffline = nil

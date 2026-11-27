@@ -3,7 +3,7 @@
 # both AI protocols and the Google fallback against tests/mock_server.py, then the popup and
 # the settings window drawn off screen (into build/uitest; in Russian into build/uitest-ru),
 # then what the popup does without a connection.
-#   tests/run.sh          build if needed, then test
+#   tests/run.sh          build if the sources are newer than the app, then test
 #   tests/run.sh --live   also use the real Google Translate (one sentence), the real
 #                         Keychain (a dummy key is saved, read and deleted), BTranslate's
 #                         real preferences (Russian is chosen, read back, and your choice put
@@ -15,8 +15,13 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-BIN=build/BTranslate.app/Contents/MacOS/BTranslate
-[ -x "$BIN" ] || ./build.sh
+APP_BIN=build/BTranslate.app/Contents/MacOS/BTranslate
+if [ ! -x "$APP_BIN" ] || [ -n "$(find Sources Resources build.sh VERSION -newer "$APP_BIN" -print -quit)" ]; then ./build.sh; fi
+# Every run of the app in these tests ends after four minutes at the latest: a run that hangs
+# fails its check, and the tests go on. (Its first reading of a picture can take a minute.)
+BIN=build/BTranslate-for-tests
+printf '#!/bin/sh\nexec /usr/bin/perl -e '"'"'alarm shift; exec @ARGV or die "could not start: $!\\n"'"'"' 240 "%s" "$@"\n' "$PWD/$APP_BIN" > "$BIN"
+chmod +x "$BIN"
 # The checks below read the app's English texts, whatever language this Mac or your own
 # BTranslate is set to. The Russian ones say so.
 export BTRANSLATE_LANGUAGE=en
@@ -30,6 +35,9 @@ export BTRANSLATE_OFFLINE=mock
 # check reads another app, asks macOS for a permission, changes the login items or touches
 # the clipboard.
 export BTRANSLATE_ACCESSIBILITY=off BTRANSLATE_LOGIN=off BTRANSLATE_SCREEN=off
+# Nor does any depend on this Mac: there are no saved API keys (a check that needs a key gives
+# one), and there is a network, whatever the real one is (the checks of none take it away).
+export BTRANSLATE_KEYCHAIN=off BTRANSLATE_CONNECTION=on
 DEAD="http://127.0.0.1:9"  # nothing listens there: a request ends as it does without internet
 # The language pack (NLLB-200) is kept in a folder of the tests' own: empty, unless a test
 # installs the miniature pack of the mock server there. A pack you have installed is not touched.
@@ -43,6 +51,7 @@ python3 -I tests/mock_server.py "$PORT" > "$LOG" &
 mock=$!
 trap 'kill "$mock" 2>/dev/null || true' EXIT
 for _ in $(seq 50); do curl -s -o /dev/null "$MOCK/" && break; sleep 0.1; done
+kill -0 "$mock" 2>/dev/null || { echo "The mock server did not start. Is port $PORT taken? (BTRANSLATE_TEST_PORT sets another.)"; exit 1; }
 
 failed=0
 # check NAME EXPECTED COMMAND...: the command's output must contain EXPECTED.
@@ -61,6 +70,8 @@ check() {
 logged() {
     if grep -q -- "$2" "$LOG"; then echo "ok    $1"; else echo "FAIL  $1 (no request matching: $2)"; failed=1; fi
 }
+# seen PATTERN: how many requests matching PATTERN the mock server has seen.
+seen() { echo "seen $(grep -c -- "$1" "$LOG" || true) time(s)"; }
 ai() {  # ai PROVIDER PATH [args...]: a headless AI translation against the mock server
     local provider="$1" path="$2"
     shift 2
@@ -254,20 +265,24 @@ check "Language pack offered: not where the pack would not help" "   ab: The Off
     "$BIN" --popup-check "$GER" "${OFFER[@]}" -languages '(ab)' -defaultLanguage ab -defaultEngine device
 check "Language pack offered: the button downloads it, and the popup translates again" "with the pack: methods" \
     env BTRANSLATE_PACK_URL="$MOCK/pack" "$BIN" --popup-check "$GER" --download "${OFFER[@]}" -defaultEngine device
-"$BIN" --pack-remove > /dev/null
+"$BIN" --pack-remove > /dev/null || true
 
 # The installer's question about the language pack: its step alone, for the app just built.
 INST=(BTRANSLATE_INSTALLER_TEST=pack BTRANSLATE_TEST_APP="$PWD/build/BTranslate.app")
 check "Installer: the language pack, wanted" "The language pack is installed." \
     env "${INST[@]}" BTRANSLATE_PACK=yes BTRANSLATE_PACK_URL="$MOCK/pack" ./install.sh
-"$BIN" --pack-remove > /dev/null
+"$BIN" --pack-remove > /dev/null || true
 check "Installer: the language pack, not wanted" "The language pack is not installed. To get it later: BTranslate's settings → Translation → Download (906 MB)." \
     env "${INST[@]}" BTRANSLATE_PACK=no ./install.sh
+check "Installer: BTRANSLATE_PACK said another way" "The language pack is installed." \
+    env "${INST[@]}" BTRANSLATE_PACK=YES BTRANSLATE_PACK_URL="$MOCK/pack" ./install.sh
+"$BIN" --pack-remove > /dev/null || true
+check "Installer: and said wrongly" "say yes or no" env "${INST[@]}" BTRANSLATE_PACK=maybe ./install.sh
 check "Installer: the language pack is not at its address" "It may not be published yet." \
     env "${INST[@]}" BTRANSLATE_PACK=yes BTRANSLATE_PACK_URL="$MOCK/nothing" ./install.sh
 check "Installer, in Russian: the language pack" "Языковой пакет установлен." \
     env "${INST[@]}" BTRANSLATE_LANGUAGE=ru BTRANSLATE_PACK=yes BTRANSLATE_PACK_URL="$MOCK/pack" ./install.sh
-"$BIN" --pack-remove > /dev/null
+"$BIN" --pack-remove > /dev/null || true
 
 # The language pack's detector of a text's language, on a made-up file of a few rows: the app
 # must read it as the Python that wrote it does (tools/nllb/lid.py toy).
@@ -292,10 +307,12 @@ check "Language pack: gone again" "language pack: not installed" "$BIN" --pack
 
 # The shortcut: as the settings keep it, and its page of the settings.
 T=(-googleEnabled YES -defaultEngine google -languages '(en, ru, lv)' -defaultLanguage ru -typingLanguage none -setupDone YES)
-check "Shortcut: ⌃⌥T unless another is set" 'shortcut: ⌃⌥T (kept as "control+option+17")' "$BIN" --shortcut-check
-check "Shortcut: macOS takes one and lets it go" $'macOS takes a shortcut: yes (⌃⌥⇧⌘F19)\nand lets it go: yes' "$BIN" --shortcut-check
+check "Shortcut: ⌃⌥T as the settings keep it" 'shortcut: ⌃⌥T (kept as "control+option+17")' "$BIN" -shortcut "control+option+17" --shortcut-check
+check "Shortcut: macOS takes one and lets it go" $'macOS takes a shortcut: yes (⌃⌥⇧⌘F19)\nand lets it go: yes' "$BIN" -shortcut "control+option+17" --shortcut-check
 check "Shortcut: another one from the settings" "shortcut: ⌃⌥⇧K" "$BIN" -shortcut "control+option+shift+40" --shortcut-check
 check "Shortcut: none" "shortcut: none" "$BIN" -shortcut "" --shortcut-check
+check "An option the app does not know ends it: no second BTranslate starts by mistake" "unknown option --no-such-option" "$BIN" --no-such-option
+check "So does a mode without its value" "unknown option --login" "$BIN" --login
 PAGE="$("$BIN" "${T[@]}" --shortcut-page --picture build/uitest 2>&1 || true)"
 check "Shortcut's page: asks for the permission while there is none" "permission: asked for" echo "$PAGE"
 check "Shortcut's page: a click and three keys record one" 'recorded: ⌃⌥⇧K (kept as "control+option+shift+40")' echo "$PAGE"
@@ -315,7 +332,7 @@ typing() { env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" "$@" 2>&1 |
 TYPED="$(typing --type-check "A sentence of its own. And a second one?" --picture build/uitest)"
 check "Typing: written into the field while it is typed" $'typed: A sentence of its own. \n   in the field: EN:A sentence of its own. ; the panel shows: (nothing); live' echo "$TYPED"
 check "Typing: Return keeps it" "after Return: panel closed, in the field: EN:A sentence of its own. EN:And a second one?, pasted: (nothing)" echo "$TYPED"
-check "Typing: a finished sentence is translated once" "1" grep -c '"q": "A sentence of its own."' "$LOG"
+check "Typing: a finished sentence is translated once" "seen 1 time(s)" seen '"q": "A sentence of its own."'
 check "Typing: every text of the panel fits" "every text of the panel fits: yes" echo "$TYPED"
 check "Typing: the language chosen in the panel" "in the field: LV:Hello" typing --to Latvian --type-check "Hello"
 check "Typing: the panel opens with the language of the settings" "writes in: lv" typing -typingLanguage lv --type-check "Hello"
@@ -326,6 +343,14 @@ check "Typing: a field that can't be written into: the panel shows the translati
 check "Typing: and Return pastes it" "after Return: panel closed, in the field: (nothing), pasted: EN:Good morning." echo "$NOFIELD"
 check "Typing: a field that stops taking text: Return copies the translation" "copied: EN:Good morning. EN:How are you?" \
     typing --field stuck --type-check "Good morning. How are you?"
+check "Typing: a click elsewhere ends the panel, and pastes and copies nothing" \
+    "after a click elsewhere: panel closed, in the field: (nothing), pasted: (nothing), copied: (nothing)" \
+    typing --field none --click --type-check "Good morning."
+check "Typing: a click elsewhere keeps what is written there" "after a click elsewhere: panel closed, in the field: EN:Good morning., pasted: (nothing)" \
+    typing --click --type-check "Good morning."
+check "Typing: Esc while a text is on its way into a slow field takes that out too" \
+    $'Esc while the text is on its way: yes\nafter Esc: panel closed, in the field: (nothing)' \
+    typing --field slow --esc-early --type-check "Good morning."
 check "Typing: without a translation the panel says why, and Return does not close it" \
     $'the panel shows: No internet connection.; live\nhint: ↩ done   ⎋ take it back\nafter Return: panel STILL OPEN' \
     env BTRANSLATE_GOOGLE_URL="$DEAD" "$BIN" "${T[@]}" -deviceEnabled NO --type-check "Good morning."
@@ -335,7 +360,7 @@ check "Typing, in Russian: every text of the panel fits" "every text of the pane
 # A window, translated: a picture that stands for a window (a heading, a paragraph, a list on
 # a dark side bar, buttons, lines in Latvian, Serbian and Russian) is read by macOS,
 # translated and painted over. The mock translator takes Cyrillic letters for Russian.
-"$BIN" --picture-make build/uitest/window.png
+"$BIN" --picture-make build/uitest/window.png || true
 PICTURE="$(typing --picture-check build/uitest/window.png --picture build/uitest)"
 check "Picture: a paragraph's lines are read as one text" "lines) The quick brown fox" echo "$PICTURE"
 check "Picture: the rows of a list are texts of their own" $'\n   Bearbeiten → RU2:Bearbeiten\n' echo "$PICTURE"
@@ -356,8 +381,8 @@ check "Picture, in Russian: its window" "the bar says: Перевод на ру�
     env BTRANSLATE_LANGUAGE=ru BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" --picture-window-check build/uitest/window.png --picture build/uitest-ru
 
 if [ "${1:-}" = "--live" ]; then
-    check "Google, live" "source: Latvian" "$BIN" --print --engine google "Labdien! Kā jums klājas?"
-    check "Keychain, live" "keychain: ok" "$BIN" --keychain-test
+    check "Google, live" "source: Latvian" env -u BTRANSLATE_CONNECTION "$BIN" --print --engine google "Labdien! Kā jums klājas?"
+    check "Keychain, live" "keychain: ok" env -u BTRANSLATE_KEYCHAIN "$BIN" --keychain-test
     check "BTranslate's language, live: chosen and read back" "language choice: ok" "$BIN" --language-test
     if env -u BTRANSLATE_OFFLINE "$BIN" --offline de en | grep -q "de → en: installed"; then
         check "Offline method, live: Apple's translation on this Mac" "source: German" \

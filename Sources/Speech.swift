@@ -1,5 +1,5 @@
 import AVFoundation
-import Cocoa
+import Foundation
 
 // Reading a text aloud. A voice of this Mac does it where there is one for the language:
 // offline, and nothing leaves the Mac. Where macOS has none (Latvian and Serbian among them),
@@ -135,7 +135,7 @@ func googleSpeech(_ text: String, code: String) async throws -> Data {
     req.timeoutInterval = 20
     req.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
     req.httpBody = Data(("f.req=" + (call.addingPercentEncoding(withAllowedCharacters: formSafe) ?? "")).utf8)
-    let (data, response) = try await URLSession.shared.data(for: req)
+    let (data, response) = try await net.data(for: req)
     let status = (response as? HTTPURLResponse)?.statusCode ?? 0
     guard status == 200 else { throw TranslateError.http(status, String(decoding: data, as: UTF8.self)) }
     guard let audio = parseGoogleSpeech(String(decoding: data, as: UTF8.self)), !audio.isEmpty else {
@@ -196,19 +196,21 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
             }
             playing = name
             task = Task { [weak self] in
+                // Fetch one piece ahead of the one playing, never the whole text at once.
+                let chunks = speechChunks(text)
+                var next: Task<Data, Error>? = chunks.first.map { c in Task { try await googleSpeech(c, code: googleCode) } }
                 do {
-                    // Fetch one piece ahead of the one playing, never the whole text at once.
-                    let chunks = speechChunks(text)
-                    var next: Task<Data, Error>? = chunks.first.map { c in Task { try await googleSpeech(c, code: googleCode) } }
                     for i in chunks.indices {
                         guard let fetch = next else { break }
-                        let audio = try await fetch.value
+                        // (A fetch is a task of its own: stopping has to reach it too.)
+                        let audio = try await withTaskCancellationHandler { try await fetch.value } onCancel: { fetch.cancel() }
                         next = i + 1 < chunks.count ? Task { try await googleSpeech(chunks[i + 1], code: googleCode) } : nil
                         try Task.checkCancellation()
                         await self?.play(audio)
                         try Task.checkCancellation()
                     }
                 } catch {
+                    next?.cancel()
                     if Task.isCancelled || error is CancellationError { return }
                     self?.onError?(name, isConnectionError(error) ? offline : describe(error))
                 }
@@ -260,6 +262,11 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
             self.playerFinished?.resume()
             self.playerFinished = nil
         }
+    }
+
+    /// Audio that can't be played ends the piece too, or its button would stay "playing".
+    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        audioPlayerDidFinishPlaying(player, successfully: false)
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {

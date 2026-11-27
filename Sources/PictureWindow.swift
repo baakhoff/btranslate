@@ -40,6 +40,7 @@ final class WindowShot: NSObject, SCContentSharingPickerObserver {
             waiting = continuation
             picker.present(using: .window)
         }
+        isChoosing = false  // the choosing is over: taking the picture must not hold the shortcut
         guard let chosen else { return nil }
         let scale = CGFloat(chosen.pointPixelScale)
         let rect = chosen.contentRect
@@ -76,13 +77,19 @@ final class WindowShot: NSObject, SCContentSharingPickerObserver {
     }
 
     nonisolated func contentSharingPicker(_ picker: SCContentSharingPicker, didUpdateWith filter: SCContentFilter, for stream: SCStream?) {
-        nonisolated(unsafe) let chosen = filter
-        DispatchQueue.main.async { MainActor.assumeIsolated { WindowShot.shared.answer(.success(chosen)) } }
+        let chosen = Carried(filter)
+        DispatchQueue.main.async { MainActor.assumeIsolated { WindowShot.shared.answer(.success(chosen.value)) } }
     }
 
     nonisolated func contentSharingPickerStartDidFailWithError(_ error: Error) {
         DispatchQueue.main.async { MainActor.assumeIsolated { WindowShot.shared.answer(.failure(error)) } }
     }
+}
+
+/// Takes a value that is used by one thread at a time over to another.
+private struct Carried<Value>: @unchecked Sendable {
+    let value: Value
+    init(_ value: Value) { self.value = value }
 }
 
 @MainActor
@@ -114,39 +121,12 @@ enum WindowPicture {
 
 // MARK: - The translated picture's window
 
-/// A panel that floats over the app you are in without becoming the active app, with a title
-/// bar to move and close it by. Esc and ⌘W close it, ⌘C copies the picture.
-final class PicturePanel: NSPanel {
-    var onClose: (() -> Void)?
-    var onCopy: (() -> Void)?
-
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
-
-    override func sendEvent(_ event: NSEvent) {
-        if event.type == .keyDown, event.keyCode == 53 { onClose?(); return }  // Esc
-        super.sendEvent(event)
-    }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-           let key = event.charactersIgnoringModifiers?.lowercased() {
-            switch key {
-            case "w", "q": onClose?(); return true  // ⌘Q here must not quit the background app
-            case "c": onCopy?(); return true
-            default: break
-            }
-        }
-        return super.performKeyEquivalent(with: event)
-    }
-}
-
 @MainActor
 final class PictureWindow: NSObject, NSWindowDelegate {
     static var current: PictureWindow?
     private static let bar: CGFloat = 36
 
-    let panel: PicturePanel
+    let panel: PopupPanel  // floats over the app you are in without becoming the active app; Esc and ⌘W close it, ⌘C copies
     private let original: CGImage
     private let scale: CGFloat
     private let pixels: Pixels?
@@ -204,7 +184,7 @@ final class PictureWindow: NSObject, NSWindowDelegate {
         var whole = NSWindow.frameRect(forContentRect: content, styleMask: style)
         whole.origin.x = min(max(whole.minX, visible.minX + 6), visible.maxX - whole.width - 6)
         whole.origin.y = min(max(whole.minY, visible.minY + 6), visible.maxY - whole.height - 6)
-        panel = PicturePanel(contentRect: NSWindow.contentRect(forFrameRect: whole, styleMask: style), styleMask: style,
+        panel = PopupPanel(contentRect: NSWindow.contentRect(forFrameRect: whole, styleMask: style), styleMask: style,
                              backing: .buffered, defer: false)
         super.init()
         build()
@@ -399,11 +379,9 @@ enum Note {
     private static var panel: PopupPanel?
     private static var monitor: Any?
     private static var number = 0
-    private(set) static var shown: String?
 
     static func show(_ text: String) {
         hide()
-        shown = text
         let width: CGFloat = 340, pad: CGFloat = 12
         let label = NSTextField(wrappingLabelWithString: text)
         label.font = .systemFont(ofSize: 12)

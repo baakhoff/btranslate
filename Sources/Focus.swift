@@ -1,4 +1,3 @@
-import ApplicationServices
 import Carbon.HIToolbox
 import Cocoa
 
@@ -60,8 +59,8 @@ enum ScreenAccess {
 enum Log {
     static let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/BTranslate.log")
     private static let lock = NSLock()
-    /// The command-line checks write nothing there.
-    nonisolated(unsafe) static var isOn = true
+    /// The command-line checks write nothing there (they set this before anything else runs).
+    static var isOn = true
 
     static func note(_ line: String) {
         guard isOn else { return }
@@ -72,8 +71,8 @@ enum Log {
         let size = (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0
         if size > 200_000 { try? FileManager.default.removeItem(at: file) }  // it starts anew
         if let handle = try? FileHandle(forWritingTo: file) {
-            handle.seekToEndOfFile()
-            handle.write(data)
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
             try? handle.close()
         } else {
             try? data.write(to: file)
@@ -103,7 +102,10 @@ extension AXUIElement {
     func range(_ attribute: String) -> CFRange? {
         guard let value = raw(attribute), CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
         var range = CFRange()
-        return AXValueGetValue(value as! AXValue, .cfRange, &range) ? range : nil
+        // An app that does not know answers with the oddest numbers: those are no answer.
+        guard AXValueGetValue(value as! AXValue, .cfRange, &range), range.location >= 0, range.length >= 0,
+              range.location <= Int(Int32.max), range.length <= Int(Int32.max) else { return nil }
+        return range
     }
 
     /// An attribute that takes a parameter, such as the text in a range.
@@ -160,11 +162,20 @@ extension AXUIElement {
 /// its bottom left corner upward. nil for a place no screen has (apps answer with those when
 /// they do not know).
 private func onScreen(_ rect: CGRect) -> NSRect? {
-    guard rect.height > 0, rect.height < 5000, rect.origin.x.isFinite, rect.origin.y.isFinite,
+    guard rect.height > 0, rect.height < 5000, rect.width >= 0, rect.width.isFinite, rect.origin.x.isFinite, rect.origin.y.isFinite,
           let first = NSScreen.screens.first else { return nil }
     let turned = NSRect(x: rect.minX, y: first.frame.height - rect.maxY, width: rect.width, height: rect.height)
     let probe = turned.insetBy(dx: -1, dy: -1)
     return NSScreen.screens.contains { $0.frame.intersects(probe) } ? turned : nil
+}
+
+/// Waits `seconds`, also in a task that has been cancelled (where `Task.sleep` returns at
+/// once): a writing into another app's field has to be seen through whoever called for it.
+@MainActor
+func waitOut(_ seconds: Double) async {
+    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { done.resume() }
+    }
 }
 
 // MARK: - What is under the keyboard
@@ -237,10 +248,17 @@ struct Focus {
         AXUIElementPerformAction(copy, kAXPressAction as CFString)
         var waited = 0
         while pasteboard.changeCount == before, waited < 20 {
-            try? await Task.sleep(nanoseconds: 20_000_000)
+            await waitOut(0.02)
             waited += 1
         }
-        guard pasteboard.changeCount != before else { return nil }
+        guard pasteboard.changeCount != before else {
+            // A slow app's Copy may land yet: it must not stay there in place of what was copied before.
+            Task { @MainActor in
+                for _ in 0..<20 where pasteboard.changeCount == before { await waitOut(0.1) }
+                if pasteboard.changeCount != before { Clipboard.put(back: kept) }
+            }
+            return nil
+        }
         let text = pasteboard.string(forType: .string)
         Clipboard.put(back: kept)
         return text
@@ -251,10 +269,14 @@ struct Focus {
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(appElement, 0.5)
         guard let bar = appElement.child(kAXMenuBarAttribute) else { return nil }
+        // An app that has stopped answering costs half a second a question: not more than a second of those.
+        let patience = Date().addingTimeInterval(1)
         for title in bar.children().dropFirst() {  // not the Apple menu
             for menu in title.children() {
-                for item in menu.children() where item.text(kAXMenuItemCmdCharAttribute) == key {
-                    guard ((item.raw(kAXMenuItemCmdModifiersAttribute) as? Int) ?? 0) == 0 else { continue }  // 0: ⌘ alone
+                for item in menu.children() {
+                    guard Date() < patience else { return nil }
+                    guard item.text(kAXMenuItemCmdCharAttribute) == key,
+                          ((item.raw(kAXMenuItemCmdModifiersAttribute) as? Int) ?? 0) == 0 else { continue }  // 0: ⌘ alone
                     return (item.raw(kAXEnabledAttribute) as? Bool) == true ? item : nil
                 }
             }
@@ -346,7 +368,7 @@ final class AXField: TextSink {
     /// A writing that was not seen to arrive in time. A slow app may have taken it all the same.
     private var unseen: (text: String, whole: String)?
 
-    init(element: AXUIElement, app: NSRunningApplication?, writable: Bool = true) {
+    init(element: AXUIElement, app: NSRunningApplication?, writable: Bool) {
         self.element = element
         self.app = app
         self.writable = writable
@@ -389,8 +411,33 @@ final class AXField: TextSink {
         return plain(a) == plain(b)
     }
 
+    /// Whether a field that should hold `expected` holds it still, give or take what an app
+    /// corrects by itself (a letter, a quote mark). False for another text altogether: the
+    /// app has put something else in that place (another chat's draft, say), and that is not ours to write over.
+    nonisolated static func near(_ found: String?, _ expected: String) -> Bool {
+        guard let found else { return false }
+        if alike(found, expected) { return true }
+        let a = Array(found), b = Array(expected)
+        guard !a.isEmpty, !b.isEmpty else { return false }
+        var head = 0
+        while head < a.count, head < b.count, a[head] == b[head] { head += 1 }
+        var tail = 0
+        while tail < a.count - head, tail < b.count - head, a[a.count - 1 - tail] == b[b.count - 1 - tail] { tail += 1 }
+        if (head + tail) * 10 >= max(a.count, b.count) * 7 { return true }  // one place changed
+        // Several places changed (quote marks turned, say): most of the words are still there.
+        func words(_ text: String) -> Set<Substring> { Set(text.split(whereSeparator: \.isWhitespace)) }
+        let ours = words(expected)
+        return ours.intersection(words(found)).count * 10 >= ours.count * 6
+    }
+
     func write(_ text: String) async -> Bool {
-        if text == written { return true }
+        // A first writing that was not seen to arrive: taking everything out again waits for it a moment.
+        var waited = 0
+        while text.isEmpty, way == nil, unseen != nil, waited < 10, !arrivedLate() {
+            await waitOut(0.1)
+            waited += 1
+        }
+        if text == written, unseen == nil { return true }
         guard writable else { return false }
         if let way {
             switch way {
@@ -444,8 +491,11 @@ final class AXField: TextSink {
         // Only what differs is replaced, so the sentences before stay as they are. That needs
         // the field to hold what was written, letter for letter.
         var keep = 0
-        if old == (written as NSString).length, element.string(in: CFRange(location: start, length: old)) == written {
+        let there = element.string(in: CFRange(location: start, length: old))
+        if old == (written as NSString).length, there == written {
             keep = AXField.sharedStart(written, text)
+        } else if old > 0, let there, !AXField.near(there, written) {
+            return false  // not what was written there: see `near`
         }
         let rest = (text as NSString).substring(from: keep)
         guard element.select(CFRange(location: start + keep, length: old - keep)),
@@ -459,7 +509,7 @@ final class AXField: TextSink {
                 length = element.raw(kAXNumberOfCharactersAttribute) as? Int
                 return true
             }
-            if attempt < 7 { try? await Task.sleep(nanoseconds: 30_000_000) }
+            if attempt < 7 { await waitOut(0.03) }
         }
         return false
     }
@@ -467,6 +517,10 @@ final class AXField: TextSink {
     private func writeWhole(_ text: String) async -> Bool {
         guard let start, let around else { return false }
         let whole = around.before + text + around.after
+        // The field is set whole: only while it holds what was found in it and written into it.
+        let now = element.text(kAXValueAttribute)
+        guard AXField.near(now, around.before + written + around.after) || (now ?? "").isEmpty && (around.before + written + around.after).isEmpty
+                || unseen.map({ AXField.alike(now, $0.whole) }) == true else { return false }
         guard element.set(kAXValueAttribute, whole as CFString) else { return false }
         for attempt in 0..<14 {  // a web page takes it a moment later
             if AXField.alike(element.text(kAXValueAttribute), whole) {
@@ -475,7 +529,7 @@ final class AXField: TextSink {
                 element.select(CFRange(location: start + (text as NSString).length, length: 0))  // the cursor behind what was written
                 return true
             }
-            if attempt < 13 { try? await Task.sleep(nanoseconds: 50_000_000) }
+            if attempt < 13 { await waitOut(0.05) }
         }
         unseen = (text, whole)
         return false
@@ -509,8 +563,13 @@ final class AXField: TextSink {
         pasteboard.setString(text, forType: .string)
         // Clipboard managers leave alone what is marked so (nspasteboard.org).
         pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
-        try? await Task.sleep(nanoseconds: 150_000_000)  // the app has the keyboard again by then
-        if let app, let command = Focus.menuCommand(of: app, key: "V") {
+        let mine = pasteboard.changeCount
+        await waitOut(0.15)  // the app has the keyboard again by then
+        // Only into the app it was typed for: another one in front by now gets nothing pasted.
+        var patience = 0.4
+        if let app, NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier {
+            Log.note("typing: not pasted, another app is in front")
+        } else if let app, let command = Focus.menuCommand(of: app, key: "V") {
             AXUIElementPerformAction(command, kAXPressAction as CFString)
         } else {
             let source = CGEventSource(stateID: .combinedSessionState)
@@ -519,8 +578,9 @@ final class AXField: TextSink {
                 key?.flags = .maskCommand
                 key?.post(tap: .cghidEventTap)
             }
+            patience = 0.8  // a key press is read later than a menu command is carried out
         }
-        try? await Task.sleep(nanoseconds: 400_000_000)
-        Clipboard.put(back: kept)
+        await waitOut(patience)
+        if pasteboard.changeCount == mine { Clipboard.put(back: kept) }  // not over something copied since
     }
 }

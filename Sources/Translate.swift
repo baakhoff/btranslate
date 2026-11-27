@@ -1,6 +1,20 @@
 import Foundation
 import NaturalLanguage
 
+// MARK: - The network
+
+/// Every request goes through this session, and it keeps nothing: no answers on disk, and
+/// no cookies (Google sets one with its first answer, and would get it back with every text).
+let net: URLSession = {
+    let setup = URLSessionConfiguration.ephemeral
+    setup.urlCache = nil
+    setup.requestCachePolicy = .reloadIgnoringLocalCacheData
+    setup.httpCookieStorage = nil
+    setup.httpShouldSetCookies = false
+    setup.httpCookieAcceptPolicy = .never
+    return URLSession(configuration: setup)
+}()
+
 // MARK: - Errors
 
 enum TranslateError: Error {
@@ -294,13 +308,17 @@ func googleTranslate(_ text: String, from: String = "auto", to code: String) asy
             req.timeoutInterval = 20
             req.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
             req.httpBody = Data(("q=" + (chunk.addingPercentEncoding(withAllowedCharacters: formSafe) ?? "")).utf8)
-            let (data, response) = try await URLSession.shared.data(for: req)
+            let (data, response) = try await net.data(for: req)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 200, let (t, s) = endpoint.parse(data) {
                 piece = t
                 if source == nil { source = s }
             } else {
-                if status != 200 { lastError = TranslateError.http(status, String(decoding: data, as: UTF8.self)) }
+                if status == 429 {
+                    lastError = TranslateError.http(429, "")
+                } else if status != 200 {
+                    lastError = TranslateError.other(L("Google Translate answered HTTP %ld. Try again later, or switch to another method.", status))
+                }
                 endpoints.removeFirst()  // this endpoint is refusing: use the next one from here on
             }
         }
@@ -379,7 +397,7 @@ private func openAIRequest(system: String, user: String, config: Config, key: St
 }
 
 private func openStream(_ request: URLRequest) async throws -> URLSession.AsyncBytes {
-    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+    let (bytes, response) = try await net.bytes(for: request)
     let status = (response as? HTTPURLResponse)?.statusCode ?? 0
     if status != 200 {
         var body = ""
@@ -409,9 +427,21 @@ func splitCode(_ raw: String) -> (code: String?, body: String, ready: Bool) {
 func aiTranslate(_ text: String, target: Target, source: Target? = nil, config: Config, key: String,
                  system: String? = nil, user: String? = nil,
                  update: @MainActor (_ source: String?, _ translation: String) -> Void) async throws {
+    do {
+        try await askModel(system: system ?? systemPrompt(target, source: source),
+                           user: user ?? userMessage(text, target: target, source: source), config: config, key: key, update: update)
+    } catch let error where isConnectionError(error) && isLocalAddress(config.baseURL) {
+        // A server on this Mac or in its network: not the internet's fault.
+        let url = URL(string: config.baseURL)
+        let address = [url?.host, url?.port.map(String.init)].compactMap { $0 }.joined(separator: ":")
+        throw TranslateError.other(L("The AI server at %@ is not answering. Is it running?", address))
+    }
+}
+
+@MainActor
+private func askModel(system: String, user: String, config: Config, key: String,
+                      update: @MainActor (_ source: String?, _ translation: String) -> Void) async throws {
     let api = config.provider.api
-    let system = system ?? systemPrompt(target, source: source)
-    let user = user ?? userMessage(text, target: target, source: source)
     let bytes: URLSession.AsyncBytes
     switch api {
     case .anthropic:
@@ -468,6 +498,8 @@ func aiTranslate(_ text: String, target: Target, source: Target? = nil, config: 
     }
     if stopReason == "max_tokens" || stopReason == "length" {
         final += "\n\n" + L("[Cut off here: the text is too long for one answer.]")
+    } else if stopReason == "refusal" || stopReason == "content_filter" {
+        final += "\n\n" + L("[The model stopped here and declined the rest.]")
     }
     update(code, final)
 }
@@ -485,7 +517,7 @@ func listModels(config: Config, key: String) async throws -> [String] {
     } else if !key.isEmpty {
         req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
     }
-    let (data, response) = try await URLSession.shared.data(for: req)
+    let (data, response) = try await net.data(for: req)
     let status = (response as? HTTPURLResponse)?.statusCode ?? 0
     guard status == 200 else { throw TranslateError.http(status, String(decoding: data, as: UTF8.self)) }
     guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -512,23 +544,18 @@ func translate(_ text: String, engine: Engine, target: Target, source: Target? =
         update(source?.google ?? detected, translation)
     case .ai:
         guard !config.baseURL.isEmpty else { throw TranslateError.noServer }
-        let key = Keychain.read(config.providerID) ?? ""
+        let key = AISetup.key(config.providerID) ?? ""
         if key.isEmpty && config.providerID != "custom" { throw TranslateError.noKey(config.provider.name) }
-        do {
-            try await aiTranslate(text, target: target, source: source, config: config, key: key) { detected, translation in
-                // Models call Serbian in Latin letters "sh" (Serbo-Croatian) at times: it is Serbian here.
-                update(source?.google ?? (detected == "sh" ? "sr" : detected), translation)
-            }
-        } catch let error where isConnectionError(error) && isLocalAddress(config.baseURL) {
-            // A server on this Mac or in its network: not the internet's fault.
-            let url = URL(string: config.baseURL)
-            let address = [url?.host, url?.port.map(String.init)].compactMap { $0 }.joined(separator: ":")
-            throw TranslateError.other(L("The AI server at %@ is not answering. Is it running?", address))
+        try await aiTranslate(text, target: target, source: source, config: config, key: key) { detected, translation in
+            // Models call Serbian in Latin letters "sh" (Serbo-Croatian) at times: it is Serbian here.
+            update(source?.google ?? (detected == "sh" ? "sr" : detected), translation)
         }
     case .device:
-        // The language pack sends what it has after each sentence; nothing of that may arrive after the end.
+        // The language pack sends what it has after each sentence; nothing of that may arrive
+        // after the end, however it ends (done, failed or cancelled).
         final class Progress: @unchecked Sendable { var over = false }
         let progress = Progress()
+        defer { progress.over = true }
         let (translation, from) = try await OnDevice.translate(text, from: source, to: target) { code, soFar in
             Task { @MainActor in
                 if !progress.over { update(code, soFar) }

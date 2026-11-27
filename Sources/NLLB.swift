@@ -15,8 +15,10 @@ import NaturalLanguage
 // pack's languages.
 //
 // The model is loaded for a translation and let go right after it. Loading takes a tenth of
-// a second, because macOS keeps the form of the model it prepared for the Neural Engine: that
-// preparation, about a quarter of a minute, is done once, when the pack is installed.
+// a second, because macOS keeps the form of the model it prepared for the Neural Engine, a
+// gigabyte among the app's caches. That preparation takes a quarter of a minute and leaves a
+// gigabyte and a half in the process that did it, so it is done in a process of its own: when
+// the pack is installed, and again after an update of macOS, which prepares anew.
 //
 // The model has to be told the language of the text. Told a wrong one it writes nonsense, so
 // the Offline method only uses it when it is sure of the language (OnDevice.swift). It
@@ -54,15 +56,18 @@ enum LanguagePack {
         let files: [File]
     }
 
-    private static var cached: Manifest??
+    private static var cached: (written: Date?, manifest: Manifest?)?
     private static let lock = NSLock()  // it is asked about from several threads at once
 
-    /// The installed pack's manifest: written last, when everything else is in place.
+    /// The installed pack's manifest: written last, when everything else is in place. It is
+    /// read again when the file is another one (the installer, or a second BTranslate, put it there).
     static func installed() -> Manifest? {
-        lock.withLock {
-            if let cached { return cached }
-            let manifest = (try? Data(contentsOf: folder.appendingPathComponent("pack.json"))).flatMap { try? JSONDecoder().decode(Manifest.self, from: $0) }
-            cached = .some(manifest)
+        let file = folder.appendingPathComponent("pack.json")
+        let written = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date
+        return lock.withLock {
+            if let cached, cached.written == written { return cached.manifest }
+            let manifest = written == nil ? nil : (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(Manifest.self, from: $0) }
+            cached = (written, manifest)
             return manifest
         }
     }
@@ -74,7 +79,32 @@ enum LanguagePack {
 
     static func remove() {
         try? FileManager.default.removeItem(at: folder)
+        forgetPrepared()
         refresh()
+    }
+
+    /// Where macOS keeps what it made of the models for the Neural Engine: about 1 GB that no
+    /// removal or reinstall of the pack takes away by itself. nil while a test keeps the pack
+    /// in a folder of its own: the real pack's is then left alone.
+    private static var prepared: URL? {
+        guard ProcessInfo.processInfo.environment["BTRANSLATE_PACK_DIR"] == nil, let id = Bundle.main.bundleIdentifier,
+              let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
+        return caches.appendingPathComponent(id).appendingPathComponent("com.apple.e5rt.e5bundlecache")
+    }
+
+    static func forgetPrepared() {
+        if let prepared { try? FileManager.default.removeItem(at: prepared) }
+    }
+
+    /// Whether macOS has prepared the models, for the version of itself that runs now (it
+    /// keeps them by its build number). True where that can't be told.
+    static var isPrepared: Bool {
+        guard let prepared else { return true }
+        var build = [CChar](repeating: 0, count: 64)
+        var size = build.count
+        guard sysctlbyname("kern.osversion", &build, &size, nil, 0) == 0 else { return true }
+        let kept = try? FileManager.default.contentsOfDirectory(atPath: prepared.appendingPathComponent(String(cString: build)).path)
+        return (kept ?? []).count >= 2
     }
 }
 
@@ -229,7 +259,15 @@ final class NLLBTokenizer {
 
     private func encode(word: String) -> [Int32] {
         if let done = known[word] { return done }
-        var parts = ["▁"] + word.unicodeScalars.map { String($0) }
+        // An endless "word" (an address, a line of code) in pieces: the pairing below takes
+        // the square of a word's length in time.
+        let letters = Array(word.unicodeScalars)
+        if letters.count > 200 {
+            return stride(from: 0, to: letters.count, by: 200).flatMap { start in
+                encode(word: String(String.UnicodeScalarView(letters[start..<min(start + 200, letters.count)])))
+            }
+        }
+        var parts = ["▁"] + letters.map { String($0) }
         while parts.count > 1 {
             var best = Int32.max, at = -1
             for i in 0..<(parts.count - 1) {
@@ -332,6 +370,7 @@ final class NLLBEngine: @unchecked Sendable {
     private let queue = DispatchQueue(label: "io.github.baakhoff.btranslate.nllb")
     private let lock = NSLock()
     private var waiting = 0  // translations asked for and not done: with none left, the model is let go
+    private var checked = false  // whether macOS has the models prepared has been looked into, this run
     // Used on `queue` only:
     private var manifest: LanguagePack.Manifest?
     private var encoder: MLModel?, decoder: MLModel?
@@ -352,6 +391,11 @@ final class NLLBEngine: @unchecked Sendable {
     /// the translation so far after each sentence. The model is loaded if it is not, and let
     /// go when no other translation is waiting for it.
     func translate(_ text: String, from source: String, to target: String, partial: @escaping @Sendable (String) -> Void) async throws -> String {
+        // After an update of macOS the models are prepared anew: apart, once (see the top of this file).
+        if !lock.withLock({ checked }) {
+            if !LanguagePack.isPrepared { try? await NLLBEngine.prepareApart() }
+            lock.withLock { checked = true }
+        }
         lock.withLock { waiting += 1 }
         let stop = Flag()
         return try await withTaskCancellationHandler {
@@ -381,6 +425,30 @@ final class NLLBEngine: @unchecked Sendable {
                 done.resume(with: result)
             }
         }
+    }
+
+    /// The same in a process of its own (this program again, as `--pack-prepare`): what the
+    /// preparation leaves in memory goes with that process.
+    static func prepareApart() async throws {
+        guard let program = Bundle.main.executableURL else { return try await shared.prepare() }
+        let helper = Process(), said = Pipe()
+        helper.executableURL = program
+        helper.arguments = ["--pack-prepare"]
+        helper.standardOutput = said
+        helper.standardError = FileHandle.nullDevice
+        helper.qualityOfService = .userInitiated  // wanted now, though the app waits in the background
+        let status: Int32 = try await withCheckedThrowingContinuation { done in
+            helper.terminationHandler = { done.resume(returning: $0.terminationStatus) }
+            do {
+                try helper.run()
+            } catch {
+                helper.terminationHandler = nil
+                done.resume(throwing: error)
+            }
+        }
+        guard status != 0 else { return }
+        let why = String(decoding: said.fileHandleForReading.availableData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        throw NSError(domain: "BTranslate", code: Int(status), userInfo: [NSLocalizedDescriptionKey: why.isEmpty ? "\(status)" : why])
     }
 
     private func load() throws {
@@ -432,7 +500,10 @@ final class NLLBEngine: @unchecked Sendable {
             if complete || depth >= 6 { return tokenizer.decode(translation) }
         }
         guard depth < 6, let (first, second) = NLLBText.halves(sentence) else {
-            return tokenizer.decode(try search(Array(numbers.prefix(room)), from: from, to: to, stop: stop).tokens)
+            // Nothing to cut it at (no spaces: Chinese, Japanese): as many tokens at a time as fit, to its end.
+            return try stride(from: 0, to: numbers.count, by: room).map { start in
+                tokenizer.decode(try search(Array(numbers[start..<min(start + room, numbers.count)]), from: from, to: to, stop: stop).tokens)
+            }.joined(separator: " ")
         }
         return try translate(sentence: first, from: from, to: to, stop: stop, depth: depth + 1) + " "
             + translate(sentence: second, from: from, to: to, stop: stop, depth: depth + 1)
@@ -503,6 +574,7 @@ private final class FileDownload: NSObject, URLSessionDataDelegate, @unchecked S
     private let progress: @Sendable (Int) -> Void  // bytes of this file on disk so far
     private var handle: FileHandle?
     private var written = 0
+    private var reported = 0
     private var failure: Error?
     private var done: CheckedContinuation<Void, Error>?
     private var task: URLSessionDataTask?
@@ -520,17 +592,19 @@ private final class FileDownload: NSObject, URLSessionDataDelegate, @unchecked S
         var request = URLRequest(url: url)
         request.timeoutInterval = 60
         if written > 0 { request.setValue("bytes=\(written)-", forHTTPHeaderField: "Range") }
+        reported = written
+        defer { session.finishTasksAndInvalidate() }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
                 self.done = done
                 let task = session.dataTask(with: request)
                 self.task = task
                 task.resume()
+                if Task.isCancelled { task.cancel() }  // cancelled before there was a task to cancel
             }
         } onCancel: {
             self.task?.cancel()
         }
-        session.finishTasksAndInvalidate()
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
@@ -552,8 +626,13 @@ private final class FileDownload: NSObject, URLSessionDataDelegate, @unchecked S
             completionHandler(.cancel)
             return
         }
-        handle = try? FileHandle(forWritingTo: file)
-        _ = try? handle?.seekToEnd()
+        guard let handle = try? FileHandle(forWritingTo: file) else {
+            failure = CocoaError(.fileWriteUnknown)  // nowhere to put it: not a download into nothing
+            completionHandler(.cancel)
+            return
+        }
+        _ = try? handle.seekToEnd()
+        self.handle = handle
         completionHandler(.allow)
     }
 
@@ -561,7 +640,11 @@ private final class FileDownload: NSObject, URLSessionDataDelegate, @unchecked S
         do {
             try handle?.write(contentsOf: data)
             written += data.count
-            progress(written)
+            // Said by the megabyte: every change is shown, and there are hundreds of pieces a second.
+            if written - reported >= 1_000_000 {
+                reported = written
+                progress(written)
+            }
         } catch {
             failure = error
             dataTask.cancel()
@@ -586,7 +669,13 @@ func sha256(of file: URL) throws -> String {
     let handle = try FileHandle(forReadingFrom: file)
     defer { try? handle.close() }
     var hasher = SHA256()
-    while let block = try handle.read(upToCount: 4 << 20), !block.isEmpty { hasher.update(data: block) }
+    var more = true
+    while more {
+        try autoreleasepool {  // or every block read stays in memory until the end
+            guard let block = try handle.read(upToCount: 4 << 20), !block.isEmpty else { more = false; return }
+            hasher.update(data: block)
+        }
+    }
     return hasher.finalize().map { String(format: "%02x", $0) }.joined()
 }
 
@@ -661,6 +750,12 @@ final class PackInstaller {
         state = .absent
     }
 
+    /// The pack may have come or gone by another hand (the installer, a terminal): what is on disk counts.
+    func lookAgain() {
+        guard !isBusy, state != .waiting else { return }
+        if (state == .installed) != LanguagePack.isInstalled { state = LanguagePack.isInstalled ? .installed : .absent }
+    }
+
     static func explain(_ error: Error) -> String {
         switch error {
         case TranslateError.http(404, _): return L("The language pack is not at its address (HTTP 404). It may not be published yet.")
@@ -670,13 +765,18 @@ final class PackInstaller {
     }
 
     private func install() async throws {
+        let files = FileManager.default
         let folder = LanguagePack.folder, incoming = folder.appendingPathComponent("incoming")
         guard let base = URL(string: LanguagePack.address) else { throw TranslateError.noServer }
-        try FileManager.default.createDirectory(at: incoming, withIntermediateDirectories: true)
+        try files.createDirectory(at: incoming, withIntermediateDirectories: true)
+        // One download at a time, also between two BTranslates (the installer's and the app).
+        let only = open(folder.appendingPathComponent("installing").path, O_CREAT | O_RDWR, 0o600)
+        defer { if only >= 0 { close(only) } }
+        if only >= 0, flock(only, LOCK_EX | LOCK_NB) != 0 { throw NLLBError.broken(L("another BTranslate is downloading it right now")) }
 
         var request = URLRequest(url: base.appendingPathComponent(LanguagePack.manifestName))
         request.timeoutInterval = 30
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await net.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else { throw TranslateError.http(status, "") }
         guard let manifest = try? JSONDecoder().decode(LanguagePack.Manifest.self, from: data), !manifest.files.isEmpty else {
@@ -690,7 +790,7 @@ final class PackInstaller {
             try Task.checkCancellation()
             let target = incoming.appendingPathComponent(file.path)
             for attempt in 1...2 {
-                let size = ((try? FileManager.default.attributesOfItem(atPath: target.path))?[.size] as? Int) ?? 0
+                let size = ((try? files.attributesOfItem(atPath: target.path))?[.size] as? Int) ?? 0
                 if size < file.size {
                     let start = before
                     try await FileDownload(to: target) { [weak self] written in
@@ -699,37 +799,41 @@ final class PackInstaller {
                         }
                     }.run(from: base.appendingPathComponent(file.name))
                 }
-                if (try? sha256(of: target)) == file.sha256 { break }
-                try? FileManager.default.removeItem(at: target)
+                // (Not on the main thread: half a gigabyte is read.)
+                if await Task.detached(operation: { try? sha256(of: target) }).value == file.sha256 { break }
+                try? files.removeItem(at: target)
                 if attempt == 2 { throw NLLBError.broken(L("the file %@ arrived damaged", file.name)) }
             }
             before += file.size
             state = .downloading(done: before, total: total)
         }
 
-        // Everything is here and whole: put it in place, and have macOS make the models ready.
+        // Everything is here and whole. The models are compiled where they arrived: until all
+        // of this is done, what is on disk is a download that can be gone on with.
         state = .preparing
         try Task.checkCancellation()
-        LanguagePack.refresh()
-        for file in manifest.files {
-            let target = folder.appendingPathComponent(file.path)
-            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? FileManager.default.removeItem(at: target)
-            try FileManager.default.moveItem(at: incoming.appendingPathComponent(file.path), to: target)
+        let parts = ["encoder", "decoder"].filter { files.fileExists(atPath: incoming.appendingPathComponent("\($0).mlpackage").path) }
+        for part in parts {
+            let compiled = try await MLModel.compileModel(at: incoming.appendingPathComponent("\(part).mlpackage"))
+            let target = incoming.appendingPathComponent("\(part).mlmodelc")
+            try? files.removeItem(at: target)
+            try files.moveItem(at: compiled, to: target)
         }
-        try? FileManager.default.removeItem(at: incoming)
-        for part in ["encoder", "decoder"] where FileManager.default.fileExists(atPath: folder.appendingPathComponent("\(part).mlpackage").path) {
-            let compiled = try await MLModel.compileModel(at: folder.appendingPathComponent("\(part).mlpackage"))
-            let target = folder.appendingPathComponent("\(part).mlmodelc")
-            try? FileManager.default.removeItem(at: target)
-            try FileManager.default.moveItem(at: compiled, to: target)
-            try? FileManager.default.removeItem(at: folder.appendingPathComponent("\(part).mlpackage"))  // the compiled copy is the one in use
+        // Into place: the compiled models (the ones in use), and every file that is not a part of a model's package.
+        LanguagePack.forgetPrepared()  // what macOS prepared of an earlier install is of no use to this one
+        let loose = manifest.files.map(\.path).filter { !$0.contains(".mlpackage/") }
+        for name in parts.map({ "\($0).mlmodelc" }) + loose {
+            let target = folder.appendingPathComponent(name)
+            try files.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? files.removeItem(at: target)
+            try files.moveItem(at: incoming.appendingPathComponent(name), to: target)
         }
         try data.write(to: folder.appendingPathComponent("pack.json"))  // last: this is what says "installed"
+        try? files.removeItem(at: incoming)
         LanguagePack.refresh()
-        if FileManager.default.fileExists(atPath: folder.appendingPathComponent("encoder.mlmodelc").path) {
+        if !parts.isEmpty {
             do {
-                try await NLLBEngine.shared.prepare()
+                try await NLLBEngine.prepareApart()
             } catch {
                 LanguagePack.remove()
                 throw NLLBError.broken(L("macOS could not load the model (%@)", error.localizedDescription))

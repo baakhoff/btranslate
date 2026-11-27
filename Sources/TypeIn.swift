@@ -177,7 +177,7 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
         panel.makeFirstResponder(input)
         // A click anywhere else: the text stays as it is written there.
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
-            MainActor.assumeIsolated { self?.finish() }
+            MainActor.assumeIsolated { self?.finish(byReturn: false) }
         }
     }
 
@@ -212,41 +212,57 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
     }
 
     /// Return, or a click elsewhere: what is typed is translated to its end, and stays there.
-    func finish() {
+    /// Only Return pastes or copies it where it could not be written: after a click, the
+    /// keyboard may be somewhere else by now, and the clipboard is not the panel's to change unasked.
+    func finish(byReturn: Bool = true) {
         guard !closed, !finishing else { return }
         finishing = true
         task?.cancel()
         number += 1
-        let mine = number, text = input.string
+        let mine = number, text = input.string, before = way
         Task { @MainActor in
             guard await self.translateNow(text, number: mine) else {
                 self.finishing = false  // the reason is showing: the panel stays for another try, or Esc
                 return
             }
             let made = self.translation, way = self.way
-            self.close()
-            switch way {
-            case .live: break
-            case .atEnd: await self.sink.paste(made)
-            case .stuck: self.copy(made)
+            if way == .stuck, before != .stuck {
+                self.finishing = false  // the field stopped taking the text just now: the panel says so, and stays
+                return
             }
-            Log.note("typing: done, \(made.count) characters, \(way)")
+            self.close()
+            if byReturn {
+                switch way {
+                case .live: break
+                case .atEnd: await self.sink.paste(made)
+                case .stuck: self.copy(made)
+                }
+            }
+            Log.note("typing: done, \(made.count) characters, \(way)\(byReturn || way == .live ? "" : ", put away")")
         }
     }
 
-    /// Esc: what was written there is taken out again.
+    /// Esc: what was written there is taken out again, also what is on its way there now.
     func cancel() {
         guard !closed else { return }
-        let written = way == .live && !translation.isEmpty
         close()
-        if written { Task { @MainActor in _ = await self.sink.write("") } }
+        Task { @MainActor in
+            while self.writing { await waitOut(0.01) }
+            _ = await self.sink.write("")
+        }
         Log.note("typing: cancelled")
+    }
+
+    /// The shortcut again: as Return; a panel that only says why it can't translate goes away as it is.
+    func putAway() {
+        guard !closed else { return }
+        if message == nil { finish() } else { close() }
     }
 
     func windowDidResignKey(_ notification: Notification) {
         if menuOpen || closed { return }
         if let delegate = NSApp.delegate as? AppDelegate, Date() < delegate.handBackUntil { return }
-        finish()
+        finish(byReturn: false)
     }
 
     @objc private func menuDidOpen() { menuOpen = true }
@@ -337,11 +353,12 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
         translation = out
         if way == .live {
             // One writing at a time: a second one waits for the first to be in the field.
-            while writing { try? await Task.sleep(nanoseconds: 10_000_000) }
+            while writing { await waitOut(0.01) }
             guard mine == number, !closed else { return false }
             writing = true
             let taken = await sink.write(out)
             writing = false
+            guard !closed else { return false }
             if taken {
                 if let place = sink.place { hang(by: place, first: false) }
             } else {
@@ -349,7 +366,7 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
                 way = sink.written.isEmpty ? .atEnd : .stuck
                 Log.note("typing: the field does not take the text (\(way))")
             }
-            guard mine == number, !closed else { return false }  // typed on meanwhile
+            guard mine == number else { return false }  // typed on meanwhile
         }
         layout()
         onChange?()

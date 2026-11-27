@@ -404,6 +404,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         aiBox.state = config.aiEnabled ? .on : .off
         deviceBox.isEnabled = OnDevice.isAvailable
         deviceBox.state = config.deviceEnabled && OnDevice.isAvailable ? .on : .off
+        PackInstaller.shared.lookAgain()
         refreshPack()
         refreshOffline()
         providerMenu.selectItem(at: providers.firstIndex { $0.id == config.providerID } ?? 0)
@@ -427,7 +428,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         modelBox.stringValue = keepModel ?? provider.models.first ?? ""
         urlRow?.isHidden = provider.id != "custom"
         keyField.stringValue = ""
-        let saved = Keychain.read(provider.id) != nil
+        let saved = AISetup.hasKey(provider.id)
         keyField.placeholderString = saved ? L("Saved in your Keychain. Paste a new key to replace it.") : L("Paste your API key")
         keyHelp.stringValue = provider.keyHelp + " " + L("The key is stored in your Mac's Keychain.")
         loadModels()
@@ -454,6 +455,9 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         defaultControl.selectedSegment = offered.firstIndex(of: chosenDefault) ?? 0
         defaultControl.isEnabled = offered.count > 1
     }
+
+    private var packKind = ""  // "downloading", "installed"…: the state the page was last made to fit
+    private var offlineTask: Task<Void, Never>?
 
     private func refreshPack() {
         func megabytes(_ bytes: Int) -> String { L("%ld MB", bytes / 1_000_000) }
@@ -490,6 +494,10 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         packNote.stringValue = note
         packNote.textColor = color
         packButton.title = button
+        // The rest only when the state is another one, not for every megabyte of a download.
+        let kind = String(String(describing: PackInstaller.shared.state).prefix { $0 != "(" })
+        guard kind != packKind else { return }
+        packKind = kind
         // With the pack a Mac has an Offline method even where macOS has none of its own.
         let was = deviceBox.isEnabled
         deviceBox.isEnabled = OnDevice.isAvailable
@@ -514,8 +522,10 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
 
     /// Asks which languages the Offline method has, for the marks in the language lists.
     private func refreshOffline() {
-        Task { [weak self] in
+        offlineTask?.cancel()  // one question at a time: an older answer must not land on a newer one
+        offlineTask = Task { [weak self] in
             let statuses = await OnDevice.statuses(of: allTargets.map(\.id))
+            guard !Task.isCancelled else { return }
             self?.languageEditor.offline = statuses
         }
     }
@@ -536,6 +546,10 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
 
     func windowDidBecomeKey(_ notification: Notification) {
         refreshOffline()  // a language may have been downloaded or removed in System Settings meanwhile
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        shortcutField.stop()  // while it records, no shortcut is listened for
     }
 
     private func setStatus(_ text: String, color: NSColor) {
@@ -637,7 +651,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
 
     private func currentKey() -> String {
         let typed = keyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        return typed.isEmpty ? (Keychain.read(selectedProvider.id) ?? "") : typed
+        return typed.isEmpty ? (AISetup.key(selectedProvider.id) ?? "") : typed
     }
 
     /// Fills the model menu with the provider's own list (it needs the key for most providers).
@@ -666,6 +680,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     }
 
     @objc private func providerChanged() {
+        testTask?.cancel()  // its answer would be shown for the other provider
         setStatus("", color: .secondaryLabelColor)
         showProvider(keepModel: selectedProvider.id == config.providerID ? config.model : nil)
         refreshEnabled()
@@ -716,6 +731,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     }
 
     @objc private func saveSettings() {
+        shortcutField.stop()  // still recording: the shortcut that was listened for is put back first
         let c = draft()
         let typed = keyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if let p = problem(c, key: currentKey()) {
@@ -723,18 +739,22 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             setStatus(p, color: .systemRed)
             return
         }
-        if c.aiEnabled && !typed.isEmpty && !Keychain.save(typed, account: c.providerID) {
-            showPage(0)
-            setStatus(L("The key could not be saved to the Keychain."), color: .systemRed)
-            return
-        }
         if let wanted = c.shortcut, !HotkeyCenter.shared.isFree(wanted) {
             showPage(2)
             shortcutChanged()
             return
         }
+        // Nothing is kept before everything has been found in order: the key comes after the checks.
+        if c.aiEnabled && !typed.isEmpty {
+            let saved = Keychain.save(typed, account: c.providerID)
+            AISetup.forget()
+            if !saved {
+                showPage(0)
+                setStatus(L("The key could not be saved to the Keychain."), color: .systemRed)
+                return
+            }
+        }
         if (loginBox.state == .on) != LoginItem.isOn, let why = LoginItem.set(loginBox.state == .on) {
-            showPage(2)
             shortcutStatus.stringValue = L("macOS did not change the login items: %@", why)
             shortcutStatus.isHidden = false
             showPage(2)
@@ -746,8 +766,9 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         config = c
         (NSApp.delegate as? AppDelegate)?.useShortcut()
         window?.close()
-        // The app takes its language when it starts: start it anew, in the background.
-        if languageChanged { (NSApp.delegate as? AppDelegate)?.restart() }
+        // The app takes its language when it starts: start it anew, in the background. (Not
+        // in the middle of the language pack's download: then it holds from the next start.)
+        if languageChanged, !PackInstaller.shared.isBusy { (NSApp.delegate as? AppDelegate)?.restart() }
     }
 
     @objc private func cancelSettings() {

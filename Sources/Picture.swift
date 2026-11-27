@@ -88,19 +88,19 @@ enum PictureReader {
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else { return try lines(in: image, languages: languages) }
         let picture = data as Data
-        signal(SIGPIPE, SIG_IGN)  // a reader that ends early must not take the app with it
         let reader = Process()
         reader.executableURL = program
         reader.arguments = ["--read-picture", languages.isEmpty ? "-" : languages.joined(separator: ",")]
         // The app waits in the background, and macOS would have its helper go slowly too: this one is wanted now.
         reader.qualityOfService = .userInitiated
-        return try await withTaskCancellationHandler {
-          try await Task.detached(priority: .userInitiated) {
+        let work = Task.detached(priority: .userInitiated) { () throws -> [PictureLine] in
             let input = Pipe(), output = Pipe()
             reader.standardInput = input
             reader.standardOutput = output
             reader.standardError = FileHandle.nullDevice
+            try Task.checkCancellation()
             try reader.run()
+            if Task.isCancelled { reader.terminate() }  // cancelled while it started
             try? input.fileHandleForWriting.write(contentsOf: picture)
             try? input.fileHandleForWriting.close()
             let answer = output.fileHandleForReading.readDataToEndOfFile()
@@ -113,8 +113,9 @@ enum PictureReader {
                       let w = row["w"] as? Double, let h = row["h"] as? Double else { return nil }
                 return PictureLine(text: text, box: CGRect(x: x, y: y, width: w, height: h))
             }
-          }.value
-        } onCancel: {
+        }
+        return try await withTaskCancellationHandler { try await work.value } onCancel: {
+            work.cancel()
             if reader.isRunning { reader.terminate() }  // the window was closed: nobody waits for the reading
         }
     }
@@ -190,7 +191,7 @@ func googleTranslateMany(_ texts: [String], to code: String) async throws -> [(t
     request.timeoutInterval = 30
     request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
     request.httpBody = Data(texts.map { "q=" + ($0.addingPercentEncoding(withAllowedCharacters: formSafe) ?? "") }.joined(separator: "&").utf8)
-    let (data, response) = try await URLSession.shared.data(for: request)
+    let (data, response) = try await net.data(for: request)
     let status = (response as? HTTPURLResponse)?.statusCode ?? 0
     guard status == 200 else { throw TranslateError.http(status, String(decoding: data, as: UTF8.self)) }
     // [["translated","en"],["translated","lv"]]
@@ -271,7 +272,7 @@ func translateMany(_ texts: [String], engine: Engine, target: Target, config: Co
         }
     case .ai:
         guard !config.baseURL.isEmpty else { throw TranslateError.noServer }
-        let key = Keychain.read(config.providerID) ?? ""
+        let key = AISetup.key(config.providerID) ?? ""
         if key.isEmpty && config.providerID != "custom" { throw TranslateError.noKey(config.provider.name) }
         for group in groups(count: 60, letters: 6000) {
             try Task.checkCancellation()
