@@ -41,7 +41,7 @@ What the plain run covers:
 - updates: the check against the mock server (a newer version with its release, one without, the same, an older one, nonsense, nothing answering, the setting off, a check less than a day old), versions compared (in `--selftest`), the Update button with a stand-in command (what it is told, its log, a failure's last line), the automatic update (with nothing showing, while a popup shows, with the setting off), the note of a started update at the next start, the gears while a version waits, and the About page in every state, signed ad hoc and not, in English and in Russian;
 - the installer's question about automatic updates, with each answer, with and without the certificate (stood in for), in both languages, and that nothing is asked when the setting is there already.
 
-No check asks GitHub or runs the installer for real: `tests/run.sh` gives every run a `BTRANSLATE_UPDATE_URL` where nothing listens, and the command-line modes refuse an update without `BTRANSLATE_UPDATE_COMMAND`. What the update's bookkeeping would save stays in memory in every mode but the app itself.
+No check asks GitHub or runs the installer for real: `tests/run.sh` gives every run a `BTRANSLATE_UPDATE_URL` where nothing listens, and the command-line modes refuse an update without `BTRANSLATE_UPDATE_COMMAND`. What the update's bookkeeping would save stays in memory in every mode but the app itself. The app itself, in turn, takes none of the update's stand-ins below (`BTRANSLATE_VERSION`, `BTRANSLATE_UPDATE_*`, `BTRANSLATE_SIGNED`): they work in the command-line modes only.
 
 One check is run by hand, because it opens a small window of BTranslate's own for a few
 seconds: `BTranslate --ax-check KIND` writes into a real field through Accessibility, as the

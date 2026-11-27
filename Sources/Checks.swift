@@ -670,6 +670,7 @@ func runUpdateRun() async -> Int32 {
     }
     print("once the command has ended: \(updater.stateName)")
     print("the note then: \(updater.noteText)")
+    print("tried again by itself: \(updater.failedAutomatically == version ? "no, Update still offers it" : "yes")")
     guard let content = SettingsController.shared.preparedContent(page: .about) else { return 1 }
     content.layoutSubtreeIfNeeded()
     print("the About page says: \(SettingsController.shared.aboutForTest)")

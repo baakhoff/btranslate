@@ -54,7 +54,17 @@ final class Updater {
     /// check that reached the real installer would reinstall the user's app under them.
     static var isTheApp = false
 
-    private let env = ProcessInfo.processInfo.environment
+    /// A stand-in from the environment, for the checks only. The app itself takes none, so
+    /// that a copy in use has no switch that makes it run another command, fetch another
+    /// script or take itself for another version.
+    static func standIn(_ name: String) -> String? {
+        standIn(name, app: isTheApp, environment: ProcessInfo.processInfo.environment)
+    }
+
+    nonisolated static func standIn(_ name: String, app: Bool, environment: [String: String]) -> String? {
+        app ? nil : environment[name]
+    }
+
     private(set) var state: UpdateState = .never {
         didSet { if state != oldValue { NotificationCenter.default.post(name: Updater.changed, object: nil) } }
     }
@@ -79,33 +89,33 @@ final class Updater {
 
     private init() {
         // For the checks of the gears: as if a check had found this version.
-        if !Updater.isTheApp, let waiting = env["BTRANSLATE_UPDATE_WAITING"], Version(waiting) != nil { state = .available(waiting) }
+        if let waiting = Updater.standIn("BTRANSLATE_UPDATE_WAITING"), Version(waiting) != nil { state = .available(waiting) }
     }
 
     // MARK: What is asked, and of whom
 
     /// The version this copy of BTranslate is (BTRANSLATE_VERSION stands in for it in tests).
     var current: String {
-        env["BTRANSLATE_VERSION"] ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+        Updater.standIn("BTRANSLATE_VERSION") ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
     }
 
     /// The folder on main the installer of the one line comes from. BTRANSLATE_UPDATE_URL stands in for it.
     private var base: String {
-        var url = env["BTRANSLATE_UPDATE_URL"] ?? "https://raw.githubusercontent.com/baakhoff/btranslate/main"
+        var url = Updater.standIn("BTRANSLATE_UPDATE_URL") ?? "https://raw.githubusercontent.com/baakhoff/btranslate/main"
         while url.hasSuffix("/") { url.removeLast() }
         return url
     }
 
     private func archive(_ version: String) -> String {
         let path = "/archive/refs/tags/v\(version).tar.gz"
-        return env["BTRANSLATE_UPDATE_URL"] != nil ? base + path : "https://github.com/baakhoff/btranslate" + path
+        return Updater.standIn("BTRANSLATE_UPDATE_URL") != nil ? base + path : "https://github.com/baakhoff/btranslate" + path
     }
 
     /// The line that installs BTranslate, as the README and the About page show it.
     static let installLine = "curl -fsSL https://raw.githubusercontent.com/baakhoff/btranslate/main/install.sh | bash"
 
     static var logFile: URL {
-        if let own = ProcessInfo.processInfo.environment["BTRANSLATE_UPDATE_LOG"], !own.isEmpty { return URL(fileURLWithPath: own) }
+        if let own = standIn("BTRANSLATE_UPDATE_LOG"), !own.isEmpty { return URL(fileURLWithPath: own) }
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/BTranslate-update.log")
     }
 
@@ -113,7 +123,7 @@ final class Updater {
     /// certificate: then macOS wants the shortcut's permissions given again after each update.
     /// BTRANSLATE_SIGNED=adhoc|own stands in for the answer.
     static let isSignedAdHoc: Bool = {
-        if let forced = ProcessInfo.processInfo.environment["BTRANSLATE_SIGNED"] { return forced != "own" }
+        if let forced = standIn("BTRANSLATE_SIGNED") { return forced != "own" }
         var code: SecCode?
         var staticCode: SecStaticCode?
         var information: CFDictionary?
@@ -174,7 +184,7 @@ final class Updater {
     /// The daily check: while the setting is on, once the last check is a day old.
     func lookIfDue() {
         guard Config.load().checkForUpdates else { return }
-        if let last = lastCheck, Date().timeIntervalSince(last) < 24 * 3600 { return }
+        if let age = checkAge, age < 24 * 3600 { return }
         Task { await check() }
     }
 
@@ -182,8 +192,16 @@ final class Updater {
     func aboutShown() {
         guard Config.load().checkForUpdates, state != .checking, !isBusy else { return }
         if case .available = state { return }
-        if let last = lastCheck, Date().timeIntervalSince(last) < 3600 { return }
+        if let age = checkAge, age < 3600 { return }
         Task { await check() }
+    }
+
+    /// How long ago the last check was. A check "in the future" is taken as never: after the
+    /// clock was set back, it would otherwise hold off every check until that date came again.
+    private var checkAge: TimeInterval? {
+        guard let last = lastCheck else { return nil }
+        let age = Date().timeIntervalSince(last)
+        return age >= 0 ? age : nil
     }
 
     var isBusy: Bool {
@@ -208,7 +226,7 @@ final class Updater {
     func check() async {
         guard !isBusy else { return }
         // No check asks GitHub: the tests give every run an address of their own.
-        if !Updater.isTheApp && env["BTRANSLATE_UPDATE_URL"] == nil {
+        if !Updater.isTheApp && Updater.standIn("BTRANSLATE_UPDATE_URL") == nil {
             state = .failed("a check asks only BTRANSLATE_UPDATE_URL, and it is not set")
             return
         }
@@ -262,8 +280,14 @@ final class Updater {
     /// nothing of BTranslate is on the screen.
     func found(_ version: String) {
         state = .available(version)
-        if Config.load().autoUpdate { updateWhenQuiet() }
+        // A version whose automatic update failed is not tried again by itself: on a Mac
+        // without the Command Line Tools it would fail the same way every day. Update still
+        // offers it, and the next version is tried again.
+        if Config.load().autoUpdate, failedAutomatically != version { updateWhenQuiet() }
     }
+
+    /// The version whose automatic update failed, if one did.
+    var failedAutomatically: String? { stored("autoUpdateFailed") as? String }
 
     private func updateWhenQuiet() {
         quietTimer?.invalidate()
@@ -282,12 +306,13 @@ final class Updater {
 
     /// The command the update runs: what the one line does, unless BTRANSLATE_UPDATE_COMMAND stands in for it.
     private var command: String? {
-        if let own = env["BTRANSLATE_UPDATE_COMMAND"], !own.isEmpty { return own }
+        if let own = Updater.standIn("BTRANSLATE_UPDATE_COMMAND"), !own.isEmpty { return own }
         guard Updater.isTheApp else { return nil }
         return "/usr/bin/curl -fsSL '\(base)/install.sh' | /bin/bash"
     }
 
     private var logStart: UInt64 = 0
+    private var startedAsked = true
 
     /// Runs the installer as a process of its own. It ends this app before it replaces it,
     /// and starts the new one, so it must outlive the app: its output goes to a file, never
@@ -314,11 +339,17 @@ final class Updater {
         store(current, "updateFrom")
         store(version, "updateTo")
         store(asked, "updateAsked")
+        startedAsked = asked
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         // The shell appends to the log itself, and reads nothing: there is no terminal to ask on.
-        process.arguments = ["-c", "exec >>\"$0\" 2>&1 </dev/null\n" + command, log.path]
-        var environment = env
+        // pipefail: when curl fails (no network, GitHub down), bash reads an empty script and
+        // ends with 0; the download's own status must be what the update ends with.
+        process.arguments = ["-c", "exec >>\"$0\" 2>&1 </dev/null\nset -o pipefail\n" + command, log.path]
+        var environment = ProcessInfo.processInfo.environment
+        // The installer has switches of its own (another archive, another branch, its test
+        // seam): none of them reaches it from the app's environment.
+        if Updater.isTheApp { for key in environment.keys where key.hasPrefix("BTRANSLATE_") { environment[key] = nil } }
         environment["BTRANSLATE_PACK"] = "no"        // the language pack is the user's own choice, made in the settings
         environment["BTRANSLATE_AUTOUPDATE"] = "keep"  // and so is updating by itself
         process.environment = environment
@@ -341,6 +372,7 @@ final class Updater {
     private func ended(status: Int32) {
         guard case .updating(let version) = state else { return }
         forgetNote()
+        if !startedAsked { store(version, "autoUpdateFailed") }
         if status == 0 {
             state = .available(version)  // it said it was done, yet this copy is still the old one: Update stays on offer
             return
@@ -372,6 +404,7 @@ final class Updater {
             state = .installed(now.description)
             if asked { openAbout() }
         } else {
+            if !asked { store(to, "autoUpdateFailed") }
             state = .updateFailed(L("The update to %@ did not finish.", to) + (lastLogLine().map { " " + $0 } ?? ""))
         }
     }
@@ -435,6 +468,9 @@ func updateSelfTest() -> [String] {
     expect("versions: what is not one", Version("1.0") == nil && Version("1.0.0.0") == nil && Version("v1.0.0") == nil && Version("1..0") == nil
         && Version("<html>") == nil && Version("1.0.x") == nil && Version("") == nil && Version("1.-1.0") == nil)
     expect("versions: written back", Version("01.10.0")?.description == "1.10.0")
+    let world = ["BTRANSLATE_UPDATE_COMMAND": "touch /tmp/x", "BTRANSLATE_UPDATE_URL": "http://example.com"]
+    expect("stand-ins: a check takes them", Updater.standIn("BTRANSLATE_UPDATE_COMMAND", app: false, environment: world) != nil)
+    expect("stand-ins: the app itself takes none", world.keys.allSatisfy { Updater.standIn($0, app: true, environment: world) == nil })
     return failures
 }
 

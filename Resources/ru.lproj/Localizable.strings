@@ -261,7 +261,7 @@
 "BTranslate is up to date. Last checked: %@." = "Установлена последняя версия BTranslate. Последняя проверка: %@.";
 "BTranslate %@ is available. This one is %@." = "Доступна версия BTranslate %@. Установлена %@.";
 "Could not look for a newer version: %@" = "Не удалось проверить, есть ли новая версия: %@";
-"Updating to %@: it is downloaded and built on this Mac, which takes about a minute. BTranslate then starts again by itself." = "Обновление до версии %@: она загружается и собирается на этом Mac, это занимает около минуты. Затем BTranslate запустится снова сам.";
+"Updating to %@: it is downloaded and built on this Mac, which takes about a minute. BTranslate then starts again by itself." = "Обновление до версии %@: она загружается и собирается на этом Mac, это занимает около минуты. Затем BTranslate сам запустится снова.";
 "The update did not work: %@" = "Обновить не удалось: %@";
 "The installer's log: %@" = "Журнал установщика: %@";
 "BTranslate %@ is installed." = "BTranslate %@ установлен.";

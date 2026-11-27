@@ -47,7 +47,7 @@ unset BTRANSLATE_UPDATE_COMMAND BTRANSLATE_UPDATE_WAITING BTRANSLATE_VERSION BTR
 # Settings are given to a run as -key value arguments. These say that nothing is chosen yet
 # for the typing panel and for a window, and nothing about updates, whatever your own settings say.
 NONE=(-secondLanguage none -typingLanguage none -typingEngine none -windowLanguage none -windowEngine none
-      -checkForUpdates YES -autoUpdate NO -lastUpdateCheck '' -updateTo '')
+      -checkForUpdates YES -autoUpdate NO -lastUpdateCheck '' -updateTo '' -autoUpdateFailed '')
 # The language pack (NLLB-200) is kept in a folder of the tests' own: empty, unless a test
 # installs the miniature pack of the mock server there. A pack you have installed is not touched.
 export BTRANSLATE_PACK_DIR="$PWD/build/test-pack"
@@ -324,11 +324,15 @@ check "Updates: none while the last check is less than a day old" "update check:
 check "Updates: and again once it is a day old" "update check: available: 1.10.0" \
     env BTRANSLATE_UPDATE_URL="$MOCK/update" BTRANSLATE_VERSION=1.9.0 "$BIN" --update-check --scheduled -checkForUpdates YES \
     -lastUpdateCheck "$(date -u -v-25H +%Y-%m-%dT%H:%M:%SZ)"
+check "Updates: a last check in the future (the clock was set back) does not hold off the next" "update check: available: 1.10.0" \
+    env BTRANSLATE_UPDATE_URL="$MOCK/update" BTRANSLATE_VERSION=1.9.0 "$BIN" --update-check --scheduled -checkForUpdates YES \
+    -lastUpdateCheck "$(date -u -v+30d +%Y-%m-%dT%H:%M:%SZ)"
 
 # The Update button, with a stand-in for the installer.
 UPLOG="$BTRANSLATE_UPDATE_LOG"
 rm -f "$UPLOG"
-run_update() { env BTRANSLATE_UPDATE_WAITING=1.10.0 BTRANSLATE_VERSION=1.9.0 "$@" "$BIN" --update-run -checkForUpdates YES -autoUpdate NO -updateTo ''; }
+run_update() { env BTRANSLATE_UPDATE_WAITING=1.10.0 BTRANSLATE_VERSION=1.9.0 "$@" "$BIN" --update-run ${UPDAUTO:+--auto} -checkForUpdates YES -autoUpdate NO -updateTo '' -autoUpdateFailed ''; }
+UPDAUTO=""  # --auto: as an automatic update
 UPDATED="$(run_update BTRANSLATE_UPDATE_COMMAND='echo "pack: $BTRANSLATE_PACK, automatic updates: $BTRANSLATE_AUTOUPDATE"' 2>&1 || true)"
 check "Update: the button starts the command" "update to 1.10.0: updating to 1.10.0" echo "$UPDATED"
 check "Update: and notes what it started, before it starts it" "the note it keeps: from 1.9.0 to 1.10.0, asked by the user" echo "$UPDATED"
@@ -339,25 +343,38 @@ FAILED="$(run_update BTRANSLATE_UPDATE_COMMAND='echo "Building BTranslate"; echo
 check "Update: a command that fails shows its last line and the log's path" \
     "the About page says: The update did not work: the build failed here / The installer's log: " echo "$FAILED"
 check "Update: and the note goes" "the note then: none" echo "$FAILED"
+# The installer's own line, curl … | bash, where the download fails: bash then reads nothing and
+# ends with 0, and only pipefail makes the update fail as it did.
+NONET="$(run_update BTRANSLATE_UPDATE_COMMAND="/usr/bin/curl -fsSL $DEAD/install.sh | /bin/bash" 2>&1 || true)"
+check "Update: a download that fails is a failed update, not one still on offer" "once the command has ended: update failed: curl: (7)" echo "$NONET"
+check "Update: one the user asked for that failed does not hold off automatic updates" "tried again by itself: yes" echo "$NONET"
+UPDAUTO=1
+check "Update: an automatic one that failed is not tried again by itself" "tried again by itself: no, Update still offers it" \
+    run_update BTRANSLATE_UPDATE_COMMAND='exit 1'
+UPDAUTO=""
 check "Update: an automatic one is noted as such" "the note it keeps: from 1.9.0 to 1.10.0, automatic" \
-    env BTRANSLATE_UPDATE_WAITING=1.10.0 BTRANSLATE_VERSION=1.9.0 BTRANSLATE_UPDATE_COMMAND=true "$BIN" --update-run --auto -updateTo ''
+    env BTRANSLATE_UPDATE_WAITING=1.10.0 BTRANSLATE_VERSION=1.9.0 BTRANSLATE_UPDATE_COMMAND=true "$BIN" --update-run --auto -updateTo '' -autoUpdateFailed ''
 check "Update: a check without the stand-in never runs the installer" \
     "update to 1.10.0: update failed: a check never runs the real installer" env BTRANSLATE_UPDATE_WAITING=1.10.0 "$BIN" --update-run -updateTo ''
 
 # The automatic update: a version found, with the setting on or off.
 AUTO=(BTRANSLATE_VERSION=1.9.0 BTRANSLATE_UPDATE_COMMAND='echo automatic')
 check "Automatic update: starts with the setting on and nothing showing" \
-    "a version found, nothing showing: available: 9.9.9 → updating to 9.9.9" env "${AUTO[@]}" "$BIN" -autoUpdate YES -updateTo '' --update-auto-check
-AUTO_POP="$(env "${AUTO[@]}" BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" -autoUpdate YES -updateTo '' "${POP[@]}" -languages '(en)' \
+    "a version found, nothing showing: available: 9.9.9 → updating to 9.9.9" env "${AUTO[@]}" "$BIN" -autoUpdate YES -updateTo '' -autoUpdateFailed '' --update-auto-check
+AUTO_POP="$(env "${AUTO[@]}" BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" -autoUpdate YES -updateTo '' -autoUpdateFailed '' "${POP[@]}" -languages '(en)' \
     --update-auto-check --showing popup 2>&1 || true)"
 check "Automatic update: waits while a popup is showing" "a version found, a popup showing: available: 9.9.9; the update started: no" echo "$AUTO_POP"
 check "Automatic update: and starts once it is gone" "the popup closed: available: 9.9.9 → updating to 9.9.9" echo "$AUTO_POP"
 check "Automatic update: does not start with the setting off" "a version found, nothing showing: available: 9.9.9; the update started: no" \
-    env "${AUTO[@]}" "$BIN" -autoUpdate NO -updateTo '' --update-auto-check
+    env "${AUTO[@]}" "$BIN" -autoUpdate NO -updateTo '' -autoUpdateFailed '' --update-auto-check
+check "Automatic update: not again for a version whose automatic update failed" "a version found, nothing showing: available: 9.9.9; the update started: no" \
+    env "${AUTO[@]}" "$BIN" -autoUpdate YES -updateTo '' -autoUpdateFailed 9.9.9 --update-auto-check
+check "Automatic update: but for the next one" "a version found, nothing showing: available: 9.9.9 → updating to 9.9.9" \
+    env "${AUTO[@]}" "$BIN" -autoUpdate YES -updateTo '' -autoUpdateFailed 9.9.8 --update-auto-check
 
 # The start after an update: the note of what was started is given as arguments.
 printf 'Building BTranslate 1.10.0\nno Command Line Tools here\n' > build/update-note.log  # what the installer left in its log
-note() { env BTRANSLATE_VERSION="$1" BTRANSLATE_UPDATE_LOG="$PWD/build/update-note.log" "$BIN" -updateFrom 1.9.0 -updateTo 1.10.0 -updateAsked "$2" --update-note-check; }
+note() { env BTRANSLATE_VERSION="$1" BTRANSLATE_UPDATE_LOG="$PWD/build/update-note.log" "$BIN" -updateFrom 1.9.0 -updateTo 1.10.0 -updateAsked "$2" -autoUpdateFailed '' --update-note-check; }
 check "After an update the user asked for: the version reached, the note goes, the settings open on About" \
     "at the start: installed: 1.10.0; the note then: none; the settings open on the About page: yes" note 1.10.0 YES
 check "After an automatic update: the same, and nothing opens" \
@@ -378,7 +395,7 @@ check "Gear of the typing panel, while a version waits" "$WAITING_GEAR" \
 
 # The About page in every state of the update, signed ad hoc and with this Mac's certificate,
 # in English and in Russian: every text fits, and the window a small screen.
-ABOUT=(-checkForUpdates YES -autoUpdate NO -lastUpdateCheck '' -updateTo '')
+ABOUT=(-checkForUpdates YES -autoUpdate NO -lastUpdateCheck '' -updateTo '' -autoUpdateFailed '')
 for signed in adhoc own; do
     for language in en ru; do
         OUT="$(env BTRANSLATE_LANGUAGE=$language BTRANSLATE_SIGNED=$signed BTRANSLATE_VERSION=1.9.0 "$BIN" -AppleLanguages "($language)" "${ABOUT[@]}" \

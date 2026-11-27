@@ -145,9 +145,12 @@ TEXT
     # and there is a terminal to ask on. Its default is yes only where this Mac signs
     # BTranslate with its own certificate: elsewhere every update takes the shortcut's
     # permissions away, which nobody should get by surprise.
+    # It is asked before the download and the build, and the answer is stored only once the new
+    # app is in place: an installer stopped at the question (Ctrl-C) has then changed nothing,
+    # and has not ended the BTranslate that runs.
     # The test seam (BTRANSLATE_INSTALLER_TEST=autoupdate) reads the answer from standard
     # input, stands in for the certificate and the setting, and prints what it would store.
-    local testing_auto=""
+    local testing_auto="" autoupdate=""
     [ "${BTRANSLATE_INSTALLER_TEST:-}" = autoupdate ] && testing_auto=1
     auto_update() {
         local want="" cert=""
@@ -159,9 +162,9 @@ TEXT
             *) die "$(t "BTRANSLATE_AUTOUPDATE is \"$BTRANSLATE_AUTOUPDATE\": say yes or no." "BTRANSLATE_AUTOUPDATE=\"$BTRANSLATE_AUTOUPDATE\": укажите yes или no.")" ;;
         esac
         if [ "$want" = ask ]; then
-            local set
-            if [ -n "$testing_auto" ]; then set="${BTRANSLATE_TEST_AUTOUPDATE:-}"; else set="$(defaults read "$BUNDLE_ID" autoUpdate 2>/dev/null || true)"; fi
-            if [ -n "$set" ]; then
+            local saved
+            if [ -n "$testing_auto" ]; then saved="${BTRANSLATE_TEST_AUTOUPDATE:-}"; else saved="$(defaults read "$BUNDLE_ID" autoUpdate 2>/dev/null || true)"; fi
+            if [ -n "$saved" ]; then
                 [ -z "$testing_auto" ] || echo "Nothing asked: the setting is there already."
                 return 0
             fi
@@ -170,8 +173,8 @@ TEXT
             if [ -z "$testing_auto" ] && ! [ -t 0 ] && ! { : < /dev/tty; } 2>/dev/null; then return 0; fi
             if [ -n "$testing_auto" ]; then
                 [ "${BTRANSLATE_TEST_CERT:-no}" = yes ] && cert=1
-            elif security find-identity -p codesigning 2>/dev/null | grep -q '"BTranslate (this Mac)"'; then
-                cert=1
+            elif security find-identity -p codesigning 2>/dev/null | grep -F '"BTranslate (this Mac)"' >/dev/null; then
+                cert=1  # (not grep -q: it would stop reading, and pipefail would take security's broken pipe for "no")
             fi
             say "$(t "Updates" "Обновления")"
             t "BTranslate looks for a newer version once a day (one small request to GitHub).
@@ -218,10 +221,8 @@ update (tools/local-signing.sh has made no certificate here)." \
         fi
         if [ -n "$testing_auto" ]; then
             echo "autoUpdate would be stored: $want"
-        elif [ "$want" = yes ]; then
-            defaults write "$BUNDLE_ID" autoUpdate -bool true
         else
-            defaults write "$BUNDLE_ID" autoUpdate -bool false
+            autoupdate="$want"
         fi
     }
 
@@ -264,6 +265,7 @@ update (tools/local-signing.sh has made no certificate here)." \
     xcrun --find swiftc >/dev/null 2>&1 \
         || die "$(t "the Swift compiler is missing. Install the Command Line Tools with: xcode-select --install   then run this again." \
                     "нет компилятора Swift. Установите Command Line Tools командой: xcode-select --install   и запустите установку снова.")"
+    auto_update
 
     # The source: this checkout, or the release downloaded to a temporary folder.
     local src="" tmp=""
@@ -288,7 +290,7 @@ update (tools/local-signing.sh has made no certificate here)." \
     # With a certificate of this Mac's own (tools/local-signing.sh makes one), every build is
     # the same app to macOS, and the permission the shortcut needs outlasts an update.
     if [ -z "${BTRANSLATE_SIGN_IDENTITY:-}" ] \
-        && security find-identity -p codesigning 2>/dev/null | grep -q '"BTranslate (this Mac)"'; then
+        && security find-identity -p codesigning 2>/dev/null | grep -F '"BTranslate (this Mac)"' >/dev/null; then
         export BTRANSLATE_SIGN_IDENTITY="BTranslate (this Mac)"
     fi
 
@@ -314,7 +316,10 @@ update (tools/local-signing.sh has made no certificate here)." \
     [ "$(defaults read "$BUNDLE_ID" setupDone 2>/dev/null || true)" = 1 ] && first=
     local hint=""
     language_pack
-    auto_update
+    case "$autoupdate" in
+        yes) defaults write "$BUNDLE_ID" autoUpdate -bool true ;;
+        no) defaults write "$BUNDLE_ID" autoUpdate -bool false ;;
+    esac
 
     if [ -n "$start" ]; then
         if [ -z "$first" ]; then
