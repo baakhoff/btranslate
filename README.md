@@ -113,8 +113,8 @@ line that was in Russian already, and the numbers, are left as they were:
 - **Original** shows the window as it was; **Copy** or ⌘C copies the picture; the gear opens the settings.
 - **Its texts can be selected and copied** once the picture is read, as the texts BTranslate read, not as a picture. A text is selected whole: a label, a line, a paragraph.
   - A click on a text selects it, ⇧-click or ⌘-click adds one or takes it out, and a drag selects every text it touches. ⌘A selects them all; Esc takes the selection away, and closes the window when there is none.
-  - **Copy** or ⌘C then copies what the picture shows of them: the translation where it is painted, the original where it stayed as it was, and the originals while **Original** is on. From the top down, and left to right on one line of the picture, one text to a line.
-  - A right-click on the selection also offers the other version, **Copy the Original** or **Copy the Translation**, and **Select All**.
+  - The bar under the picture says how many are selected, unless it has an error to show, or texts that could not be translated. **Copy** or ⌘C then copies what the picture shows of them: the translation where it is painted, the original where it stayed as it was, and the originals while **Original** is on. From the top down, and left to right on one line of the picture, one text to a line.
+  - A right-click on a text selects it, unless it is selected already, and offers **Copy**, the other version (**Copy the Original** or **Copy the Translation**, where it differs) and **Select All**.
   - The selection stays when another language or method translates the window anew, and when **Original** is switched.
 
 ### Where the shortcut can't see
