@@ -305,8 +305,12 @@ check "Installer, in Russian: the language pack" "Языковой пакет у
 "$BIN" --pack-remove > /dev/null || true
 
 # Updates. The check asks the mock server, where VERSION says 1.10.0; BTRANSLATE_VERSION is the
-# version the app takes itself for. (Each run gets its update settings as arguments.)
-upd() { env BTRANSLATE_UPDATE_URL="$MOCK/$1" BTRANSLATE_VERSION="$2" "$BIN" "${@:3}" -lastUpdateCheck '' -updateTo ''; }
+# version the app takes itself for. Each run gets every update setting as an argument (OWN
+# first, so that a check can say otherwise after it): a copy of BTranslate installed on this
+# Mac has its own, and with "install updates automatically" ticked there a check would go on
+# to update instead of saying what it found.
+OWN=(-checkForUpdates YES -autoUpdate NO -autoUpdateFailed '')
+upd() { env BTRANSLATE_UPDATE_URL="$MOCK/$1" BTRANSLATE_VERSION="$2" "$BIN" "${OWN[@]}" "${@:3}" -lastUpdateCheck '' -updateTo ''; }
 check "Updates: a newer version, its release there" "update check: available: 1.10.0" upd update 1.9.0 --update-check
 logged "Updates: VERSION is asked for" '"method": "GET", "path": "/update/VERSION"'
 logged "Updates: and whether the release's source is there" '"method": "HEAD", "path": "/update/archive/refs/tags/v1.10.0.tar.gz"'
@@ -316,18 +320,18 @@ check "Updates: the same version" "update check: up to date" upd update 1.10.0 -
 check "Updates: an older one" "update check: up to date" upd update 1.11.0 --update-check
 check "Updates: nonsense for a version" "update check: could not check: GitHub's answer is not a version number." upd update-nonsense 1.9.0 --update-check
 check "Updates: nothing answering" $'update check: could not check: No internet connection.\nlast check kept: no' \
-    env BTRANSLATE_VERSION=1.9.0 "$BIN" --update-check
+    env BTRANSLATE_VERSION=1.9.0 "$BIN" "${OWN[@]}" --update-check
 check "Updates: the daily check, with the setting on" "update check: available: 1.10.0" upd update 1.9.0 --update-check --scheduled -checkForUpdates YES
 check "Updates: none with checkForUpdates off" "update check: not done (checkForUpdates is off)" \
     upd update 1.9.0 --update-check --scheduled -checkForUpdates NO
 check "Updates: none while the last check is less than a day old" "update check: not done (the last one is less than a day old)" \
-    env BTRANSLATE_UPDATE_URL="$MOCK/update" BTRANSLATE_VERSION=1.9.0 "$BIN" --update-check --scheduled -checkForUpdates YES \
+    env BTRANSLATE_UPDATE_URL="$MOCK/update" BTRANSLATE_VERSION=1.9.0 "$BIN" "${OWN[@]}" --update-check --scheduled \
     -lastUpdateCheck "$(date -u -v-2H +%Y-%m-%dT%H:%M:%SZ)"
 check "Updates: and again once it is a day old" "update check: available: 1.10.0" \
-    env BTRANSLATE_UPDATE_URL="$MOCK/update" BTRANSLATE_VERSION=1.9.0 "$BIN" --update-check --scheduled -checkForUpdates YES \
+    env BTRANSLATE_UPDATE_URL="$MOCK/update" BTRANSLATE_VERSION=1.9.0 "$BIN" "${OWN[@]}" --update-check --scheduled \
     -lastUpdateCheck "$(date -u -v-25H +%Y-%m-%dT%H:%M:%SZ)"
 check "Updates: a last check in the future (the clock was set back) does not hold off the next" "update check: available: 1.10.0" \
-    env BTRANSLATE_UPDATE_URL="$MOCK/update" BTRANSLATE_VERSION=1.9.0 "$BIN" --update-check --scheduled -checkForUpdates YES \
+    env BTRANSLATE_UPDATE_URL="$MOCK/update" BTRANSLATE_VERSION=1.9.0 "$BIN" "${OWN[@]}" --update-check --scheduled \
     -lastUpdateCheck "$(date -u -v+30d +%Y-%m-%dT%H:%M:%SZ)"
 
 # The Update button, with a stand-in for the installer.
