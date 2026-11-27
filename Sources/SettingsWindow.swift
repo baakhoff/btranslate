@@ -32,6 +32,13 @@ private final class MethodChoice: NSObject {
     @objc private func changed() { chosen = shown }
 }
 
+extension NSSegmentedControl {
+    /// The width of a segment's label in the control's font.
+    func labelWidth(ofSegment segment: Int) -> CGFloat {
+        ceil(((label(forSegment: segment) ?? "") as NSString).size(withAttributes: [.font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)]).width)
+    }
+}
+
 /// The settings window. It opens when you start BTranslate yourself (the installer does,
 /// once) and from the gear button of a popup, of the typing panel and of a translated window.
 @MainActor
@@ -466,7 +473,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         let adHoc = caption(L("BTranslate is signed ad hoc on this Mac: after each update macOS wants the shortcut's permissions given again. tools/local-signing.sh, in BTranslate's source, gives this Mac a certificate that keeps them."))
         adHoc.isHidden = !Updater.isSignedAdHoc
         adHocNote = adHoc
-        let updateNote = caption(L("The check is one small request to GitHub a day, with nothing of yours in it. An update is the install again: the source is downloaded and built on this Mac, which takes about a minute and needs the Command Line Tools. Your settings stay. To do it by hand, run this in Terminal:"))
+        let updateNote = caption(L("A check is one small request to GitHub with nothing of yours in it: once a day, and when this page opens if the last was over an hour ago. An update is the install again: the source is downloaded and built on this Mac, which takes about a minute and needs the Command Line Tools. Your settings stay. To do it by hand, run this in Terminal:"))
         let installLine = NSTextField(wrappingLabelWithString: Updater.installLine)
         installLine.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         installLine.lineBreakMode = .byCharWrapping
@@ -513,6 +520,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             content.widthAnchor.constraint(equalToConstant: width),
         ])
+        fitPageTabs(to: inner)
         for view in [intro, googleNote, aiNote, deviceNote, packNote, voiceNote, defaultsNote, grid, line2, line3, buttons, translation, languages, defaults,
                      shortcut, shortcutNote, shortcutStatus, accessNote, screenNote, loginNote, line4, line5,
                      about, what, licence, stateRow, adHoc, updateNote, installLine, line6, line7] as [NSView] {
@@ -570,6 +578,28 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         checkBox.state = config.checkForUpdates ? .on : .off
         autoBox.state = config.autoUpdate ? .on : .off
         refreshUpdate()
+    }
+
+    /// Five tabs are wider than the page in some languages (Russian): then each segment gets its
+    /// label's width plus an even share of the room left, so that the row ends at the page's
+    /// right margin. Where the row fits, it keeps its natural widths.
+    private func fitPageTabs(to inner: CGFloat) {
+        guard pageControl.intrinsicContentSize.width > inner else { return }
+        let labels = (0..<pageControl.segmentCount).map { pageControl.labelWidth(ofSegment: $0) }
+        for (segment, width) in labels.enumerated() { pageControl.setWidth(width, forSegment: segment) }
+        let frame = pageControl.intrinsicContentSize.width - labels.reduce(0, +)  // borders, dividers, padding
+        let share = (inner - frame - labels.reduce(0, +)) / CGFloat(labels.count)
+        for (segment, width) in labels.enumerated() { pageControl.setWidth(floor(width + share), forSegment: segment) }
+        let last = labels.count - 1, rest = inner - pageControl.intrinsicContentSize.width  // what rounding down left over
+        pageControl.setWidth(pageControl.width(forSegment: last) + rest, forSegment: last)
+    }
+
+    /// How wide the row of page tabs is, and whether its widths were set (UI test).
+    var pageTabsForTest: String {
+        let width = pageControl.intrinsicContentSize.width, inner: CGFloat = 436
+        let set = (0..<pageControl.segmentCount).contains { pageControl.width(forSegment: $0) > 0 }
+        return "page tabs: \(Int(width.rounded())) points wide, the page \(Int(inner)): \(width <= inner + 0.5 ? "they fit" : "TOO WIDE")"
+            + "; widths set: \(set ? "yes" : "no")"
     }
 
     // MARK: About, and updates

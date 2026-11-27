@@ -320,6 +320,13 @@ func snapshot(_ view: NSView, to path: String) {
 func cutOffTexts(in view: NSView) -> [String] {
     if view.isHidden || view is NSTableView { return [] }
     var found: [String] = []
+    if let tabs = view as? NSSegmentedControl {
+        // Segments given a width of their own must still hold their labels, with a few points to spare.
+        for segment in 0..<tabs.segmentCount where tabs.width(forSegment: segment) > 0
+            && tabs.width(forSegment: segment) < tabs.labelWidth(ofSegment: segment) + 4 {
+            found.append(tabs.label(forSegment: segment) ?? "segment \(segment)")
+        }
+    }
     if let label = view as? NSTextField {
         if label.isEditable, let hint = label.placeholderString, let font = label.font {  // a field's grey hint
             if (hint as NSString).size(withAttributes: [.font: font]).width > label.frame.width - 10 { found.append(hint) }
@@ -341,6 +348,7 @@ func cutOffTexts(in view: NSView) -> [String] {
 func reportPageHeights() {
     let heights = SettingsController.shared.pageHeights.map { Int($0) }
     let fit = (heights.max() ?? 0) <= 760
+    print(SettingsController.shared.pageTabsForTest)
     print("settings pages are \(heights.map(String.init).joined(separator: ", ")) points tall: \(fit ? "they fit a small screen" : "TOO TALL for a small screen")")
 }
 
