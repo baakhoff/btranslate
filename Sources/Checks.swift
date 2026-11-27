@@ -315,7 +315,10 @@ func runPictureCheck(_ file: String) async -> Int32 {
 
 /// The window that shows a translated picture, made off screen for a picture file: what its
 /// bar says in the end, and (--picture DIR) the window drawn into DIR. --then METHOD chooses
-/// another method in its bar once it is translated, and waits for that too.
+/// another method in its bar once it is translated, and waits for that too. --act "…" then
+/// does what a user does to its texts, one step after another (`;` between them), and prints
+/// after each what is selected and what the bar says (runPictureActs). Nothing goes to the
+/// clipboard: what would be copied is printed.
 @MainActor
 func runPictureWindowCheck(_ file: String) {
     beginCheck()
@@ -326,7 +329,10 @@ func runPictureWindowCheck(_ file: String) {
     }
     let window = PictureWindow(image: image, scale: 2, over: nil)
     PictureWindow.current = window
+    window.copyText = { print("copied the text: \($0.replacingOccurrences(of: "\n", with: " | "))") }
+    window.copyImage = { _ in print("copied the picture") }
     var then = argument(after: "--then")
+    var acts = (argument(after: "--act") ?? "").split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     print(window.gear.gearLine)
     window.onSettled = {
         print("the bar says: \(window.statusText)")
@@ -340,11 +346,12 @@ func runPictureWindowCheck(_ file: String) {
             }
             return  // it translates anew
         }
+        if !runPictureActs(&acts, in: window) { return }  // a method was chosen: on with the rest once it has translated
         if let dir = argument(after: "--picture"), let view = window.contentView {
             try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
             view.layoutSubtreeIfNeeded()
             snapshot(view, to: "\(dir)/picture-window.png")
-            let cut = cutOffTexts(in: view).filter { $0 != window.statusText }  // the bar's own line is cut short on purpose
+            let cut = cutOffTexts(in: view).filter { $0 != window.shownStatus }  // the bar's own line is cut short on purpose
             print("every text of the window fits: \(cut.isEmpty ? "yes" : "NO (\(cut.joined(separator: " | ")))")")
         }
         // The bar with the selectors is the window's bottom: a window that grew past its screen has it out of reach.
@@ -355,6 +362,133 @@ func runPictureWindowCheck(_ file: String) {
         exit(window.failed || !whole ? 1 : 0)
     }
     window.start()
+}
+
+/// The steps of --act, done to a translated window as the mouse and the keys would do them:
+/// the events go to the picture and the panel, at the middle of a text's highlight. A text is
+/// named by its words as read (or their beginning).
+///   click TEXT, shift-click TEXT, cmd-click TEXT, click nothing (where there is no text)
+///   drag TEXT .. TEXT        from the middle of one to the middle of the other
+///   select all, copy, esc    ⌘A, ⌘C, Esc
+///   copy button, original    a click on Copy, on Original
+///   menu TEXT                a right-click on a text: the menu's items
+///   choose ITEM              an item of that menu
+///   method METHOD            another method in the bar (the next steps wait for its translation)
+///   size WIDTHxHEIGHT        the window made that size
+///   highlight                whether each selected text's highlight lies over the text
+/// false: a method was chosen, and the rest waits. A text that is not there ends the check.
+@MainActor
+func runPictureActs(_ acts: inout [String], in window: PictureWindow) -> Bool {
+    let view = window.pictureView, panel = window.panel
+    var menu: NSMenu?
+    func named(_ words: String) -> Int {
+        let blocks = window.blocks ?? []
+        guard let found = blocks.firstIndex(where: { $0.text == words }) ?? blocks.firstIndex(where: { $0.text.hasPrefix(words) }) else {
+            print("ERROR: no text “\(words)” in the picture (it has: \(blocks.map(\.text).joined(separator: " / ")))")
+            exit(1)
+        }
+        return found
+    }
+    func middle(of text: Int) -> NSPoint {
+        let box = view.highlight(of: text)
+        return view.convert(NSPoint(x: box.midX, y: box.midY), to: nil)
+    }
+    func mouse(_ type: NSEvent.EventType, _ point: NSPoint, _ flags: NSEvent.ModifierFlags = []) -> NSEvent {
+        NSEvent.mouseEvent(with: type, location: point, modifierFlags: flags, timestamp: 0, windowNumber: panel.windowNumber,
+                           context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+    }
+    func key(_ characters: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags = []) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: panel.windowNumber,
+                         context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
+    }
+    func click(_ point: NSPoint, _ flags: NSEvent.ModifierFlags = []) {
+        view.mouseDown(with: mouse(.leftMouseDown, point, flags))
+        view.mouseUp(with: mouse(.leftMouseUp, point, flags))
+    }
+    func selected() -> String {
+        let names = window.selectedInOrder.map { window.blocks?[$0].text ?? "?" }
+        return names.isEmpty ? "(nothing)" : names.joined(separator: " / ")
+    }
+    panel.layoutIfNeeded()
+    window.contentView?.layoutSubtreeIfNeeded()
+    while !acts.isEmpty {
+        let act = acts.removeFirst()
+        print("» \(act)")
+        let words = act.split(separator: " ", maxSplits: 1).map(String.init)
+        let rest = words.count > 1 ? words[1] : ""
+        switch words[0] {
+        case "click" where rest == "nothing":
+            // The first place of the picture where there is no text, on a grid of ten points.
+            let place = view.drawn
+            let empty = stride(from: place.minY + 5, to: place.maxY, by: 10).lazy.flatMap { y in
+                stride(from: place.minX + 5, to: place.maxX, by: 10).lazy.map { NSPoint(x: $0, y: y) }
+            }.first { view.text(at: $0) == nil }
+            guard let empty else { print("ERROR: no place without a text"); exit(1) }
+            click(view.convert(empty, to: nil))
+        case "click": click(middle(of: named(rest)))
+        case "shift-click": click(middle(of: named(rest)), .shift)
+        case "cmd-click": click(middle(of: named(rest)), .command)
+        case "drag":
+            let ends = rest.components(separatedBy: " .. ")
+            guard ends.count == 2 else { print("ERROR: drag FROM .. TO"); exit(1) }
+            let from = middle(of: named(ends[0])), to = middle(of: named(ends[1]))
+            view.mouseDown(with: mouse(.leftMouseDown, from))
+            view.mouseDragged(with: mouse(.leftMouseDragged, NSPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2)))
+            view.mouseDragged(with: mouse(.leftMouseDragged, to))
+            print("while it is dragged: its rectangle shows: \(view.dragged != nil ? "yes" : "NO"); selected: \(selected())")
+            view.mouseUp(with: mouse(.leftMouseUp, to))
+        case "select" where rest == "all":
+            _ = panel.performKeyEquivalent(with: key("a", 0, .command))
+            let all = window.blocks?.count ?? 0, order = window.selectedInOrder
+            print("every text selected, none twice: \(order.count == all && Set(order).count == all && all > 0 ? "yes" : "NO")")
+        case "copy" where rest == "button": window.copier.performClick(nil)
+        case "copy": _ = panel.performKeyEquivalent(with: key("c", 8, .command))
+        case "esc": panel.sendEvent(key("\u{1b}", 53))
+        case "original":
+            window.originalSwitch.performClick(nil)
+            print("Original: \(window.originalSwitch.state == .on ? "on" : "off")")
+        case "menu":
+            let point = middle(of: named(rest))
+            menu = view.menu(for: mouse(.rightMouseDown, point))
+            print("menu: \(menu.map { $0.items.filter { !$0.isSeparatorItem }.map(\.title).joined(separator: " | ") } ?? "(none)")")
+        case "choose":
+            guard let menu, let index = menu.items.firstIndex(where: { $0.title == rest }) else {
+                print("ERROR: no item “\(rest)” in the menu")
+                exit(1)
+            }
+            menu.performActionForItem(at: index)
+        case "method":
+            guard let method = Engine(rawValue: rest), window.choose(method) else {
+                print("ERROR: \(rest) is not among the methods here.")
+                exit(1)
+            }
+            return false
+        case "size":
+            let sides = rest.split(separator: "x").compactMap { Double($0) }
+            guard sides.count == 2 else { print("ERROR: size WIDTHxHEIGHT"); exit(1) }
+            panel.setContentSize(NSSize(width: sides[0], height: sides[1]))
+            panel.layoutIfNeeded()
+            window.contentView?.layoutSubtreeIfNeeded()
+            print("the picture is now \(Int(view.bounds.width))x\(Int(view.bounds.height)) points")
+        case "highlight":
+            // Each highlight, turned back into the picture's pixels, is that text's box; and a
+            // click at its middle is a click on that text.
+            let boxes = view.boxes
+            let wrong = window.selectedInOrder.filter { i in
+                let shown = view.highlight(of: i), back = view.toPixels(shown), box = boxes[i]
+                let same = abs(back.minX - box.minX) < 0.5 && abs(back.minY - box.minY) < 0.5
+                    && abs(back.maxX - box.maxX) < 0.5 && abs(back.maxY - box.maxY) < 0.5
+                let inside = view.bounds.insetBy(dx: -0.5, dy: -0.5).contains(shown)
+                return !same || !inside || view.text(at: NSPoint(x: shown.midX, y: shown.midY)) != i
+            }
+            print("the highlight lies over each selected text: \(wrong.isEmpty && !window.selectedInOrder.isEmpty ? "yes" : "NO (\(wrong.map { window.blocks?[$0].text ?? "?" }.joined(separator: " / ")))")")
+        default:
+            print("ERROR: no such step: \(act)")
+            exit(1)
+        }
+        print("selected: \(selected()); the bar says now: \(window.shownStatus); the window: \(PictureWindow.current === window ? "open" : "closed")")
+    }
+    return true
 }
 
 // MARK: - Writing into a real text field (needs the permission)

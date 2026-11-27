@@ -37,7 +37,7 @@ curl -fsSL https://raw.githubusercontent.com/baakhoff/btranslate/main/install.sh
 - **One shortcut, ⌃⌥T (yours to change), that does what fits where you are:**
   - **Text is selected:** its translation, in the popup.
   - **The cursor is in a text field, nothing selected:** a small panel opens under the cursor. What you type there, in any language, is written into the field in the language you set for it, while you type.
-  - **Neither:** you choose a window, and get it back as a picture with every text in one language, whatever languages it was in.
+  - **Neither:** you choose a window, and get it back as a picture with every text in one language, whatever languages it was in. Select its texts with the mouse and copy them as text.
 - **A right-click menu item** for the first of those: select text, right-click it and choose **Services → BTranslate**. It needs no permission at all.
 - **A popup, not another app:** Esc, ⌘W or a click anywhere else closes it. Drag it if it's in the way.
 - **Three ways to translate, one click apart:**
@@ -111,6 +111,11 @@ line that was in Russian already, and the numbers, are left as they were:
 - macOS makes its reader of pictures ready for an app once, and again after each update of itself, which takes about a minute. BTranslate has that done in the background when it is installed and when it starts, so it is over before you need it; if not, the window says so.
 - It opens with the language and the method set for windows on the Defaults page of the settings. Under the picture, the language menu and the method selector translate it anew, without reading it again.
 - **Original** shows the window as it was; **Copy** or ⌘C copies the picture; the gear opens the settings.
+- **Its texts can be selected and copied** once the picture is read, as the texts BTranslate read, not as a picture. A text is selected whole: a label, a line, a paragraph.
+  - A click on a text selects it, ⇧-click or ⌘-click adds one or takes it out, and a drag selects every text it touches. ⌘A selects them all; Esc takes the selection away, and closes the window when there is none.
+  - **Copy** or ⌘C then copies what the picture shows of them: the translation where it is painted, the original where it stayed as it was, and the originals while **Original** is on. From the top down, and left to right on one line of the picture, one text to a line.
+  - A right-click on the selection also offers the other version, **Copy the Original** or **Copy the Translation**, and **Select All**.
+  - The selection stays when another language or method translates the window anew, and when **Original** is switched.
 
 ### Where the shortcut can't see
 

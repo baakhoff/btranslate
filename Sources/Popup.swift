@@ -4,6 +4,9 @@ import Cocoa
 final class PopupPanel: NSPanel {
     var onClose: (() -> Void)?
     var onCopy: (() -> Void)?
+    /// Esc, before it closes: true when it was taken for something else (a translated window
+    /// takes its selection away first).
+    var onEscape: (() -> Bool)?
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -11,7 +14,7 @@ final class PopupPanel: NSPanel {
     override func sendEvent(_ event: NSEvent) {
         // Esc closes; while a letter is being put together (Japanese, Chinese, Korean), Esc is that letter's.
         if event.type == .keyDown, event.keyCode == 53, (firstResponder as? NSTextView)?.hasMarkedText() != true {
-            onClose?()
+            if onEscape?() != true { onClose?() }
             return
         }
         super.sendEvent(event)

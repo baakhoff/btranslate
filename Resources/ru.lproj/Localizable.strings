@@ -235,6 +235,13 @@
 "Original" = "Оригинал";
 "Shows the window as it is, without the translations" = "Показывает окно как есть, без перевода";
 "Copies the picture" = "Копирует снимок";
+"Copies the selected text" = "Копирует выбранный текст";
+/* %ld: how many texts of the picture are selected */
+"Selected: %ld. ⌘C copies the text." = "Выбрано: %ld. ⌘C копирует текст.";
+"The text is copied." = "Текст скопирован.";
+"The picture is copied." = "Снимок скопирован.";
+"Copy the Original" = "Скопировать оригинал";
+"Copy the Translation" = "Скопировать перевод";
 "Reading the text in the picture…" = "Читаю текст на снимке…";
 "No text was found in this window." = "В этом окне не найдено текста.";
 "Translating… %ld of %ld" = "Перевод… %ld из %ld";

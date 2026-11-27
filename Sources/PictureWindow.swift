@@ -119,6 +119,151 @@ enum WindowPicture {
     }
 }
 
+// MARK: - The picture, with texts to select
+
+/// The picture of a window, as large as the room lets it and centred, with its texts to select
+/// with the mouse. A text is selected whole. Boxes are in the picture's pixels, counted from its
+/// top left corner, as the reader gives them; `toView` and `toPixels` are the one place where
+/// they are turned into the view's points and back.
+@MainActor
+final class PictureView: NSView {
+    var image: NSImage? { didSet { needsDisplay = true } }
+    var pixelSize = CGSize(width: 1, height: 1) { didSet { needsDisplay = true } }
+    /// Each text's box where the picture shows it now: where its translation is painted, what
+    /// was painted over (which can be wider than the original); otherwise its own.
+    var boxes: [CGRect] = [] {
+        didSet {
+            selected = selected.filter { boxes.indices.contains($0) }
+            window?.invalidateCursorRects(for: self)
+            needsDisplay = true
+        }
+    }
+    private(set) var selected: Set<Int> = [] { didSet { needsDisplay = true } }
+    private(set) var dragged: NSRect?  // the rectangle of a drag, in the view's points
+    var onChange: (() -> Void)?        // the selection changed
+    var onMenu: (() -> NSMenu?)?       // a right-click on a selected text
+
+    private var pressedAt: NSPoint?
+    private var before: Set<Int> = []  // what a drag adds to: the selection, with ⇧ or ⌘ held
+
+    /// Where the picture is drawn: scaled to fit, its sides in proportion, in the middle.
+    var drawn: NSRect {
+        guard pixelSize.width > 0, pixelSize.height > 0, bounds.width > 0, bounds.height > 0 else { return .zero }
+        let k = min(bounds.width / pixelSize.width, bounds.height / pixelSize.height)
+        let size = NSSize(width: pixelSize.width * k, height: pixelSize.height * k)
+        return NSRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height)
+    }
+
+    func toView(_ box: CGRect) -> NSRect {
+        let place = drawn, k = place.width / pixelSize.width
+        return NSRect(x: place.minX + box.minX * k, y: place.maxY - box.maxY * k, width: box.width * k, height: box.height * k)
+    }
+
+    func toPixels(_ rect: NSRect) -> CGRect {
+        let place = drawn, k = place.width / pixelSize.width
+        guard k > 0 else { return .zero }
+        return CGRect(x: (rect.minX - place.minX) / k, y: (place.maxY - rect.maxY) / k, width: rect.width / k, height: rect.height / k)
+    }
+
+    /// Where a text's highlight is drawn, in the view's points.
+    func highlight(of text: Int) -> NSRect { toView(boxes[text]) }
+
+    /// The text at a point of the view: of two that overlap there, the smaller.
+    func text(at point: NSPoint) -> Int? {
+        let spot = toPixels(NSRect(origin: point, size: .zero)).origin
+        return boxes.indices.filter { boxes[$0].contains(spot) }.min { boxes[$0].width * boxes[$0].height < boxes[$1].width * boxes[$1].height }
+    }
+
+    func texts(touching rect: NSRect) -> Set<Int> {
+        let area = toPixels(rect)
+        return Set(boxes.indices.filter { boxes[$0].intersects(area) })
+    }
+
+    func select(_ texts: Set<Int>) {
+        guard texts != selected else { return }
+        selected = texts
+        onChange?()
+    }
+
+    // A click in the window while another app is in front reaches the picture at once, as it
+    // reaches the popup's controls: the panel does not activate BTranslate.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let adding = !event.modifierFlags.intersection([.shift, .command]).isEmpty
+        before = adding ? selected : []
+        pressedAt = point
+        var now = before
+        if let hit = text(at: point) {
+            if adding, now.contains(hit) { now.remove(hit) } else { now.insert(hit) }
+        }
+        before = now
+        select(now)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let start = pressedAt else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        // A hand that shakes a little in a click does not make it a drag.
+        guard dragged != nil || hypot(point.x - start.x, point.y - start.y) > 3 else { return }
+        let rect = NSRect(x: min(start.x, point.x), y: min(start.y, point.y), width: abs(point.x - start.x), height: abs(point.y - start.y))
+        dragged = rect
+        needsDisplay = true
+        select(before.union(texts(touching: rect)))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        pressedAt = nil
+        if dragged != nil {
+            dragged = nil
+            needsDisplay = true
+        }
+    }
+
+    /// A right-click on a text selects it, unless it is selected already, and opens the menu.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let hit = text(at: convert(event.locationInWindow, from: nil)) else { return nil }
+        if !selected.contains(hit) { select([hit]) }
+        return onMenu?()
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "a" {
+            selectAll(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func selectAll(_ sender: Any?) { select(Set(boxes.indices)) }
+
+    override func resetCursorRects() {
+        for box in boxes { addCursorRect(toView(box).intersection(bounds), cursor: .iBeam) }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSGraphicsContext.current?.imageInterpolation = .high
+        image?.draw(in: drawn)
+        let tint = NSColor.selectedContentBackgroundColor
+        for text in selected {
+            let path = NSBezierPath(roundedRect: highlight(of: text), xRadius: 2, yRadius: 2)
+            tint.withAlphaComponent(0.3).setFill()
+            path.fill()
+            tint.withAlphaComponent(0.7).setStroke()
+            path.stroke()
+        }
+        if let dragged {
+            let path = NSBezierPath(rect: dragged.insetBy(dx: 0.5, dy: 0.5))
+            tint.withAlphaComponent(0.12).setFill()
+            path.fill()
+            tint.withAlphaComponent(0.8).setStroke()
+            path.stroke()
+        }
+    }
+}
+
 // MARK: - The translated picture's window
 
 @MainActor
@@ -136,10 +281,17 @@ final class PictureWindow: NSObject, NSWindowDelegate {
     private(set) var target: Target
     private(set) var blocks: [PictureBlock]?  // nil until the picture is read
     private(set) var painted: CGImage?
-    private(set) var statusText = ""
+    private(set) var statusText = ""  // what the bar says of the reading and translating
+    private var problem = false
     private(set) var failed = false
+    /// Of each text, where its translation was painted over the picture shown, and what was
+    /// painted: nil where it was not. A selected text is highlighted there, and copied as that.
+    private var covers: [CGRect?] = []
+    private var paintedTexts: [String?] = []
+    private var copiedNote: String?  // what the bar says for a moment after a copy
+    private var copies = 0
 
-    private let imageView = NSImageView()
+    let pictureView = PictureView()
     private let arrow = NSTextField(labelWithString: "→")
     private let menu = NSPopUpButton(frame: .zero, pullsDown: false)
     private let engineControl = NSSegmentedControl()
@@ -203,18 +355,17 @@ final class PictureWindow: NSObject, NSWindowDelegate {
         panel.isReleasedWhenClosed = false
         panel.delegate = self
         panel.onClose = { [weak self] in self?.close() }
-        panel.onCopy = { [weak self] in self?.copyPicture() }
+        panel.onCopy = { [weak self] in self?.copyShown() }
+        panel.onEscape = { [weak self] in self?.dropSelection() ?? false }
 
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-        imageView.imageAlignment = .alignCenter
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        // The window's size is its own to keep. Left to itself, the picture would hold out for
-        // its full size and make the window grow: one as tall as the screen then has its bar,
-        // with the selectors, under the screen's edge. So the picture gives way, and is shown smaller.
-        for way in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
-            imageView.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(1), for: way)
-            imageView.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: way)
-        }
+        // The window's size is its own to keep. Were the picture to hold out for its full size,
+        // it would make the window grow: one as tall as the screen would then have its bar, with
+        // the selectors, under the screen's edge. The view has no size of its own: the picture
+        // is drawn as large as the room lets it.
+        pictureView.translatesAutoresizingMaskIntoConstraints = false
+        pictureView.pixelSize = CGSize(width: original.width, height: original.height)
+        pictureView.onChange = { [weak self] in self?.showStatus() }
+        pictureView.onMenu = { [weak self] in self?.selectionMenu() }
         arrow.font = .systemFont(ofSize: 12, weight: .medium)
         arrow.textColor = .secondaryLabelColor
         menu.controlSize = .small
@@ -245,7 +396,7 @@ final class PictureWindow: NSObject, NSWindowDelegate {
             button.target = self
         }
         originalButton.action = #selector(showPicture)
-        copyButton.action = #selector(copyPicture)
+        copyButton.action = #selector(copyShown)
         copyButton.toolTip = L("Copies the picture")
 
         let row = NSStackView(views: [arrow, menu, engineControl, status, originalButton, copyButton, settingsButton])
@@ -256,13 +407,13 @@ final class PictureWindow: NSObject, NSWindowDelegate {
         row.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
         row.translatesAutoresizingMaskIntoConstraints = false
         let content = NSView()
-        content.addSubview(imageView)
+        content.addSubview(pictureView)
         content.addSubview(row)
         NSLayoutConstraint.activate([
-            imageView.topAnchor.constraint(equalTo: content.topAnchor),
-            imageView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            imageView.bottomAnchor.constraint(equalTo: row.topAnchor),
+            pictureView.topAnchor.constraint(equalTo: content.topAnchor),
+            pictureView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            pictureView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            pictureView.bottomAnchor.constraint(equalTo: row.topAnchor),
             row.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             row.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             row.bottomAnchor.constraint(equalTo: content.bottomAnchor),
@@ -339,6 +490,8 @@ final class PictureWindow: NSObject, NSWindowDelegate {
         let worth = all.indices.filter { all[$0].hasWords }
         guard !worth.isEmpty else {
             painted = nil
+            covers = []
+            paintedTexts = []
             showPicture()
             say(L("No text was found in this window."))
             onSettled?()
@@ -373,20 +526,39 @@ final class PictureWindow: NSObject, NSWindowDelegate {
 
     private func repaint() {
         guard let blocks, let pixels else { return }
-        painted = PicturePainter.paint(original, blocks: blocks, pixels: pixels, scale: scale)
+        let plans = blocks.map { PicturePainter.plan($0, in: pixels, scale: scale) }
+        painted = PicturePainter.paint(original, plans: plans.compactMap { $0 }, scale: scale)
+        covers = plans.map { $0?.cover }
+        paintedTexts = plans.map { $0?.string.string }
         showPicture()
     }
 
     private func say(_ text: String, problem: Bool = false) {
         statusText = text
-        status.stringValue = text
-        status.textColor = problem ? .systemRed : .secondaryLabelColor
-        status.toolTip = text
+        self.problem = problem
+        showStatus()
     }
 
+    /// The bar says what is selected while something is; what it said before comes back after.
+    private func showStatus() {
+        let count = pictureView.selected.count
+        let text = copiedNote ?? (count > 0 ? L("Selected: %ld. ⌘C copies the text.", count) : statusText)
+        status.stringValue = text
+        status.textColor = problem && copiedNote == nil && count == 0 ? .systemRed : .secondaryLabelColor
+        status.toolTip = text
+        copyButton.toolTip = count > 0 ? L("Copies the selected text") : L("Copies the picture")
+    }
+
+    var shownStatus: String { status.stringValue }  // (checks)
+
     @objc private func showPicture() {
-        let shown = originalButton.state == .on ? original : (painted ?? original)
-        imageView.image = NSImage(cgImage: shown, size: NSSize(width: CGFloat(shown.width) / scale, height: CGFloat(shown.height) / scale))
+        let originalShown = originalButton.state == .on || painted == nil
+        let shown = originalShown ? original : (painted ?? original)
+        pictureView.image = NSImage(cgImage: shown, size: NSSize(width: CGFloat(shown.width) / scale, height: CGFloat(shown.height) / scale))
+        let all = blocks ?? []
+        pictureView.boxes = all.indices.map { i in
+            (originalShown || !covers.indices.contains(i) ? nil : covers[i]) ?? all[i].box
+        }
     }
 
     @objc private func targetChanged() {
@@ -419,13 +591,116 @@ final class PictureWindow: NSObject, NSWindowDelegate {
 
     var gear: NSButton { settingsButton }  // (checks)
 
-    @objc func copyPicture() {
-        guard let image = imageView.image else { return }
+    var originalSwitch: NSButton { originalButton }  // (checks)
+    var copier: NSButton { copyButton }
+
+    // MARK: Selecting and copying
+
+    /// Where a copy goes: the clipboard. (A check has its own, and leaves the clipboard alone.)
+    var copyText: (String) -> Void = { text in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+    var copyImage: (NSImage) -> Void = { image in
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([image])
-        let before = copyButton.title
+    }
+
+    enum Version { case shown, originals, translations }
+
+    /// The selected texts in reading order: from the top down, and from left to right among
+    /// texts on one line of the picture (one whose first line starts above the middle of
+    /// another's first line is on a line before it).
+    var selectedInOrder: [Int] {
+        guard let blocks else { return [] }
+        let chosen = pictureView.selected.filter { blocks.indices.contains($0) }.sorted { blocks[$0].box.minY < blocks[$1].box.minY }
+        var rows: [[Int]] = []
+        for i in chosen {
+            if let first = rows.last?.first, blocks[i].lines[0].box.midY < blocks[first].lines[0].box.maxY {
+                rows[rows.count - 1].append(i)
+            } else {
+                rows.append([i])
+            }
+        }
+        return rows.flatMap { $0.sorted { blocks[$0].box.minX < blocks[$1].box.minX } }
+    }
+
+    /// The selected texts, one to a line. `.shown`: what the picture shows of each, the
+    /// translation where one is painted over it and the original where it stayed as it was.
+    func selectedText(_ version: Version = .shown) -> String {
+        guard let blocks else { return "" }
+        let originals = version == .originals || version == .shown && (originalButton.state == .on || painted == nil)
+        return selectedInOrder.map { i in
+            originals ? blocks[i].text : (paintedTexts.indices.contains(i) ? paintedTexts[i] : nil) ?? blocks[i].text
+        }.joined(separator: "\n")
+    }
+
+    /// ⌘C and the Copy button: the selected texts, or the picture while none is selected.
+    @objc func copyShown() {
+        if pictureView.selected.isEmpty {
+            guard let image = pictureView.image else { return }
+            copyImage(image)
+            copied(L("The picture is copied."))
+        } else {
+            copyText(selectedText())
+            copied(L("The text is copied."))
+        }
+    }
+
+    @objc private func copyOriginals() {
+        copyText(selectedText(.originals))
+        copied(L("The text is copied."))
+    }
+
+    @objc private func copyTranslations() {
+        copyText(selectedText(.translations))
+        copied(L("The text is copied."))
+    }
+
+    /// The Copy button and the bar say so for a moment.
+    private func copied(_ note: String) {
+        copies += 1
+        let mine = copies
         copyButton.title = L("Copied")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.copyButton.title = before }
+        copiedNote = note
+        showStatus()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            guard let self, self.copies == mine else { return }
+            self.copyButton.title = L("Copy")
+            self.copiedNote = nil
+            self.showStatus()
+        }
+    }
+
+    @objc private func selectEverything() { pictureView.selectAll(nil) }
+
+    /// Esc: takes the selection away. false: there was none, and Esc closes the window.
+    func dropSelection() -> Bool {
+        guard !pictureView.selected.isEmpty else { return false }
+        pictureView.select([])
+        return true
+    }
+
+    /// The menu of a right-click on the selection. Besides Copy, the other version of the
+    /// texts than the picture shows, where it is not the same.
+    func selectionMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        func add(_ title: String, _ action: Selector) {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        add(L("Copy"), #selector(copyShown))
+        let showsOriginals = originalButton.state == .on || painted == nil
+        if showsOriginals {
+            if selectedText(.translations) != selectedText() { add(L("Copy the Translation"), #selector(copyTranslations)) }
+        } else if selectedText(.originals) != selectedText() {
+            add(L("Copy the Original"), #selector(copyOriginals))
+        }
+        menu.addItem(.separator())
+        add(L("Select All"), #selector(selectEverything))
+        return menu
     }
 }
 

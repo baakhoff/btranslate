@@ -45,7 +45,9 @@
 //                                  hundreds of short texts, the one the reader is made ready with)
 //   --picture-check FILE [--engine …] [--to …] [--picture DIR]
 //                                  read a picture as a window's is read, translate its texts, print them
-//   --picture-window-check FILE [--picture DIR]  the window that shows it, off screen
+//   --picture-window-check FILE [--then METHOD] [--act "STEP; STEP…"] [--picture DIR]
+//                                  the window that shows it, off screen; --act selects and copies
+//                                  its texts as the mouse and keys would (runPictureActs)
 //   --read-picture LANGUAGES       (the app's own helper) a picture on standard input, its lines as JSON
 //   --prepare-reading              have macOS make its reader of pictures ready (the installer and
 //                                  the app do)
