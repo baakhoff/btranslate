@@ -39,9 +39,15 @@ export BTRANSLATE_ACCESSIBILITY=off BTRANSLATE_LOGIN=off BTRANSLATE_SCREEN=off
 # one), and there is a network, whatever the real one is (the checks of none take it away).
 export BTRANSLATE_KEYCHAIN=off BTRANSLATE_CONNECTION=on
 DEAD="http://127.0.0.1:9"  # nothing listens there: a request ends as it does without internet
+# No check asks GitHub for a newer version of BTranslate: unless a check says otherwise, the
+# app looks where nothing listens. An update runs only a stand-in command a check gives (without
+# one a check refuses), and writes into a log of the tests' own.
+export BTRANSLATE_UPDATE_URL="$DEAD" BTRANSLATE_UPDATE_LOG="$PWD/build/update-test.log"
+unset BTRANSLATE_UPDATE_COMMAND BTRANSLATE_UPDATE_WAITING BTRANSLATE_VERSION BTRANSLATE_SIGNED BTRANSLATE_AUTOUPDATE
 # Settings are given to a run as -key value arguments. These say that nothing is chosen yet
-# for the typing panel and for a window, whatever your own settings say.
-NONE=(-secondLanguage none -typingLanguage none -typingEngine none -windowLanguage none -windowEngine none)
+# for the typing panel and for a window, and nothing about updates, whatever your own settings say.
+NONE=(-secondLanguage none -typingLanguage none -typingEngine none -windowLanguage none -windowEngine none
+      -checkForUpdates YES -autoUpdate NO -lastUpdateCheck '' -updateTo '' -autoUpdateFailed '')
 # The language pack (NLLB-200) is kept in a folder of the tests' own: empty, unless a test
 # installs the miniature pack of the mock server there. A pack you have installed is not touched.
 export BTRANSLATE_PACK_DIR="$PWD/build/test-pack"
@@ -176,6 +182,7 @@ check "UI, off screen: the language to write in follows the list" "language to w
 check "UI, off screen: pictures written" "source-picker.png" ls build/uitest
 check "UI, off screen: every text of the settings window fits" "settings window, every text fits: yes" echo "$UI_OUT"
 check "UI, off screen: every page of the settings window fits a small screen" "they fit a small screen" echo "$UI_OUT"
+check "UI, off screen: the page tabs end within the page" "page tabs fit the page: yes" echo "$UI_OUT"
 check "UI, off screen: the menu of BTranslate's own language" "language menu: the Mac's, en, ru" echo "$UI_OUT"
 
 # The same in Russian: longer words in the same windows.
@@ -184,6 +191,7 @@ UI_RU="$(env BTRANSLATE_LANGUAGE=ru BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" 
 check "UI in Russian: it is in Russian" "interface language: ru" echo "$UI_RU"
 check "UI in Russian: every text of the settings window fits" "settings window, every text fits: yes" echo "$UI_RU"
 check "UI in Russian: every page of the settings window fits a small screen" "they fit a small screen" echo "$UI_RU"
+check "UI in Russian: the five page tabs end within the page (at its margin, where they had to be narrowed)" "page tabs fit the page: yes" echo "$UI_RU"
 check "UI in Russian: the picker finds languages by their English names too" "source picker finds: ltg, la, lv" echo "$UI_RU"
 check "UI in Russian: several languages at once" "several languages at once: yes (ru, en, lv)" echo "$UI_RU"
 check "UI in Russian: the original's language set by hand" "the original's language can be set by hand: yes" echo "$UI_RU"
@@ -295,6 +303,154 @@ check "Installer: the language pack is not at its address" "It may not be publis
 check "Installer, in Russian: the language pack" "Языковой пакет установлен." \
     env "${INST[@]}" BTRANSLATE_LANGUAGE=ru BTRANSLATE_PACK=yes BTRANSLATE_PACK_URL="$MOCK/pack" ./install.sh
 "$BIN" --pack-remove > /dev/null || true
+
+# Updates. The check asks the mock server, where VERSION says 1.10.0; BTRANSLATE_VERSION is the
+# version the app takes itself for. (Each run gets its update settings as arguments.)
+upd() { env BTRANSLATE_UPDATE_URL="$MOCK/$1" BTRANSLATE_VERSION="$2" "$BIN" "${@:3}" -lastUpdateCheck '' -updateTo ''; }
+check "Updates: a newer version, its release there" "update check: available: 1.10.0" upd update 1.9.0 --update-check
+logged "Updates: VERSION is asked for" '"method": "GET", "path": "/update/VERSION"'
+logged "Updates: and whether the release's source is there" '"method": "HEAD", "path": "/update/archive/refs/tags/v1.10.0.tar.gz"'
+check "Updates: the day's check is kept" "last check kept: yes" upd update 1.9.0 --update-check
+check "Updates: a newer version without its release yet is no update" "update check: up to date" upd update-norelease 1.9.0 --update-check
+check "Updates: the same version" "update check: up to date" upd update 1.10.0 --update-check
+check "Updates: an older one" "update check: up to date" upd update 1.11.0 --update-check
+check "Updates: nonsense for a version" "update check: could not check: GitHub's answer is not a version number." upd update-nonsense 1.9.0 --update-check
+check "Updates: nothing answering" $'update check: could not check: No internet connection.\nlast check kept: no' \
+    env BTRANSLATE_VERSION=1.9.0 "$BIN" --update-check
+check "Updates: the daily check, with the setting on" "update check: available: 1.10.0" upd update 1.9.0 --update-check --scheduled -checkForUpdates YES
+check "Updates: none with checkForUpdates off" "update check: not done (checkForUpdates is off)" \
+    upd update 1.9.0 --update-check --scheduled -checkForUpdates NO
+check "Updates: none while the last check is less than a day old" "update check: not done (the last one is less than a day old)" \
+    env BTRANSLATE_UPDATE_URL="$MOCK/update" BTRANSLATE_VERSION=1.9.0 "$BIN" --update-check --scheduled -checkForUpdates YES \
+    -lastUpdateCheck "$(date -u -v-2H +%Y-%m-%dT%H:%M:%SZ)"
+check "Updates: and again once it is a day old" "update check: available: 1.10.0" \
+    env BTRANSLATE_UPDATE_URL="$MOCK/update" BTRANSLATE_VERSION=1.9.0 "$BIN" --update-check --scheduled -checkForUpdates YES \
+    -lastUpdateCheck "$(date -u -v-25H +%Y-%m-%dT%H:%M:%SZ)"
+check "Updates: a last check in the future (the clock was set back) does not hold off the next" "update check: available: 1.10.0" \
+    env BTRANSLATE_UPDATE_URL="$MOCK/update" BTRANSLATE_VERSION=1.9.0 "$BIN" --update-check --scheduled -checkForUpdates YES \
+    -lastUpdateCheck "$(date -u -v+30d +%Y-%m-%dT%H:%M:%SZ)"
+
+# The Update button, with a stand-in for the installer.
+UPLOG="$BTRANSLATE_UPDATE_LOG"
+rm -f "$UPLOG"
+run_update() { env BTRANSLATE_UPDATE_WAITING=1.10.0 BTRANSLATE_VERSION=1.9.0 "$@" "$BIN" --update-run ${UPDAUTO:+--auto} -checkForUpdates YES -autoUpdate NO -updateTo '' -autoUpdateFailed ''; }
+UPDAUTO=""  # --auto: as an automatic update
+UPDATED="$(run_update BTRANSLATE_UPDATE_COMMAND='echo "pack: $BTRANSLATE_PACK, automatic updates: $BTRANSLATE_AUTOUPDATE"' 2>&1 || true)"
+check "Update: the button starts the command" "update to 1.10.0: updating to 1.10.0" echo "$UPDATED"
+check "Update: and notes what it started, before it starts it" "the note it keeps: from 1.9.0 to 1.10.0, asked by the user" echo "$UPDATED"
+check "Update: the installer is told to leave the language pack and the automatic updates as they are" \
+    "pack: no, automatic updates: keep" cat "$UPLOG"
+check "Update: what it printed went into the log, after a line saying what was started" $'BTranslate 1.9.0 → 1.10.0\npack: no' cat "$UPLOG"
+FAILED="$(run_update BTRANSLATE_UPDATE_COMMAND='echo "Building BTranslate"; echo "the build failed here" >&2; exit 3' 2>&1 || true)"
+check "Update: a command that fails shows its last line and the log's path" \
+    "the About page says: The update did not work: the build failed here / The installer's log: " echo "$FAILED"
+check "Update: and the note goes" "the note then: none" echo "$FAILED"
+# The installer's own line, curl … | bash, where the download fails: bash then reads nothing and
+# ends with 0, and only pipefail makes the update fail as it did.
+NONET="$(run_update BTRANSLATE_UPDATE_COMMAND="/usr/bin/curl -fsSL $DEAD/install.sh | /bin/bash" 2>&1 || true)"
+check "Update: a download that fails is a failed update, not one still on offer" "once the command has ended: update failed: curl: (7)" echo "$NONET"
+check "Update: one the user asked for that failed does not hold off automatic updates" "tried again by itself: yes" echo "$NONET"
+UPDAUTO=1
+check "Update: an automatic one that failed is not tried again by itself" "tried again by itself: no, Update still offers it" \
+    run_update BTRANSLATE_UPDATE_COMMAND='exit 1'
+UPDAUTO=""
+check "Update: an automatic one is noted as such" "the note it keeps: from 1.9.0 to 1.10.0, automatic" \
+    env BTRANSLATE_UPDATE_WAITING=1.10.0 BTRANSLATE_VERSION=1.9.0 BTRANSLATE_UPDATE_COMMAND=true "$BIN" --update-run --auto -updateTo '' -autoUpdateFailed ''
+check "Update: a check without the stand-in never runs the installer" \
+    "update to 1.10.0: update failed: a check never runs the real installer" env BTRANSLATE_UPDATE_WAITING=1.10.0 "$BIN" --update-run -updateTo ''
+
+# The automatic update: a version found, with the setting on or off.
+AUTO=(BTRANSLATE_VERSION=1.9.0 BTRANSLATE_UPDATE_COMMAND='echo automatic')
+check "Automatic update: starts with the setting on and nothing showing" \
+    "a version found, nothing showing: available: 9.9.9 → updating to 9.9.9" env "${AUTO[@]}" "$BIN" -autoUpdate YES -updateTo '' -autoUpdateFailed '' --update-auto-check
+AUTO_POP="$(env "${AUTO[@]}" BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" -autoUpdate YES -updateTo '' -autoUpdateFailed '' "${POP[@]}" -languages '(en)' \
+    --update-auto-check --showing popup 2>&1 || true)"
+check "Automatic update: waits while a popup is showing" "a version found, a popup showing: available: 9.9.9; the update started: no" echo "$AUTO_POP"
+check "Automatic update: and starts once it is gone" "the popup closed: available: 9.9.9 → updating to 9.9.9" echo "$AUTO_POP"
+check "Automatic update: does not start with the setting off" "a version found, nothing showing: available: 9.9.9; the update started: no" \
+    env "${AUTO[@]}" "$BIN" -autoUpdate NO -updateTo '' -autoUpdateFailed '' --update-auto-check
+check "Automatic update: not again for a version whose automatic update failed" "a version found, nothing showing: available: 9.9.9; the update started: no" \
+    env "${AUTO[@]}" "$BIN" -autoUpdate YES -updateTo '' -autoUpdateFailed 9.9.9 --update-auto-check
+check "Automatic update: but for the next one" "a version found, nothing showing: available: 9.9.9 → updating to 9.9.9" \
+    env "${AUTO[@]}" "$BIN" -autoUpdate YES -updateTo '' -autoUpdateFailed 9.9.8 --update-auto-check
+
+# The start after an update: the note of what was started is given as arguments.
+printf 'Building BTranslate 1.10.0\nno Command Line Tools here\n' > build/update-note.log  # what the installer left in its log
+note() { env BTRANSLATE_VERSION="$1" BTRANSLATE_UPDATE_LOG="$PWD/build/update-note.log" "$BIN" -updateFrom 1.9.0 -updateTo 1.10.0 -updateAsked "$2" -autoUpdateFailed '' --update-note-check; }
+check "After an update the user asked for: the version reached, the note goes, the settings open on About" \
+    "at the start: installed: 1.10.0; the note then: none; the settings open on the About page: yes" note 1.10.0 YES
+check "After an automatic update: the same, and nothing opens" \
+    "at the start: installed: 1.10.0; the note then: none; the settings open on the About page: no" note 1.10.0 NO
+check "An update that did not arrive says so" \
+    "at the start: update failed: The update to 1.10.0 did not finish. no Command Line Tools here; the note then: none; the settings open on the About page: no" note 1.9.0 YES
+check "Without a note, nothing happens at the start" "at the start: never checked; the note then: none" \
+    env BTRANSLATE_VERSION=1.9.0 "$BIN" -updateTo '' --update-note-check
+
+# The gears, while a newer version waits.
+WAITING_GEAR='gear: tinted, tooltip “BTranslate 9.9.9 is available. Click to see it in the settings.”, opens the About page'
+check "Gear of the popup: tinted while a version waits, and it opens the About page" "$WAITING_GEAR" \
+    env BTRANSLATE_UPDATE_WAITING=9.9.9 BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --popup-check "Labdien" "${POP[@]}" -languages '(en)'
+check "Gear of the popup: plain otherwise" "gear: plain, tooltip “BTranslate settings”, opens the settings" \
+    env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --popup-check "Labdien" "${POP[@]}" -languages '(en)'
+check "Gear of the typing panel, while a version waits" "$WAITING_GEAR" \
+    env BTRANSLATE_UPDATE_WAITING=9.9.9 BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${NONE[@]}" -googleEnabled YES -languages '(en, ru)' --type-check "Hello"
+
+# The About page in every state of the update, signed ad hoc and with this Mac's certificate,
+# in English and in Russian: every text fits, and the window a small screen.
+ABOUT=(-checkForUpdates YES -autoUpdate NO -lastUpdateCheck '' -updateTo '' -autoUpdateFailed '')
+for signed in adhoc own; do
+    for language in en ru; do
+        OUT="$(env BTRANSLATE_LANGUAGE=$language BTRANSLATE_SIGNED=$signed BTRANSLATE_VERSION=1.9.0 "$BIN" -AppleLanguages "($language)" "${ABOUT[@]}" \
+            --about-check --picture "build/uitest-about-$language-$signed" 2>&1 || true)"
+        check "About page ($language, $signed): every text fits in every state" "every state: every text fits: yes" echo "$OUT"
+        check "About page ($language, $signed): and it fits a small screen" "it fits a small screen" echo "$OUT"
+        check "About page ($language, $signed): the note about the permissions $([ $signed = adhoc ] && echo "where signed ad hoc" || echo "only where signed ad hoc")" \
+            "ad hoc note: $([ $signed = adhoc ] && echo shown || echo hidden)" echo "$OUT"
+    done
+done
+OUT="$(env BTRANSLATE_SIGNED=adhoc BTRANSLATE_VERSION=1.9.0 "$BIN" "${ABOUT[@]}" --about-check 2>&1 || true)"
+check "About page: Update while a version waits" "about, available: BTranslate 9.10.11 is available. This one is 1.9.0. [Update]" echo "$OUT"
+check "About page: Check Now otherwise" "about, never: BTranslate has not looked for a newer version yet. [Check Now]" echo "$OUT"
+check "About page: while it checks, a spinner and the button off" "about, checking: Looking for a newer version… [Check Now, off, spinning]" echo "$OUT"
+check "About page: while it updates, the same" "[Update, off, spinning]" echo "$OUT"
+check "About page: the two ticks as the settings give them" "ticks: daily on, automatic off;" echo "$OUT"
+check "About page, in Russian: a check that failed" "Не удалось проверить, есть ли новая версия: Нет подключения к интернету." \
+    env BTRANSLATE_LANGUAGE=ru BTRANSLATE_SIGNED=adhoc BTRANSLATE_VERSION=1.9.0 "$BIN" -AppleLanguages '(ru)' "${ABOUT[@]}" --about-check
+check "About page: the automatic tick is off while the daily check is" "automatic on (off while the daily check is)" \
+    env BTRANSLATE_SIGNED=adhoc "$BIN" -checkForUpdates NO -autoUpdate YES -lastUpdateCheck '' -updateTo '' --about-check
+
+# The installer's question about updating by itself: its step alone. The answer comes on
+# standard input; the certificate and the setting are stood in for, and nothing is stored.
+askauto() { local answer="$1"; shift; printf '%s' "$answer" | env BTRANSLATE_INSTALLER_TEST=autoupdate "$@" ./install.sh 2>&1; }
+check "Installer: updates, Enter on a Mac with its own certificate: yes" $'[Y/n] autoUpdate would be stored: yes' askauto $'\n' BTRANSLATE_TEST_CERT=yes
+check "Installer: updates, Enter on a Mac without one: no" $'[y/N] autoUpdate would be stored: no' askauto $'\n' BTRANSLATE_TEST_CERT=no
+check "Installer: updates, without a certificate the question says why its default is no" \
+    "macOS would want the shortcut's permissions given again" askauto $'\n' BTRANSLATE_TEST_CERT=no
+check "Installer: updates, y without a certificate" "autoUpdate would be stored: yes" askauto $'y\n' BTRANSLATE_TEST_CERT=no
+check "Installer: updates, n with one" "autoUpdate would be stored: no" askauto $'n\n' BTRANSLATE_TEST_CERT=yes
+check "Installer: updates, the Y key in the Russian layout" "autoUpdate would be stored: yes" askauto $'н\n' BTRANSLATE_TEST_CERT=no BTRANSLATE_LANGUAGE=en
+check "Installer: updates, wrong answers three times: nothing stored" "(No answer: nothing changed." askauto $'maybe\nperhaps\nlater\n' BTRANSLATE_TEST_CERT=no
+check "Installer: updates, nothing asked when the setting is there already" "Nothing asked: the setting is there already." \
+    askauto $'y\n' BTRANSLATE_TEST_CERT=no BTRANSLATE_TEST_AUTOUPDATE=0
+check "Installer: updates, BTRANSLATE_AUTOUPDATE answers without asking" "autoUpdate would be stored: yes" \
+    bash -c 'out="$(env BTRANSLATE_INSTALLER_TEST=autoupdate BTRANSLATE_AUTOUPDATE=YES ./install.sh < /dev/null 2>&1)"; [[ "$out" == *"[y/N]"* ]] && echo "ASKED: $out" || echo "$out"'
+check "Installer: updates, keep (the app's own Update): nothing asked or stored" "nothing: yes" \
+    bash -c '[ -z "$(printf "y\n" | env BTRANSLATE_INSTALLER_TEST=autoupdate BTRANSLATE_AUTOUPDATE=keep ./install.sh 2>&1)" ] && echo "nothing: yes"'
+check "Installer: updates, said wrongly" "say yes or no" env BTRANSLATE_INSTALLER_TEST=autoupdate BTRANSLATE_AUTOUPDATE=maybe ./install.sh
+check "Installer, in Russian: updates, with its own certificate" "Устанавливать обновления автоматически? [Д/н] autoUpdate would be stored: yes" \
+    askauto $'д\n' BTRANSLATE_TEST_CERT=yes BTRANSLATE_LANGUAGE=ru
+check "Installer, in Russian: updates, without one" "сочетания клавиш (tools/local-signing.sh не создал здесь сертификат)." \
+    askauto $'\n' BTRANSLATE_TEST_CERT=no BTRANSLATE_LANGUAGE=ru
+check "Installer, in Russian: the N key in the Russian layout says no" "autoUpdate would be stored: no" \
+    askauto $'н\n' BTRANSLATE_TEST_CERT=yes BTRANSLATE_LANGUAGE=ru
+check "Installer, in Russian: the Д key in a Latin layout says yes" "autoUpdate would be stored: yes" \
+    askauto $'l\n' BTRANSLATE_TEST_CERT=no BTRANSLATE_LANGUAGE=ru
+check "Installer, in Russian: a lone y (also the Н key in a Latin layout) is no answer, and it asks again" \
+    $'Введите «да» или «нет».\nУстанавливать обновления автоматически? [Д/н] autoUpdate would be stored: no' \
+    askauto $'y\nнет\n' BTRANSLATE_TEST_CERT=yes BTRANSLATE_LANGUAGE=ru
+check "Installer, in Russian: Y three times turns nothing on" "(Ответа нет: ничего не изменено." \
+    askauto $'Y\ny\nY\n' BTRANSLATE_TEST_CERT=yes BTRANSLATE_LANGUAGE=ru
+check "Installer, in Russian: да says yes" "autoUpdate would be stored: yes" askauto $'да\n' BTRANSLATE_TEST_CERT=no BTRANSLATE_LANGUAGE=ru
 
 # The language pack's detector of a text's language, on a made-up file of a few rows: the app
 # must read it as the Python that wrote it does (tools/nllb/lid.py toy).
@@ -416,6 +572,8 @@ logged "Picture: to a server of your own, one at a time" '"path": "openaislow", 
 check "Picture: and never two" "seen 0 time(s)" seen '"path": "openaislow", "together": \([2-9]\|[1-9][0-9]\)'
 WINDOW="$(typing --picture-window-check build/uitest/window.png --picture build/uitest)"
 check "Picture: its window, read in a process of its own" "the bar says: Translation into Russian" echo "$WINDOW"
+check "Gear of the translated window, while a version waits" "$WAITING_GEAR" \
+    env BTRANSLATE_UPDATE_WAITING=9.9.9 BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" --picture-window-check build/uitest/window.png
 check "Picture: every text of its window fits" "every text of the window fits: yes" echo "$WINDOW"
 check "Picture: while none is set for a window, it is the popup's method and the default language" "by google into ru" echo "$WINDOW"
 CHOSEN="$(env "${MODEL[@]}" BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" -windowEngine ai -windowLanguage lv \

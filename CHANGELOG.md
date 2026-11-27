@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Version at release: 1.1.0.
+
+### Updates
+- **BTranslate looks for a newer version** once a day (half a minute after it starts, then hourly whether the last check is a day old): one small request to GitHub for `VERSION` on `main`, and one for whether that version's release is there. Nothing of the user's goes with them. **Check for updates once a day** on the new About page turns it off.
+- **An About page,** the fifth of the settings: the version, the project's address and licences, whether there is a newer version with **Check Now** or **Update**, the two ticks, what a check sends and what an update does, the install line to copy, and, where the app is signed ad hoc, that each update takes the shortcut's permissions away.
+- **Update** runs the installer again, as a process of its own that outlives the app, with its output in `~/Library/Logs/BTranslate-update.log`. When it fails, the About page shows its last line. After an update the user asked for, the settings open on the About page saying that the new version is installed.
+- **Install updates automatically** (off unless turned on): a version found is installed as soon as nothing of BTranslate is on the screen. A version whose automatic update failed is not tried again by itself; **Update** still offers it.
+- **The gears** of the popup, the typing panel and the translated window are tinted while a newer version waits, and open the About page.
+- **The installer asks once** whether to install updates automatically: yes by default on a Mac with the certificate "BTranslate (this Mac)", no elsewhere, saying why. `BTRANSLATE_AUTOUPDATE=yes|no` answers beforehand. `uninstall.sh` also removes the updates' log.
+
 ## [1.0.0] - 2026-11-27
 
 The first release.

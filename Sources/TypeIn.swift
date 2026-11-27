@@ -131,7 +131,7 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
         windowButton.beSymbol("macwindow.on.rectangle", size: 12, tip: L("Translate a window instead"))
         windowButton.target = self
         windowButton.action = #selector(pictureInstead)
-        settingsButton.beSymbol("gearshape", size: 13, tip: L("BTranslate settings"))
+        settingsButton.beGear()
         settingsButton.target = self
         settingsButton.action = #selector(openSettings)
 
@@ -283,8 +283,10 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
     /// there stays), and the settings open.
     @objc private func openSettings() {
         if message == nil { finish(byReturn: false) } else { close() }
-        (NSApp.delegate as? AppDelegate)?.showSettings()
+        (NSApp.delegate as? AppDelegate)?.showSettingsFromGear()
     }
+
+    var gear: NSButton { settingsButton }  // (checks)
 
     // MARK: Typing and translating
 

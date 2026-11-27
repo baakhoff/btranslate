@@ -27,8 +27,9 @@ curl -fsSL https://raw.githubusercontent.com/baakhoff/btranslate/main/install.sh
   - The build is checked with the tools of macOS 15 and macOS 26, down to version 16.0 (Swift 6.0). If yours are older and the build fails, update them in Software Update.
   - macOS's own offline languages need macOS 26 and its tools. After an upgrade to macOS 26, run the install line again.
 - **The language pack:** on a Mac with Apple silicon the installer asks whether to download [it](#the-language-pack) (906 MB), which BTranslate needs to work properly without internet. Enter says yes; `BTRANSLATE_PACK=yes` or `no` in front of `bash` answers beforehand.
+- **Updates that install themselves:** the installer asks once whether BTranslate may install its updates by itself (see [Updates](#updates)). Enter says yes on a Mac that signs BTranslate with its own certificate, and no on one that does not, where every update takes the shortcut's permissions away; the question says so. `BTRANSLATE_AUTOUPDATE=yes` or `no` in front of `bash` answers beforehand.
 - **Then** BTranslate's settings window opens: see [Settings](#settings).
-- **To update,** run the same line again: your settings and key are kept.
+- **To update,** click **Update** on the About page of the settings when it says a newer version is out, or run the same line again: your settings and key are kept.
 - **From a checkout:** `./install.sh`.
 
 ## What you get
@@ -78,7 +79,7 @@ puts it away.
   - **Your permission** under System Settings → Privacy & Security → **Accessibility**. Until it is there, the shortcut opens the Shortcut page of the settings instead, which takes you to the switch.
   - **A second permission** for translating a window, in the same place: **Screen & System Audio Recording**. macOS asks for it the first time you choose a window, and that first window is not translated; press the shortcut again once it is given.
   - **BTranslate running:** tick **Open BTranslate when I log in** on the Shortcut page. Quitting BTranslate (⌘Q in its settings window) stops the shortcut until you open it again.
-- **After an update the permissions have to be given again:** take BTranslate off those lists with **–** and add it again. macOS ties a permission to the exact build of an app that has no developer signature, and the installer builds a new one each time.
+- **After an update the permissions have to be given again** (also after one BTranslate installed by itself): take BTranslate off those lists with **–** and add it again. macOS ties a permission to the exact build of an app that has no developer signature, and the installer builds a new one each time.
 - **Unless this Mac signs BTranslate itself:** from a checkout, `tools/local-signing.sh` makes a signing certificate named "BTranslate (this Mac)" in your login keychain, and the installer signs with it from then on. Every build is then the same app to macOS, and the permissions stay.
   - macOS asks for your password when the certificate's key is first used.
   - Whoever can use that certificate can make a program macOS takes for BTranslate, so it is a choice, not the default. `tools/local-signing.sh --remove` takes it out again.
@@ -147,7 +148,7 @@ Meta AI, converted for Apple's Neural Engine.
 
 The settings window opens after the install. Later, open BTranslate from Spotlight or Finder,
 or click the gear in the popup, in the typing panel or under a translated window. It has
-four pages.
+five pages.
 
 ![The settings window, Translation page](docs/settings.png)
 
@@ -200,6 +201,27 @@ the same selectors, to switch for that one time.
 
 ![The settings window, Shortcut page](docs/settings-shortcut.png)
 
+**About:**
+
+1. **The version** of this BTranslate, where it lives on GitHub, and its licence.
+2. **Whether there is a newer version,** with **Check Now**, or **Update** once there is one. A check or an update that did not work says why; for an update, the last line the installer printed and where its log is.
+3. **Check for updates once a day** (on unless you turn it off) and **Install updates automatically** (off unless you or the installer turned it on). Where BTranslate is signed ad hoc, a note under the second says that each update takes the shortcut's permissions away.
+4. **The install line,** to select and run in Terminal, for an update by hand.
+
+![The settings window, About page](docs/settings-about.png)
+
+## Updates
+
+- **BTranslate looks for a newer version** once a day, while **Check for updates once a day** is ticked on the About page: half a minute after it starts, and every hour after that, it looks whether its last check is a day old. The About page, while that is ticked, looks again when it opens and the last check is more than an hour old. It asks GitHub for the file `VERSION` of this repository, and, when that names a newer version, whether its release is there yet.
+- **The gear** of the popup, of the typing panel and of a translated window is tinted while a newer version waits. Its tooltip says which, and it opens the settings on the About page.
+- **Update** on the About page does what the install line does: the release's source is downloaded and built on your Mac (about a minute, with the Command Line Tools), BTranslate is replaced and starts again in the background. Your settings, key, language pack and login item stay. The installer's output goes to `~/Library/Logs/BTranslate-update.log`.
+  - BTranslate asks nothing during an update: the language pack and the automatic updates stay as they are.
+  - When the update was yours, the settings open on the About page afterwards, saying that the new version is installed.
+  - When the installer fails (no Command Line Tools, no network, a build that fails), BTranslate keeps running and the About page shows the installer's last line.
+- **Automatically:** with **Install updates automatically** ticked, a newer version found is installed as soon as nothing of BTranslate is on the screen (no popup, typing panel, translated window or settings window). A version whose automatic update failed is not tried again by itself; **Update** still offers it, and the next version is tried again.
+- **By hand:** the install line, as for the first install. It is on the About page too.
+- **The shortcut's permissions** go with each update unless this Mac signs BTranslate with its own certificate: see [The shortcut](#the-shortcut).
+
 ## AI providers
 
 | Provider | Default model | Where the key comes from |
@@ -221,6 +243,7 @@ fraction of a cent. You can type any other model name the provider offers.
 - **The shortcut** looks at the app in front only at the moment you press it: at what is selected, and at whether the cursor is in a text field. Nothing is watched in between, and no key you press elsewhere is seen.
 - **What you type in the panel** goes to the method the panel shows, sentence by sentence, as any text you translate does.
 - **A window's picture** is taken only of the window you choose, when you choose it, and stays on your Mac. macOS reads its texts there, and only those texts go to the translation method. The permission macOS wants for it is the one to record the screen; BTranslate uses it for nothing else.
+- **Looking for updates** is one small request to GitHub for the file `VERSION` of this repository once a day, and again when the About page opens and the last check is more than an hour old; when that names a newer version, one more asks whether its release is there. Nothing of yours goes with them: no text, no settings, no identifier; GitHub sees your address, as any website does. Untick **Check for updates once a day** on the About page and BTranslate makes neither request unless you click **Check Now**. An update downloads the installer and the release's source from GitHub.
 - **A log of the shortcut,** `~/Library/Logs/BTranslate.log`, says which of its three things it did in which app, to find a fault by. It never holds a text: only its length.
 - **Reading aloud** uses your Mac's voices and sends nothing anywhere. Only when you press a speaker button for a language your Mac has no voice for, and Google's voice is turned on in the settings, is that text sent to Google.
 - **The language pack** is downloaded from this project's releases on GitHub, and nothing is sent when it translates.
@@ -232,7 +255,7 @@ fraction of a cent. You can type any other model name the provider offers.
 ## Uninstall
 
 To remove the app and everything it has put on your Mac (its menu item and login item, its
-settings, its language pack, its caches and log, its saved keys, and the permissions macOS
+settings, its language pack, its caches and logs, its saved keys, and the permissions macOS
 gave it):
 
 ```bash
@@ -243,7 +266,7 @@ Add `-s -- --keep-keys` after `bash` to leave the API keys in the Keychain.
 
 ## More
 
-- [How it works](docs/how-it-works.md): what the shortcut reads and writes, how a window is translated, the Offline method, signing.
+- [How it works](docs/how-it-works.md): what the shortcut reads and writes, how a window is translated, the Offline method, updates, signing.
 - [Building and testing](docs/development.md): the build, the tests, the command line, adding a language for BTranslate itself.
 - [Making the language pack](tools/nllb/README.md): the conversion of NLLB-200 for the Neural Engine, and the language detector.
 - [Changelog](CHANGELOG.md)

@@ -209,6 +209,7 @@ final class Popup: NSObject, NSWindowDelegate {
         configure(speakSourceButton, symbol: "speaker.wave.2", size: 12, tip: "", action: #selector(speakSource))
         configure(sourceButton, symbol: "pencil", size: 12, tip: "", action: #selector(toggleSourcePicker))
         configure(settingsButton, symbol: "gearshape", size: 13, tip: L("BTranslate settings"), action: #selector(openSettings))
+        settingsButton.beGear()  // tinted while a newer version of BTranslate waits
         configure(addButton, symbol: "plus", size: 12, tip: "", action: #selector(showAddMenu))
 
         scroll.drawsBackground = false
@@ -659,8 +660,10 @@ final class Popup: NSObject, NSWindowDelegate {
 
     @objc private func openSettings() {
         close()
-        (NSApp.delegate as? AppDelegate)?.showSettings()
+        (NSApp.delegate as? AppDelegate)?.showSettingsFromGear()
     }
+
+    var gear: NSButton { settingsButton }  // (checks)
 
     // MARK: The original's language
 

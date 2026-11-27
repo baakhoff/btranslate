@@ -227,7 +227,7 @@ final class PictureWindow: NSObject, NSWindowDelegate {
         engineControl.offerMethods(of: config, showing: engine)
         engineControl.target = self
         engineControl.action = #selector(engineChanged)
-        settingsButton.beSymbol("gearshape", size: 13, tip: L("BTranslate settings"))
+        settingsButton.beGear()
         settingsButton.target = self
         settingsButton.action = #selector(openSettings)
         status.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
@@ -414,8 +414,10 @@ final class PictureWindow: NSObject, NSWindowDelegate {
     /// would lie over theirs.)
     @objc private func openSettings() {
         close()
-        (NSApp.delegate as? AppDelegate)?.showSettings()
+        (NSApp.delegate as? AppDelegate)?.showSettingsFromGear()
     }
+
+    var gear: NSButton { settingsButton }  // (checks)
 
     @objc func copyPicture() {
         guard let image = imageView.image else { return }
