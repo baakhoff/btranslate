@@ -138,8 +138,12 @@ final class Updater {
     // MARK: The bookkeeping: the last check, and the note of a started update
 
     private func stored(_ key: String) -> Any? {
-        if !Updater.isTheApp, let value = memory[key] { return value is NSNull ? nil : value }
-        return UserDefaults.standard.object(forKey: key)  // a check is given these as -key value
+        guard !Updater.isTheApp else { return UserDefaults.standard.object(forKey: key) }
+        if let value = memory[key] { return value is NSNull ? nil : value }
+        // A check is given these as -key value and reads no others: what the app itself has
+        // kept on this Mac (the date of its last check, the note of an update) is not the
+        // check's to go by, or a check passes on one Mac and fails on the next.
+        return UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)[key]
     }
 
     private func store(_ value: Any?, _ key: String) {
@@ -152,8 +156,9 @@ final class Updater {
 
     /// (A check may give it as text: -lastUpdateCheck 2026-11-27T10:00:00Z.)
     private func storedBool(_ key: String) -> Bool {
-        if !Updater.isTheApp, let value = memory[key] { return value as? Bool ?? false }
-        return UserDefaults.standard.bool(forKey: key)  // also "YES" given as -key value
+        guard !Updater.isTheApp else { return UserDefaults.standard.bool(forKey: key) }
+        let value = stored(key)
+        return value as? Bool ?? ((value as? NSString)?.boolValue ?? false)  // "YES" given as -key value
     }
 
     var lastCheck: Date? {
