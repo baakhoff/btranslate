@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **A method selector in the typing panel and under a translated window,** the one the popup has: another method translates what is typed, or the window's texts, anew.
+- **Defaults for each of the three things BTranslate translates,** on a new Defaults page of the settings: the method for selected text, the method and the language for what you type in a text field, and the method and the language for a window. Until one is chosen for them, typing and windows use the popup's method, and a window the default language.
+- **A gear button in the typing panel and under a translated window,** which opens the settings, as the popup's does.
+
+### Changed
+- **A translated window is ready sooner.** Its texts go to Google three requests at a time and to an AI provider four at a time, not one after another. Offline, a language's texts go to macOS's translation together and fill the window in as they come, and the language pack's model stays loaded until the last.
+- **The shortcut's log says how long** a window's reading and its translating took.
+- **The settings window has four pages,** each short enough for a 13-inch screen. The method BTranslate opens with and the language to write into text fields in moved from the Translation and Languages pages to the Defaults page.
+- **Under a translated window,** what the bar says takes the room in the middle and the buttons keep their places. The picture of a narrow window gets a window wide enough for the bar.
+
+### Fixed
+- **The first window with much text took half a minute to read,** and so did the first one after the language pack was installed. macOS prepares its reader of pictures for an app in five pieces; the picture BTranslate prepared it with brought on three of them, and installing or removing the language pack removed them all again. The picture now brings on all five, in the background at the install and at each start, and the pack's install leaves them alone. After that a window is read in under half a second.
+- **A translated window as tall as the screen** had its bar, with the language menu and the buttons, under the screen's edge: the window grew to the picture's full size. The picture is now shown smaller, and the bar stays on the screen.
+
 ## [1.0.0] - 2026-11-27
 
 The first release.

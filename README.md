@@ -43,6 +43,7 @@ curl -fsSL https://raw.githubusercontent.com/baakhoff/btranslate/main/install.sh
   - **Google Translate:** free and instant, no account.
   - **An AI model:** often better with context, names and tone. The answer streams in as it is written. It shows in the popup once it has its API key.
   - **Offline:** on the Mac itself. It needs no internet and the text stays on your Mac. macOS has about 25 languages for it; the optional **language pack** adds about 140 more, Latvian and Serbian among them.
+- **Each use with its own defaults:** selected text, what you type and a window each open with the method and the language you set for them, and each has the selectors to switch on the spot.
 - **Several languages at once:** **+** next to the language adds another one from your list. Each gets its own translation, speaker and copy button.
 - **A second default language:** a text that is in your default language already is translated into the second one instead (Russian text into English, say), without a click.
 - **The source language is detected** and shown. If the guess is wrong, click the **pencil** next to it and pick the right language: the popup translates again.
@@ -84,7 +85,7 @@ puts it away.
 
 ### Typing in another language
 
-- The panel opens with the language set on the Languages page (**Write into text fields in**); its own menu picks another for that time. The method is the one BTranslate opens with.
+- The panel opens with the language and the method set for it on the Defaults page of the settings. Its own menu and selector pick another for that time: what is typed is then translated anew. The gear opens the settings.
 - **Return** keeps what was written. **Esc** takes it out again. A click elsewhere ends the panel: what is written in the field stays, and nothing is pasted.
 - A finished sentence is translated once and stays as it is; only the one you are typing changes.
 - With a keyboard layout that is one language's own (Russian, Ukrainian, Greek…) the text is taken for that language. With Latin letters the translator finds out itself.
@@ -105,8 +106,10 @@ line that was in Russian already, and the numbers, are left as they were:
 - You choose the window in macOS's own picker, the one screen sharing uses. BTranslate takes a picture of that one window, at that moment, and of nothing else at any other time.
 - The picture's texts are read on your Mac; only the texts go to the translation method, never the picture.
 - macOS reads print in about 30 languages well. Others in Latin or Cyrillic letters (Latvian, Serbian) come out right for the most part; handwriting and tiny print may not.
-- The very first reading can take a minute: macOS makes its reader of pictures ready for the app, once. BTranslate has that done when it starts, so it is mostly over before you need it; if not, the window says so.
-- The language menu under the picture translates it into another language; **Original** shows it as it was; **Copy** or ⌘C copies the picture.
+- A window is read in under half a second. Its texts then go to Google or to an AI provider several requests at a time; offline, macOS takes about a fifth of a second over each text.
+- macOS makes its reader of pictures ready for an app once, and again after each update of itself, which takes about a minute. BTranslate has that done in the background when it is installed and when it starts, so it is over before you need it; if not, the window says so.
+- It opens with the language and the method set for windows on the Defaults page of the settings. Under the picture, the language menu and the method selector translate it anew, without reading it again.
+- **Original** shows the window as it was; **Copy** or ⌘C copies the picture; the gear opens the settings.
 
 ### Where the shortcut can't see
 
@@ -143,7 +146,8 @@ Meta AI, converted for Apple's Neural Engine.
 ## Settings
 
 The settings window opens after the install. Later, open BTranslate from Spotlight or Finder,
-or click the gear in the popup. It has three pages.
+or click the gear in the popup, in the typing panel or under a translated window. It has
+four pages.
 
 ![The settings window, Translation page](docs/settings.png)
 
@@ -153,7 +157,6 @@ or click the gear in the popup. It has three pages.
 2. **For the AI model:** the provider, the model and your API key.
    - The model menu fills with the provider's own list once the key is in.
    - **Test** sends one short sentence, so you know the key and model work before you save.
-3. **Which method BTranslate opens with**, when more than one can be used. The AI model is on offer here, and in the popup, once it has a key (or, for a server of your own, its address).
 
 **Languages:**
 
@@ -163,9 +166,8 @@ or click the gear in the popup. It has three pages.
    - **Make Default** marks the language a popup opens with. In the popup, **+** adds any of the others.
    - **Make Second** marks the second default: the one a popup opens with when the text is in the default language already. Until you choose one, it is the first other language of the list.
    - An arrow in a circle marks a language the Offline method has. Filled: it works without internet. Empty: it does after a download, which **Download** starts: of that language by macOS (which asks you to confirm), or of the language pack.
-2. **Which language to write into text fields in:** the one the typing panel opens with. Until you choose, it is the second default.
-3. **Whether Google's voice may read aloud** the languages your Mac has no voice for.
-4. **BTranslate's own language:** the same as the Mac, English or Russian. BTranslate restarts itself in the background to switch; nothing else changes.
+2. **Whether Google's voice may read aloud** the languages your Mac has no voice for.
+3. **BTranslate's own language:** the same as the Mac, English or Russian. BTranslate restarts itself in the background to switch; nothing else changes.
 
 ![The settings window, Languages page](docs/settings-languages.png)
 
@@ -174,6 +176,18 @@ The same page in Russian. A language is found by its Russian name, its English n
 ![The Languages page in Russian](docs/settings-languages-ru.png)
 
 ![Adding a language](docs/languages.png)
+
+**Defaults:** what each of the three things BTranslate translates opens with.
+
+1. **Selected text:** the method the popup opens with. Its language is the default of your list.
+2. **What you type in a text field:** the method and the language of the typing panel. Until you choose, they are the popup's method and the second default language.
+3. **A window:** the method and the language a window is translated with. Until you choose, they are the popup's method and the default language.
+
+A method is on offer here once it can be used: the AI model once it has a key (or, for a
+server of your own, its address). The popup, the typing panel and a translated window have
+the same selectors, to switch for that one time.
+
+![The settings window, Defaults page](docs/settings-defaults.png)
 
 **Shortcut:**
 
@@ -202,7 +216,7 @@ fraction of a cent. You can type any other model name the provider offers.
 - **The text you translate** goes to the method you use for that popup: Google, or the AI provider you picked. With the Offline method it goes nowhere: it is translated on your Mac. Nothing else leaves your Mac, and BTranslate has no server, account or analytics of its own.
 - **Nothing is kept:** no history of what you translated, no cache of what was sent or answered, no cookies.
 - **The shortcut** looks at the app in front only at the moment you press it: at what is selected, and at whether the cursor is in a text field. Nothing is watched in between, and no key you press elsewhere is seen.
-- **What you type in the panel** goes to the method BTranslate opens with, sentence by sentence, as any text you translate does.
+- **What you type in the panel** goes to the method the panel shows, sentence by sentence, as any text you translate does.
 - **A window's picture** is taken only of the window you choose, when you choose it, and stays on your Mac. macOS reads its texts there, and only those texts go to the translation method. The permission macOS wants for it is the one to record the screen; BTranslate uses it for nothing else.
 - **A log of the shortcut,** `~/Library/Logs/BTranslate.log`, says which of its three things it did in which app, to find a fault by. It never holds a text: only its length.
 - **Reading aloud** uses your Mac's voices and sends nothing anywhere. Only when you press a speaker button for a language your Mac has no voice for, and Google's voice is turned on in the settings, is that text sent to Google.

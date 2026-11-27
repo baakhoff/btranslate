@@ -289,19 +289,7 @@ enum OnDevice {
         let apple = await supportedLanguages()
         let appleHasTarget = apple.contains(base(target.google)) && target.id != "sr-Latn"
         guard appleHasTarget || packHas(target.id) else { throw OfflineError.noLanguage(target.google) }
-        var recognized: String?, maybe: [String] = []
-        if source == nil, let detector = PackDetector.installed() {
-            let guesses = guesses(for: text, own: ownLanguages, with: detector)
-            if let best = guesses.first, best.chance >= sureEnough, packHas(best.code) {
-                recognized = best.code
-            } else {
-                maybe = likely(guesses)
-            }
-        } else if source == nil {
-            recognized = recognize(text, among: apple.union(LanguagePack.isInstalled ? packLanguages : [])).map {
-                asTheUserMeans($0, list: Config.load().languageIDs, recent: UserDefaults.standard.stringArray(forKey: "recentSources") ?? [])
-            }
-        }
+        let (recognized, maybe) = source == nil ? told(text, apple: apple) : (nil, [])
         guard let from = source?.google ?? recognized else { throw OfflineError.unknownLanguage(maybe) }
         guard apple.contains(base(from)) || packHas(from) else { throw OfflineError.noLanguage(from) }
         if same(from, target.google) {
@@ -333,6 +321,75 @@ enum OnDevice {
         if appleCan == .downloadable { throw OfflineError.notDownloaded(from, target.google) }
         throw apple.contains(base(from)) && appleHasTarget ? OfflineError.noPair(from, target.google)
             : OfflineError.noLanguage(packHas(from) || apple.contains(base(from)) ? target.google : from)
+    }
+
+    /// A text's language, told on the Mac: its code, or else the languages it may be in.
+    private static func told(_ text: String, apple: Set<String>) -> (code: String?, maybe: [String]) {
+        if let detector = PackDetector.installed() {
+            let guesses = guesses(for: text, own: ownLanguages, with: detector)
+            if let best = guesses.first, best.chance >= sureEnough, packHas(best.code) { return (best.code, []) }
+            return (nil, likely(guesses))
+        }
+        let code = recognize(text, among: apple.union(LanguagePack.isInstalled ? packLanguages : [])).map {
+            asTheUserMeans($0, list: Config.load().languageIDs, recent: UserDefaults.standard.stringArray(forKey: "recentSources") ?? [])
+        }
+        return (code, [])
+    }
+
+    /// Many short texts at once (those of a window's picture), each from whatever language it
+    /// is in. `each` gets a text's place and its translation, or why there is none. What
+    /// macOS's own translation can do goes to it a language at a time, all of that language's
+    /// texts in one go; the rest is done text by text, as `translate` does it, with the
+    /// language pack's model kept in memory until the last of them.
+    @MainActor
+    static func translateMany(_ texts: [String], to target: Target, each: @MainActor (Int, Result<String, Error>) -> Void) async throws {
+        guard isAvailable else { throw OfflineError.needsNewerMac }
+        let apple = await supportedLanguages()
+        var byLanguage: [String: [Int]] = [:], oneByOne: [Int] = []
+        for (i, text) in texts.enumerated() {
+            if let from = told(text, apple: apple).code, !same(from, target.google), !text.contains("\n") {
+                byLanguage[from, default: []].append(i)
+            } else {
+                oneByOne.append(i)
+            }
+        }
+        for (from, places) in byLanguage.sorted(by: { $0.key < $1.key }) {
+            try Task.checkCancellation()
+            guard await appleStatus(from: from, to: target.google) == .installed else {
+                oneByOne += places
+                continue
+            }
+            // In one go, each handed on as it is made. (Several sessions at once are no faster:
+            // macOS takes them in turn, at a fifth of a second a text.)
+            let lines = places.map { texts[$0] }
+            var made: Set<Int> = []
+            do {
+                if mock {
+                    for (i, line) in zip(places, lines) { each(i, .success(Mock.translate(line, from: from, to: target.google))) }
+                    continue
+                }
+                _ = try await Apple.translate(lines, from: from, to: target.google) { place, translation in
+                    made.insert(places[place])
+                    each(places[place], .success(translation))
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                oneByOne += places.filter { !made.contains($0) }  // one by one then: each says for itself what is wrong
+            }
+        }
+        NLLBEngine.shared.keep()
+        defer { NLLBEngine.shared.letGo() }
+        for i in oneByOne.sorted() {
+            try Task.checkCancellation()
+            do {
+                each(i, .success(try await translate(texts[i], from: nil, to: target).text))
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                each(i, .failure(error))
+            }
+        }
     }
 
     // MARK: Downloading a language
@@ -383,15 +440,19 @@ private enum Apple {
         }
     }
 
-    /// Each of `lines` translated, in their order. `from` and `to` are Google's codes.
-    static func translate(_ lines: [String], from: String, to: String) async throws -> [String] {
+    /// Each of `lines` translated, in their order. `from` and `to` are Google's codes. `each`
+    /// gets a line's place and its translation as soon as that one is made.
+    static func translate(_ lines: [String], from: String, to: String,
+                          each: @MainActor (Int, String) -> Void = { _, _ in }) async throws -> [String] {
         guard #available(macOS 26.0, *) else { throw OfflineError.needsNewerMac }
         let session = TranslationSession(installedSource: OnDevice.language(from), target: OnDevice.language(to))
         var out = lines
         do {
             let requests = lines.enumerated().map { TranslationSession.Request(sourceText: $0.element, clientIdentifier: String($0.offset)) }
-            for response in try await session.translations(from: requests) {
-                if let i = response.clientIdentifier.flatMap(Int.init), out.indices.contains(i) { out[i] = response.targetText }
+            for try await response in session.translate(batch: requests) {
+                guard let i = response.clientIdentifier.flatMap(Int.init), out.indices.contains(i) else { continue }
+                out[i] = response.targetText
+                await each(i, response.targetText)
             }
         } catch {
             if TranslationError.notInstalled ~= error { throw OfflineError.notDownloaded(from, to) }
@@ -431,7 +492,8 @@ private enum Apple {
     static var isAvailable: Bool { false }
     static func supportedLanguages() async -> Set<String> { [] }
     static func status(from source: Locale.Language, to target: Locale.Language) async -> OfflineStatus { .unavailable }
-    static func translate(_ lines: [String], from: String, to: String) async throws -> [String] { throw OfflineError.needsNewerMac }
+    static func translate(_ lines: [String], from: String, to: String,
+                          each: @MainActor (Int, String) -> Void = { _, _ in }) async throws -> [String] { throw OfflineError.needsNewerMac }
     @MainActor
     static func download(from source: Locale.Language, to target: Locale.Language, in window: NSWindow, done: @escaping @MainActor () -> Void) { done() }
 }

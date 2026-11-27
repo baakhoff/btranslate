@@ -38,7 +38,7 @@ func runShortcutCheck() -> Int32 {
 func runShortcutPageCheck() -> Int32 {
     beginCheck()
     let settings = SettingsController.shared
-    guard let content = settings.preparedContent(page: 2) else { return 1 }
+    guard let content = settings.preparedContent(page: .shortcut) else { return 1 }
     print("the page shows: \(settings.shortcutField.title)")
     print("permission: \(settings.accessText.hasPrefix("✓") ? "given" : "asked for")\(settings.accessText.isEmpty ? " (NO TEXT)" : "")")
     print("permission for a window's picture: \(settings.screenText.hasPrefix("✓") ? "given" : "asked for")\(settings.screenText.isEmpty ? " (NO TEXT)" : "")")
@@ -118,6 +118,7 @@ final class FakeField: TextSink {
 ///   --field live|none|stuck|slow   the field takes every writing, none, only the first, or each slowly
 ///   --esc-early               Esc while the first writing is still on its way into a slow field
 ///   --to LANGUAGE             the language chosen in the panel
+///   --with google|ai|device   the method chosen in the panel, once all is typed
 @MainActor
 func runTypeCheck(_ text: String) async -> Int32 {
     beginCheck()
@@ -138,6 +139,7 @@ func runTypeCheck(_ text: String) async -> Int32 {
         panel.choose(language)
     }
     print("writes in: \(panel.target.id)")
+    print("translates with: \(panel.engine.rawValue)")
 
     /// Waits until the panel has made something of what was typed.
     func settled() async {
@@ -176,6 +178,15 @@ func runTypeCheck(_ text: String) async -> Int32 {
         panel.type(typed)
         await settled()
         print("typed: \(show(typed))")
+        print("   in the field: \(show(field.written)); the panel shows: \(show(panel.shownNote)); \(panel.way)")
+    }
+    if let wanted = argument(after: "--with") {
+        guard let method = Engine(rawValue: wanted), panel.choose(method) else {
+            print("ERROR: \(wanted) is not among the methods here.")
+            return 1
+        }
+        await settled()
+        print("with \(panel.engine.rawValue):")
         print("   in the field: \(show(field.written)); the panel shows: \(show(panel.shownNote)); \(panel.way)")
     }
     print("hint: \(panel.shownHint)")
@@ -247,7 +258,8 @@ func makeTestPicture(at path: String) -> Bool {
 }
 
 /// Reads a picture file as a window's picture is read, translates its texts and prints them:
-/// which lines were put together, what each became, what stayed.
+/// which lines were put together, what each became, what stayed. --times also prints how
+/// long the reading, the translating and the painting took.
 @MainActor
 func runPictureCheck(_ file: String) async -> Int32 {
     beginCheck()
@@ -263,13 +275,22 @@ func runPictureCheck(_ file: String) async -> Int32 {
         return 1
     }
     do {
+        var clock = Date()
+        /// The seconds since the last call (--times prints them: how long each step takes).
+        func lap() -> String {
+            defer { clock = Date() }
+            return String(format: "%.1f s", Date().timeIntervalSince(clock))
+        }
+        let timed = arguments.contains("--times")
         let lines = try PictureReader.lines(in: image, languages: config.targets.map(\.google) + macLanguages())
         var blocks = PictureReader.blocks(lines)
         let worth = blocks.indices.filter { blocks[$0].hasWords }
         print("\(lines.count) lines read, \(blocks.count) texts, \(worth.count) with words; into \(target.id) by \(engine.rawValue)")
+        if timed { print("read in \(lap())") }
         let result = try await translateMany(worth.map { blocks[$0].text }, engine: engine, target: target, config: config) { place, made in
             blocks[worth[place]].translation = made
         }
+        if timed { print("translated in \(lap())") }
         for block in blocks.sorted(by: { $0.box.minY < $1.box.minY }) {
             let lines = block.lines.count > 1 ? "(\(block.lines.count) lines) " : ""
             print("   \(lines)\(block.text)\(block.translation.map { " → \($0)" } ?? (block.hasWords ? " = stays" : " = no words"))")
@@ -279,6 +300,7 @@ func runPictureCheck(_ file: String) async -> Int32 {
             try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
             if let painted = PicturePainter.paint(image, blocks: blocks, pixels: pixels, scale: 2),
                let png = NSBitmapImageRep(cgImage: painted).representation(using: .png, properties: [:]) {
+                if timed { print("painted in \(lap())") }
                 try? png.write(to: URL(fileURLWithPath: "\(dir)/picture-translated.png"))
                 print("painted: \(painted.width)x\(painted.height), \(blocks.filter { $0.translation != nil }.count) texts painted over")
             }
@@ -291,7 +313,8 @@ func runPictureCheck(_ file: String) async -> Int32 {
 }
 
 /// The window that shows a translated picture, made off screen for a picture file: what its
-/// bar says in the end, and (--picture DIR) the window drawn into DIR.
+/// bar says in the end, and (--picture DIR) the window drawn into DIR. --then METHOD chooses
+/// another method in its bar once it is translated, and waits for that too.
 @MainActor
 func runPictureWindowCheck(_ file: String) {
     beginCheck()
@@ -302,9 +325,19 @@ func runPictureWindowCheck(_ file: String) {
     }
     let window = PictureWindow(image: image, scale: 2, over: nil)
     PictureWindow.current = window
+    var then = argument(after: "--then")
     window.onSettled = {
         print("the bar says: \(window.statusText)")
-        print("texts painted over: \(window.blocks?.filter { $0.translation != nil }.count ?? 0) of \(window.blocks?.count ?? 0)")
+        print("texts painted over: \(window.blocks?.filter { $0.translation != nil }.count ?? 0) of \(window.blocks?.count ?? 0), "
+              + "by \(window.engine.rawValue) into \(window.target.id)")
+        if let wanted = then {
+            then = nil
+            guard let method = Engine(rawValue: wanted), window.choose(method) else {
+                print("ERROR: \(wanted) is not among the methods here.")
+                exit(1)
+            }
+            return  // it translates anew
+        }
         if let dir = argument(after: "--picture"), let view = window.contentView {
             try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
             view.layoutSubtreeIfNeeded()
@@ -312,7 +345,12 @@ func runPictureWindowCheck(_ file: String) {
             let cut = cutOffTexts(in: view).filter { $0 != window.statusText }  // the bar's own line is cut short on purpose
             print("every text of the window fits: \(cut.isEmpty ? "yes" : "NO (\(cut.joined(separator: " | ")))")")
         }
-        exit(window.failed ? 1 : 0)
+        // The bar with the selectors is the window's bottom: a window that grew past its screen has it out of reach.
+        window.panel.layoutIfNeeded()
+        let screen = (window.panel.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let whole = screen.insetBy(dx: -1, dy: -1).contains(window.panel.frame)
+        print("the window is on its screen, bar and all: \(whole ? "yes" : "NO (\(window.panel.frame) on \(screen))")")
+        exit(window.failed || !whole ? 1 : 0)
     }
     window.start()
 }
@@ -488,6 +526,30 @@ func runAXCheck(_ kind: String) async -> Int32 {
 func shortcutSelfTest() -> [String] {
     var failures: [String] = []
     func expect(_ what: String, _ ok: Bool) { if !ok { failures.append(what) } }
+
+    // What macOS prepared for the Neural Engine, in a folder made up here: under the macOS
+    // that runs, a model of the pack's (large: 60 MB of nothing) and a piece of the reader of
+    // pictures (small); under an earlier macOS, one of each.
+    let files = FileManager.default
+    let made = files.temporaryDirectory.appendingPathComponent("btranslate-prepared-\(ProcessInfo.processInfo.processIdentifier)")
+    func piece(_ path: String, bytes: UInt64) {
+        let file = made.appendingPathComponent(path).appendingPathComponent("model.bundle/weights")
+        try? files.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        files.createFile(atPath: file.path, contents: nil)
+        if let handle = try? FileHandle(forWritingTo: file) {
+            try? handle.truncate(atOffset: bytes)
+            try? handle.close()
+        }
+    }
+    piece("NOW/pack", bytes: 60_000_000)
+    piece("NOW/reader", bytes: 60_000)
+    piece("BEFORE/pack", bytes: 60_000_000)
+    piece("BEFORE/reader", bytes: 60_000)
+    LanguagePack.forget(in: made, system: "NOW")
+    let left = (files.subpaths(atPath: made.path) ?? []).filter { $0.hasSuffix("weights") }
+    expect("prepared models: the pack's go, the reader of pictures keeps its own, an earlier macOS's all go (left: \(left))",
+           left == ["NOW/reader/model.bundle/weights"])
+    try? files.removeItem(at: made)
 
     let standard = Shortcut.standard
     expect("shortcut: the standard one is kept as words and a key code", standard.saved == "control+option+17")

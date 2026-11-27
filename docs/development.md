@@ -34,8 +34,10 @@ What the plain run covers:
 - a made-up detector file of a few rows, every answer compared with the Python that wrote it;
 - speech made with a Mac voice, without playing it;
 - the shortcut as the settings keep it, and its page of the settings window, where a click and three keys record one;
-- typing into the panel, with a stand-in for the other app's text field: one that takes every writing, one that takes none, one that stops, one that is slow; Return, Esc and a click elsewhere;
-- a picture that stands for a window: macOS reads it, the mock server translates it, and the check looks at which lines were put together, what was left alone, and the window that shows the result.
+- typing into the panel, with a stand-in for the other app's text field: one that takes every writing, one that takes none, one that stops, one that is slow; Return, Esc and a click elsewhere; another method chosen in the panel;
+- a picture that stands for a window: macOS reads it, the mock server translates it, and the check looks at which lines were put together, what was left alone, and the window that shows the result, also with another method chosen in its bar;
+- a page of hundreds of texts: how many requests go out at once to Google, to an AI provider and to a server of your own (the mock server's "slow" addresses count them);
+- the method and the language each of the three opens with, as the settings give them and as the Defaults page shows them; and that no page of the settings window is taller than a 13-inch screen has room for.
 
 One check is run by hand, because it opens a small window of BTranslate's own for a few
 seconds: `BTranslate --ax-check KIND` writes into a real field through Accessibility, as the
@@ -56,6 +58,8 @@ things. `Sources/main.swift` lists them all; the useful ones:
 |---|---|
 | `--print [--engine google\|ai\|device] [--from lv] [--to Russian] "text"` | Prints a translation. `-key value` settings go before the text. |
 | `--detect "text"` | What the pack's detector, the Mac's recognizer and both together take a text for |
+| `--picture-check FILE [--engine …] [--to …] --times` | A picture file read and translated as a window's picture is, with how long each step took |
+| `--prepare-reading` | Has macOS make its reader of pictures ready, and says how long that took (a fraction of a second once it is) |
 | `--offline [FROM TO]` | Whether this Mac has the Offline method, and which languages |
 | `--pack`, `--pack-install`, `--pack-remove` | The language pack: its state, its download, its removal |
 | `--speech-check lv "text"` | Which voice would read a text; plays it at volume zero |

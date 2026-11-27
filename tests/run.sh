@@ -39,6 +39,9 @@ export BTRANSLATE_ACCESSIBILITY=off BTRANSLATE_LOGIN=off BTRANSLATE_SCREEN=off
 # one), and there is a network, whatever the real one is (the checks of none take it away).
 export BTRANSLATE_KEYCHAIN=off BTRANSLATE_CONNECTION=on
 DEAD="http://127.0.0.1:9"  # nothing listens there: a request ends as it does without internet
+# Settings are given to a run as -key value arguments. These say that nothing is chosen yet
+# for the typing panel and for a window, whatever your own settings say.
+NONE=(-secondLanguage none -typingLanguage none -typingEngine none -windowLanguage none -windowEngine none)
 # The language pack (NLLB-200) is kept in a folder of the tests' own: empty, unless a test
 # installs the miniature pack of the mock server there. A pack you have installed is not touched.
 export BTRANSLATE_PACK_DIR="$PWD/build/test-pack"
@@ -160,7 +163,7 @@ check "Speech: a voice of this Mac, without sound" "mac voice en-" "$BIN" --spee
 
 # -key value arguments override the saved settings for this run only.
 UI_OUT="$(env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" --uitest build/uitest \
-    -googleEnabled YES -defaultEngine google -languages '(en, ru, lv)' -defaultLanguage ru -secondLanguage none -typingLanguage none 2>&1 || true)"
+    -googleEnabled YES -defaultEngine google -languages '(en, ru, lv)' -defaultLanguage ru "${NONE[@]}" 2>&1 || true)"
 check "UI, off screen: the popup stays where it was moved" "popup stays where it was moved: yes" echo "$UI_OUT"
 check "UI, off screen: the picker adds a language" "picker adds a language to the list: yes" echo "$UI_OUT"
 check "UI, off screen: the pencil's picker searches" "source picker finds: ltg, la, lv" echo "$UI_OUT"
@@ -172,6 +175,7 @@ check "UI, off screen: the list's arrows, Make Default and Make Second" \
 check "UI, off screen: the language to write in follows the list" "language to write in: lv → ru → lv" echo "$UI_OUT"
 check "UI, off screen: pictures written" "source-picker.png" ls build/uitest
 check "UI, off screen: every text of the settings window fits" "settings window, every text fits: yes" echo "$UI_OUT"
+check "UI, off screen: every page of the settings window fits a small screen" "they fit a small screen" echo "$UI_OUT"
 check "UI, off screen: the menu of BTranslate's own language" "language menu: the Mac's, en, ru" echo "$UI_OUT"
 
 # The same in Russian: longer words in the same windows.
@@ -179,6 +183,7 @@ UI_RU="$(env BTRANSLATE_LANGUAGE=ru BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" 
     -AppleLanguages '(ru)' -googleEnabled YES -defaultEngine google -languages '(en, ru, lv)' -defaultLanguage ru 2>&1 || true)"
 check "UI in Russian: it is in Russian" "interface language: ru" echo "$UI_RU"
 check "UI in Russian: every text of the settings window fits" "settings window, every text fits: yes" echo "$UI_RU"
+check "UI in Russian: every page of the settings window fits a small screen" "they fit a small screen" echo "$UI_RU"
 check "UI in Russian: the picker finds languages by their English names too" "source picker finds: ltg, la, lv" echo "$UI_RU"
 check "UI in Russian: several languages at once" "several languages at once: yes (ru, en, lv)" echo "$UI_RU"
 check "UI in Russian: the original's language set by hand" "the original's language can be set by hand: yes" echo "$UI_RU"
@@ -201,10 +206,12 @@ check "No connection, Offline method turned off: it translates when the connecti
 STAY_OUT="$(env BTRANSLATE_GOOGLE_URL="$DEAD" "$BIN" --offline-uitest switch "${OFF[@]}" -deviceEnabled YES -languages '(ru, en)' build/uitest 2>&1 || true)"
 check "No connection: what was translated offline stays when the connection is back" \
     "switch, the connection is back: method device, no connection shown: no, texts: OFFLINE de>ru: Guten Tag! Ich bin morgen von neun bis fünf im Büro. | OFFLINE de>en: Guten Tag!" echo "$STAY_OUT"
-SET_OUT="$("$BIN" --offline-uitest settings -googleEnabled YES -deviceEnabled YES -languages '(en, ru, fr, lv)' -defaultLanguage ru build/uitest 2>&1 || true)"
+SET_OUT="$("$BIN" --offline-uitest settings -googleEnabled YES -aiEnabled NO -deviceEnabled YES -defaultEngine google -languages '(en, ru, fr, lv)' -defaultLanguage ru "${NONE[@]}" build/uitest 2>&1 || true)"
 check "Settings: which languages work without internet" "offline marks: en installed, ru installed, fr downloadable, lv downloadable" echo "$SET_OUT"
 check "Settings: Download is offered for the languages that need one" "Download offered: en no, ru no, fr yes, lv yes" echo "$SET_OUT"
 check "Settings, with the offline marks: every text fits" "settings window, every text fits: yes" echo "$SET_OUT"
+check "Settings: until one is chosen, typing and a window open with the popup's method, and each with its own language" \
+    "each opens with: popup google ru, typing google en, window google ru" echo "$SET_OUT"
 SET_RU="$(env BTRANSLATE_LANGUAGE=ru "$BIN" --offline-uitest settings -AppleLanguages '(ru)' -googleEnabled YES -deviceEnabled YES -languages '(en, ru, fr, lv)' build/uitest-ru 2>&1 || true)"
 check "Settings in Russian, with the offline marks: every text fits" "settings window, every text fits: yes" echo "$SET_RU"
 
@@ -232,6 +239,11 @@ check "Settings: \"opens with\" leaves the AI model out until it has a key" "ope
     env BTRANSLATE_KEYCHAIN=off "$BIN" --offline-uitest settings -googleEnabled YES "${AI[@]}" build/uitest
 check "Settings: \"opens with\" has the AI model once it has one" "opens with: google, ai, device" \
     env BTRANSLATE_API_KEY=test-key "$BIN" --offline-uitest settings -googleEnabled YES "${AI[@]}" build/uitest
+check "Settings: the method and the language chosen for typing and for a window" "each opens with: popup google ru, typing device ru, window ai en" \
+    env BTRANSLATE_API_KEY=test-key "$BIN" --offline-uitest settings -googleEnabled YES "${AI[@]}" -defaultEngine google \
+    -typingEngine device -typingLanguage ru -windowEngine ai -windowLanguage en build/uitest
+check "Settings: a method chosen for them that can't be used now gives way to the popup's" "each opens with: popup google ru, typing google en, window google ru" \
+    "$BIN" --offline-uitest settings -googleEnabled YES "${AI[@]}" -defaultEngine google "${NONE[@]}" -typingEngine ai -windowEngine ai build/uitest
 
 # Reading aloud where only Google's voice could do it, without internet: a note under the
 # speaker button says why it can't be done. (Nothing is played, and nothing beeps.)
@@ -306,7 +318,7 @@ check "Language pack: removed" "language pack: removed" "$BIN" --pack-remove
 check "Language pack: gone again" "language pack: not installed" "$BIN" --pack
 
 # The shortcut: as the settings keep it, and its page of the settings.
-T=(-googleEnabled YES -defaultEngine google -languages '(en, ru, lv)' -defaultLanguage ru -typingLanguage none -setupDone YES)
+T=(-googleEnabled YES -aiEnabled NO -defaultEngine google -languages '(en, ru, lv)' -defaultLanguage ru "${NONE[@]}" -setupDone YES)
 check "Shortcut: ⌃⌥T as the settings keep it" 'shortcut: ⌃⌥T (kept as "control+option+17")' "$BIN" -shortcut "control+option+17" --shortcut-check
 check "Shortcut: macOS takes one and lets it go" $'macOS takes a shortcut: yes (⌃⌥⇧⌘F19)\nand lets it go: yes' "$BIN" -shortcut "control+option+17" --shortcut-check
 check "Shortcut: another one from the settings" "shortcut: ⌃⌥⇧K" "$BIN" -shortcut "control+option+shift+40" --shortcut-check
@@ -329,6 +341,7 @@ check "Shortcut's page, in Russian: every text fits" "every text of the page fit
 # Typing in another language: the panel off screen, with a stand-in for the other app's text
 # field. The text is typed in two goes, its first sentence and then all of it.
 typing() { env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" "$@" 2>&1 || true; }
+MODEL=(BTRANSLATE_PROVIDER=anthropic BTRANSLATE_BASE_URL="$MOCK/anthropic" BTRANSLATE_API_KEY=test-key)  # an AI model to choose
 TYPED="$(typing --type-check "A sentence of its own. And a second one?" --picture build/uitest)"
 check "Typing: written into the field while it is typed" $'typed: A sentence of its own. \n   in the field: EN:A sentence of its own. ; the panel shows: (nothing); live' echo "$TYPED"
 check "Typing: Return keeps it" "after Return: panel closed, in the field: EN:A sentence of its own. EN:And a second one?, pasted: (nothing)" echo "$TYPED"
@@ -337,6 +350,13 @@ check "Typing: every text of the panel fits" "every text of the panel fits: yes"
 check "Typing: the language chosen in the panel" "in the field: LV:Hello" typing --to Latvian --type-check "Hello"
 check "Typing: the panel opens with the language of the settings" "writes in: lv" typing -typingLanguage lv --type-check "Hello"
 check "Typing: and with the second default while none is set" "writes in: en" typing --type-check "Hello"
+check "Typing: the panel opens with the popup's method while none is set for it" "translates with: google" typing --type-check "Hello"
+check "Typing: and with the one of the settings" $'translates with: ai\ntyped: Good morning.\n   in the field: Hello! How are you? / Second line.' \
+    env "${MODEL[@]}" BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" -typingEngine ai --type-check "Good morning."
+check "Typing: one that can't be used now gives way to the popup's" "translates with: google" typing -typingEngine ai --type-check "Hello"
+check "Typing: another method chosen in the panel translates what is typed anew" \
+    $'   in the field: EN:Good morning.; the panel shows: (nothing); live\nwith ai:\n   in the field: Hello! How are you? / Second line.' \
+    env "${MODEL[@]}" BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" --with ai --type-check "Good morning."
 check "Typing: Esc takes it back out" "after Esc: panel closed, in the field: (nothing)" typing --esc --type-check "Good morning."
 NOFIELD="$(typing --field none --type-check "Good morning." --picture build/uitest)"
 check "Typing: a field that can't be written into: the panel shows the translation" "in the field: (nothing); the panel shows: EN:Good morning.; atEnd" echo "$NOFIELD"
@@ -370,11 +390,46 @@ check "Picture: the translations are painted over the originals" "texts painted 
 logged "Picture: all its texts go to Google in one request" '"q": \["'
 check "Picture: by an AI model, as numbered lines; a text the model leaves out is counted" \
     "not translated: 1 (The model left some texts out of its answer.)" \
-    env BTRANSLATE_PROVIDER=anthropic BTRANSLATE_BASE_URL="$MOCK/anthropic" BTRANSLATE_API_KEY=test-key \
-    "$BIN" "${T[@]}" --picture-check build/uitest/window.png --engine ai
+    env "${MODEL[@]}" "$BIN" "${T[@]}" --picture-check build/uitest/window.png --engine ai
+check "Picture: offline, a language's texts go to macOS's translation together" \
+    $'   Welcome back → OFFLINE en>ru: Welcome back\n   Datei öffnen → OFFLINE de>ru: Datei öffnen' \
+    "$BIN" "${T[@]}" -deviceEnabled YES -recentSources '()' --picture-check build/uitest/window.png --engine device
+check "Picture: offline, a text in a language it has not got says so and the others are translated" \
+    "not translated: 3 (This offline translation needs the NLLB-200 language pack (Latvian → Russian)." \
+    "$BIN" "${T[@]}" -deviceEnabled YES -recentSources '()' --picture-check build/uitest/window.png --engine device
+# A page of hundreds of texts (the one the reader of pictures is made ready with). The mock
+# server's "slow" addresses take a third of a second over each request and write down how
+# many they were answering at once.
+"$BIN" --picture-make build/uitest/many.png --many || true
+MANY="$(env BTRANSLATE_GOOGLE_URL="$MOCK/googleslow" "$BIN" "${T[@]}" --picture-check build/uitest/many.png --to lv 2>&1 || true)"
+check "Picture: a page of hundreds of texts is read and translated" "with words; into lv by google" echo "$MANY"
+logged "Picture: its requests go to Google three at a time" '"path": "googleslow", "together": 3'
+check "Picture: and never more than three" "seen 0 time(s)" seen '"path": "googleslow", "together": [4-9]'
+env "${MODEL[@]}" BTRANSLATE_BASE_URL="$MOCK/anthropicslow" "$BIN" "${T[@]}" --picture-check build/uitest/many.png --engine ai --to lv > /dev/null 2>&1 || true
+logged "Picture: its requests go to an AI provider four at a time" '"path": "anthropicslow", "together": 4'
+check "Picture: and never more than four" "seen 0 time(s)" seen '"path": "anthropicslow", "together": [5-9]'
+env BTRANSLATE_KEYCHAIN=off BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" -aiEnabled YES -aiProvider custom -aiBaseURL "$MOCK/openaislow" \
+    --picture-check build/uitest/many.png --engine ai --to lv > /dev/null 2>&1 || true
+logged "Picture: to a server of your own, one at a time" '"path": "openaislow", "together": 1'
+check "Picture: and never two" "seen 0 time(s)" seen '"path": "openaislow", "together": [2-9]'
 WINDOW="$(typing --picture-window-check build/uitest/window.png --picture build/uitest)"
 check "Picture: its window, read in a process of its own" "the bar says: Translation into Russian" echo "$WINDOW"
 check "Picture: every text of its window fits" "every text of the window fits: yes" echo "$WINDOW"
+check "Picture: while none is set for a window, it is the popup's method and the default language" "by google into ru" echo "$WINDOW"
+CHOSEN="$(env "${MODEL[@]}" BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" -windowEngine ai -windowLanguage lv \
+    --picture-window-check build/uitest/window.png --then google 2>&1 || true)"
+check "Picture: its window opens with the method and the language of the settings" "by ai into lv" echo "$CHOSEN"
+check "Picture: another method chosen in its bar translates the texts anew" "by google into lv" echo "$CHOSEN"
+check "Picture: the bar names the language" "the bar says: Translation into Latvian" echo "$CHOSEN"
+# A window as tall as the screen (here: taller than any): its picture is shown smaller, so that
+# the bar under it, with the selectors, stays on the screen.
+sips -z 4000 1800 build/uitest/window.png --out build/uitest/window-tall.png > /dev/null 2>&1 || true
+check "Picture: under the picture of a window as tall as the screen, the bar stays on the screen" "the window is on its screen, bar and all: yes" \
+    env BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" --picture-window-check build/uitest/window-tall.png
+# The picture of a narrow window gets a window wide enough for its bar; the Russian one is the widest.
+sips -c 1040 560 build/uitest/window.png --out build/uitest/window-narrow.png > /dev/null 2>&1 || true
+check "Picture: the bar fits under a narrow window's picture too" "every text of the window fits: yes" \
+    env BTRANSLATE_LANGUAGE=ru BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" --picture-window-check build/uitest/window-narrow.png --picture build/uitest/narrow
 check "Picture: no connection is said in its window" "the bar says: No internet connection." \
     env BTRANSLATE_GOOGLE_URL="$DEAD" "$BIN" "${T[@]}" --picture-window-check build/uitest/window.png
 check "Picture, in Russian: its window" "the bar says: Перевод на русский" \
