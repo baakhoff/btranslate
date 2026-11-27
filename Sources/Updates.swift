@@ -376,14 +376,33 @@ final class Updater {
     /// failed). Its last line says why.
     private func ended(status: Int32) {
         guard case .updating(let version) = state else { return }
+        // It said it was done, and the copy on disk is the version aimed at: the installer did
+        // its work and only did not end this copy (the one of 1.1.0 could not, started by the
+        // app: it left its own ancestors alone). This copy then starts the new one itself. The
+        // note stays, for the new one to say that it is installed.
+        if status == 0, let wanted = Version(version), let there = onDisk.flatMap(Version.init), there >= wanted {
+            startAnew()
+            return
+        }
         forgetNote()
         if !startedAsked { store(version, "autoUpdateFailed") }
         if status == 0 {
-            state = .available(version)  // it said it was done, yet this copy is still the old one: Update stays on offer
+            state = .available(version)  // it said it was done, yet nothing was installed: Update stays on offer
             return
         }
         state = .updateFailed(lastLogLine() ?? L("The installer ended with status %ld.", Int(status)))
     }
+
+    /// The version of the copy on disk that this one was started from: after an update, the
+    /// new one's. (BTRANSLATE_DISK_VERSION stands in for it in checks.)
+    private var onDisk: String? {
+        if let given = Updater.standIn("BTRANSLATE_DISK_VERSION") { return given }
+        let list = NSDictionary(contentsOf: Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist"))
+        return list?["CFBundleShortVersionString"] as? String
+    }
+
+    /// Ends this copy and starts the one on disk, in the background. (A check says so instead.)
+    var startAnew: () -> Void = { (NSApp.delegate as? AppDelegate)?.restart() }
 
     private func lastLogLine() -> String? {
         guard let handle = try? FileHandle(forReadingFrom: Updater.logFile) else { return nil }
