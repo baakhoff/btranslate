@@ -93,18 +93,29 @@ enum LanguagePack {
     }
 
     static func forgetPrepared() {
-        if let prepared { try? FileManager.default.removeItem(at: prepared) }
+        guard let prepared else { return }
+        try? FileManager.default.removeItem(at: prepared)
+        UserDefaults.standard.removeObject(forKey: "packPreparedFor")
     }
 
-    /// Whether macOS has prepared the models, for the version of itself that runs now (it
-    /// keeps them by its build number). True where that can't be told.
-    static var isPrepared: Bool {
-        guard let prepared else { return true }
+    /// The build of macOS that runs now ("26B8132"): it prepares the models anew after every
+    /// update of itself, and keeps what it prepared for the one before.
+    private static var system: String {
         var build = [CChar](repeating: 0, count: 64)
         var size = build.count
-        guard sysctlbyname("kern.osversion", &build, &size, nil, 0) == 0 else { return true }
-        let kept = try? FileManager.default.contentsOfDirectory(atPath: prepared.appendingPathComponent(String(cString: build)).path)
-        return (kept ?? []).count >= 2
+        return sysctlbyname("kern.osversion", &build, &size, nil, 0) == 0 ? String(cString: build) : ""
+    }
+
+    /// Whether the models were prepared under this macOS, and what it made of them is still
+    /// there. True where that is not kept track of (a test's own pack).
+    static var isPrepared: Bool {
+        guard let prepared else { return true }
+        return UserDefaults.standard.string(forKey: "packPreparedFor") == system
+            && !((try? FileManager.default.contentsOfDirectory(atPath: prepared.path)) ?? []).isEmpty
+    }
+
+    static func notePrepared() {
+        if prepared != nil { UserDefaults.standard.set(system, forKey: "packPreparedFor") }
     }
 }
 
@@ -391,9 +402,13 @@ final class NLLBEngine: @unchecked Sendable {
     /// the translation so far after each sentence. The model is loaded if it is not, and let
     /// go when no other translation is waiting for it.
     func translate(_ text: String, from source: String, to target: String, partial: @escaping @Sendable (String) -> Void) async throws -> String {
-        // After an update of macOS the models are prepared anew: apart, once (see the top of this file).
+        // After an update of macOS the models are prepared anew: apart (see the top of this
+        // file), and what was prepared for the macOS before, a gigabyte of no more use, goes first.
         if !lock.withLock({ checked }) {
-            if !LanguagePack.isPrepared { try? await NLLBEngine.prepareApart() }
+            if !LanguagePack.isPrepared {
+                LanguagePack.forgetPrepared()
+                if (try? await NLLBEngine.prepareApart()) != nil { LanguagePack.notePrepared() }
+            }
             lock.withLock { checked = true }
         }
         lock.withLock { waiting += 1 }
@@ -430,10 +445,32 @@ final class NLLBEngine: @unchecked Sendable {
     /// The same in a process of its own (this program again, as `--pack-prepare`): what the
     /// preparation leaves in memory goes with that process.
     static func prepareApart() async throws {
-        guard let program = Bundle.main.executableURL else { return try await shared.prepare() }
+        guard Bundle.main.executableURL != nil else { return try await shared.prepare() }
+        try await apart(["--pack-prepare"])
+    }
+
+    /// Compiles the model packages in `folder` (encoder.mlpackage → encoder.mlmodelc, and the
+    /// decoder's), where a pack has just been downloaded to.
+    static func compile(in folder: URL) async throws {
+        for part in ["encoder", "decoder"] where FileManager.default.fileExists(atPath: folder.appendingPathComponent("\(part).mlpackage").path) {
+            let compiled = try await MLModel.compileModel(at: folder.appendingPathComponent("\(part).mlpackage"))
+            let target = folder.appendingPathComponent("\(part).mlmodelc")
+            try? FileManager.default.removeItem(at: target)
+            try FileManager.default.moveItem(at: compiled, to: target)
+        }
+    }
+
+    /// That, too, in a process of its own (`--pack-compile FOLDER`): it takes two gigabytes while it lasts.
+    static func compileApart(in folder: URL) async throws {
+        guard Bundle.main.executableURL != nil else { return try await compile(in: folder) }
+        try await apart(["--pack-compile", folder.path])
+    }
+
+    /// Runs this program again with `arguments` and waits for it; throws what it printed if it failed.
+    private static func apart(_ arguments: [String]) async throws {
         let helper = Process(), said = Pipe()
-        helper.executableURL = program
-        helper.arguments = ["--pack-prepare"]
+        helper.executableURL = Bundle.main.executableURL
+        helper.arguments = arguments
         helper.standardOutput = said
         helper.standardError = FileHandle.nullDevice
         helper.qualityOfService = .userInitiated  // wanted now, though the app waits in the background
@@ -813,11 +850,10 @@ final class PackInstaller {
         state = .preparing
         try Task.checkCancellation()
         let parts = ["encoder", "decoder"].filter { files.fileExists(atPath: incoming.appendingPathComponent("\($0).mlpackage").path) }
-        for part in parts {
-            let compiled = try await MLModel.compileModel(at: incoming.appendingPathComponent("\(part).mlpackage"))
-            let target = incoming.appendingPathComponent("\(part).mlmodelc")
-            try? files.removeItem(at: target)
-            try files.moveItem(at: compiled, to: target)
+        do {
+            try await NLLBEngine.compileApart(in: incoming)
+        } catch {
+            throw NLLBError.broken(L("macOS could not load the model (%@)", error.localizedDescription))
         }
         // Into place: the compiled models (the ones in use), and every file that is not a part of a model's package.
         LanguagePack.forgetPrepared()  // what macOS prepared of an earlier install is of no use to this one
@@ -834,6 +870,7 @@ final class PackInstaller {
         if !parts.isEmpty {
             do {
                 try await NLLBEngine.prepareApart()
+                LanguagePack.notePrepared()
             } catch {
                 LanguagePack.remove()
                 throw NLLBError.broken(L("macOS could not load the model (%@)", error.localizedDescription))

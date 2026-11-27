@@ -65,7 +65,7 @@ Apple lacks.
 - **Some Macs have all of Apple's languages ready:** on the one BTranslate was written on (macOS 27) none needed a download. On others each language is a download; macOS keeps them under System Settings → General → Language & Region → Translation Languages.
 - **The pack's model** is two Core ML programs, an encoder and a decoder, with 8-bit weights. The app has its own tokenizer for it (checked against Meta's on 60 texts) and searches for the translation with a beam of four. The model is loaded for a translation and let go right after it.
   - macOS prepares the models for the Neural Engine the first time they are loaded, and again after an update of itself. That takes a quarter of a minute and leaves a gigabyte and a half in the process that did it, so BTranslate has it done in a process of its own (`--pack-prepare`).
-  - What macOS prepared, about 1 GB, it keeps among the app's caches. **Remove** takes it away with the pack.
+  - What macOS prepared, about 1 GB, it keeps among the app's caches, and would keep for every version of itself. BTranslate removes it with the pack, and what was prepared for an earlier macOS when it prepares anew.
   - [tools/nllb](../tools/nllb/README.md) says how the pack is made and what the conversion had to get around.
 - **The language of a text** has to be told on the Mac, and the pack writes nonsense when told a wrong one. The pack's detector, the Mac's own recognizer, a few letters and words of Latvian, Serbian and their neighbours, and your own languages all have a say; when together they are not sure, the popup says what the text may be and asks for the pencil.
 - `BTranslate --offline` says whether a Mac has the method and which languages.

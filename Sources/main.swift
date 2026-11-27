@@ -15,8 +15,9 @@
 //                                  whether a pair of them is downloaded
 //   --pack                         whether the NLLB-200 language pack is installed, and where
 //   --pack-install | --pack-remove  download and install it (from BTRANSLATE_PACK_URL if set), or remove it
-//   --pack-prepare                 (the app's own helper) have macOS prepare the pack's models for the
-//                                  Neural Engine: what that leaves in memory goes with this process
+//   --pack-compile FOLDER | --pack-prepare  (the app's own helpers) compile a downloaded pack's models,
+//                                  and have macOS prepare them for the Neural Engine: the gigabytes
+//                                  that takes go with this process
 //   --pack-check FILE              the pack's tokenizer against Meta's (tests/nllb-tokens.json), and
 //                                  that the model is let go after a translation
 //   --pack-languages               which of Google's languages the pack has, and under which of its codes
@@ -706,6 +707,16 @@ if arguments.contains("--selftest") {
         case .installed: print("language pack: installed"); return 0
         case .failed(let why): print("language pack: FAILED: \(why)"); return 1
         default: print("language pack: not installed (\(installer.state))"); return 1
+        }
+    }
+} else if let folder = argument(after: "--pack-compile") {
+    runHeadless {
+        do {
+            try await NLLBEngine.compile(in: URL(fileURLWithPath: folder))
+            return 0
+        } catch {
+            print(error.localizedDescription)  // the app shows it
+            return 1
         }
     }
 } else if arguments.contains("--pack-prepare") {
