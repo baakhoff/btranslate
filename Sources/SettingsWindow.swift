@@ -594,12 +594,13 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         pageControl.setWidth(pageControl.width(forSegment: last) + rest, forSegment: last)
     }
 
-    /// How wide the row of page tabs is, and whether its widths were set (UI test).
+    /// Whether the row of page tabs ends within the page, and exactly at its margin where its
+    /// widths were set (UI test). Whether they are set depends on the Mac's font and control.
     var pageTabsForTest: String {
         let width = pageControl.intrinsicContentSize.width, inner: CGFloat = 436
         let set = (0..<pageControl.segmentCount).contains { pageControl.width(forSegment: $0) > 0 }
-        return "page tabs: \(Int(width.rounded())) points wide, the page \(Int(inner)): \(width <= inner + 0.5 ? "they fit" : "TOO WIDE")"
-            + "; widths set: \(set ? "yes" : "no")"
+        let fits = width <= inner + 0.5 && (!set || width >= inner - 0.5)
+        return "page tabs fit the page: \(fits ? "yes" : "NO") (\(Int(width.rounded())) of \(Int(inner)) points, widths \(set ? "set" : "natural"))"
     }
 
     // MARK: About, and updates

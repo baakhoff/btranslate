@@ -182,7 +182,7 @@ check "UI, off screen: the language to write in follows the list" "language to w
 check "UI, off screen: pictures written" "source-picker.png" ls build/uitest
 check "UI, off screen: every text of the settings window fits" "settings window, every text fits: yes" echo "$UI_OUT"
 check "UI, off screen: every page of the settings window fits a small screen" "they fit a small screen" echo "$UI_OUT"
-check "UI, off screen: the page tabs keep their own widths where they fit" "they fit; widths set: no" echo "$UI_OUT"
+check "UI, off screen: the page tabs end within the page" "page tabs fit the page: yes" echo "$UI_OUT"
 check "UI, off screen: the menu of BTranslate's own language" "language menu: the Mac's, en, ru" echo "$UI_OUT"
 
 # The same in Russian: longer words in the same windows.
@@ -191,7 +191,7 @@ UI_RU="$(env BTRANSLATE_LANGUAGE=ru BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" 
 check "UI in Russian: it is in Russian" "interface language: ru" echo "$UI_RU"
 check "UI in Russian: every text of the settings window fits" "settings window, every text fits: yes" echo "$UI_RU"
 check "UI in Russian: every page of the settings window fits a small screen" "they fit a small screen" echo "$UI_RU"
-check "UI in Russian: the five page tabs are as wide as the page, no wider" "page tabs: 436 points wide, the page 436: they fit; widths set: yes" echo "$UI_RU"
+check "UI in Russian: the five page tabs end within the page (at its margin, where they had to be narrowed)" "page tabs fit the page: yes" echo "$UI_RU"
 check "UI in Russian: the picker finds languages by their English names too" "source picker finds: ltg, la, lv" echo "$UI_RU"
 check "UI in Russian: several languages at once" "several languages at once: yes (ru, en, lv)" echo "$UI_RU"
 check "UI in Russian: the original's language set by hand" "the original's language can be set by hand: yes" echo "$UI_RU"
