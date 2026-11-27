@@ -1,112 +1,72 @@
 // BTranslate
 //
-// Adds "BTranslate" to the Services menu: select text in any app, right-click it and choose
-// Services → BTranslate (or give it a keyboard shortcut in System Settings → Keyboard →
-// Keyboard Shortcuts → Services). The translation appears in a small floating panel next to
-// the mouse pointer, and the app you are in stays in front. Esc, ⌘W or a click anywhere
-// else closes the panel.
+// Adds "BTranslate" to the Services menu: the selected text's translation appears in a small
+// floating panel by the pointer, and the app you are in stays in front. The same from any app
+// with a shortcut (⌃⌥T unless another is set): with text selected, its translation; in a text
+// field, a panel to type in another language; otherwise a window of your choice, translated
+// as a picture (Sources/Hotkey.swift, Sources/Focus.swift). Opening BTranslate itself
+// (Spotlight, Finder) shows its settings.
 //
-// The same from any app with a shortcut (⌃⌥T unless another is set): with text selected, its
-// translation; in a text field, a panel to type in another language; otherwise a window of
-// your choice, translated as a picture. See Sources/Hotkey.swift and Sources/Focus.swift.
-//
-// Open BTranslate itself (Spotlight, Finder) for its settings: the translation methods, the
-// AI provider, model and API key, and the method a popup opens with.
-//
-// Command line, for tests:
-//   BTranslate --print [--engine google|ai|device] [--from lv] [--to Russian|ru] "text"
-//                                                                   print a translation (device: the
-//                                                                   Offline method)
-//   BTranslate --offline [FROM TO]                                  say whether this Mac has the Offline
-//                                                                   method, its languages, and whether
-//                                                                   a pair of them is downloaded
-//   BTranslate --pack                                               say whether the NLLB-200 language
-//                                                                   pack is installed, and where
-//   BTranslate --pack-install | --pack-remove                       download and install it (from
-//                                                                   BTRANSLATE_PACK_URL if set), or remove it
-//   BTranslate --pack-check FILE                                    check the pack's tokenizer against
-//                                                                   Meta's (tests/nllb-tokens.json), and
-//                                                                   that the model is let go after a translation
-//   BTranslate --pack-languages                                     which of Google's languages the pack
-//                                                                   has, and under which of its codes
-//   BTranslate --detect "text"                                      what the pack's detector, the Mac's
-//                                                                   recognizer and both together make of
-//                                                                   a text's language
-//   BTranslate --detect-check FILE [DETECTOR]                       the detector's arithmetic against the
-//                                                                   Python that made its file
-//                                                                   (tests/detect-vectors.json)
-//   BTranslate --detect-eval FILE [DETECTOR] [--own en,ru]          how often a text's language is told
-//                                                                   right, over "language<tab>kind<tab>text"
-//                                                                   lines (tools/nllb/README.md)
-//   BTranslate --download-check                                     the Download button's way to macOS,
-//                                                                   without a download: for English and
-//                                                                   German, if both are there already,
-//                                                                   macOS answers at once and shows nothing
-//   BTranslate --popup-check "text" [--download] [--speak] [--picture DIR]
-//                                                                   a popup made off screen: the methods
-//                                                                   it offers, what each language shows,
-//                                                                   and whether the language pack is
-//                                                                   offered; --download presses that
-//                                                                   button, --speak the speaker's
-//   BTranslate --offline-uitest switch|wait|settings DIR            the popup without a connection and
-//                                                                   the settings' offline marks, drawn
-//                                                                   into DIR off screen (tests/run.sh
-//                                                                   says how each is set up)
-//   BTranslate --speech-check CODE "text"                           say which voice would read a
-//                                                                   text in that language, make the
-//                                                                   audio, and play it at volume zero
-//   BTranslate --screen-check                                       show a popup for a few seconds and
-//                                                                   report what a still picture can't:
-//                                                                   which app stays in front, and that
-//                                                                   typing reaches the pencil's search
-//   BTranslate --login on|off|status                                BTranslate among the login items
-//   BTranslate --shortcut-check                                     the shortcut as the settings keep
-//                                                                   it, and whether macOS takes one
-//   BTranslate --shortcut-page [--picture DIR]                      the settings' page for it, off
-//                                                                   screen: a shortcut recorded, the
-//                                                                   permission and login item shown
-//   BTranslate --type-check "text" [--field live|none|stuck] [--to LANGUAGE] [--esc] [--picture DIR]
-//                                                                   the panel for typing in another
-//                                                                   language, off screen, with a
-//                                                                   stand-in for the text field
-//   BTranslate --picture-make FILE                                  draw a picture that stands for a window
-//   BTranslate --picture-check FILE [--engine …] [--to …] [--boxes] [--picture DIR]
-//                                                                   read a picture as a window's is
-//                                                                   read, translate its texts, print
-//                                                                   them, and paint the result into DIR
-//   BTranslate --picture-window-check FILE [--picture DIR]          the window that shows it, off screen
-//   BTranslate --read-picture LANGUAGES                             (the app's own helper) a picture on
-//                                                                   standard input, its lines as JSON
-//   BTranslate --prepare-reading                                    have macOS make its reader of
-//                                                                   pictures ready (the installer does)
-//   open -n -g BTranslate.app --stdout FILE --args --ax-check appkit|input|textarea[-empty]|editable[-full]
-//                                                                   write into a real text field of
-//                                                                   another process (a small window of
-//                                                                   BTranslate's own, shown for a few
-//                                                                   seconds), and read its selection:
-//                                                                   needs the Accessibility permission
-//   BTranslate --models                                             print the provider's models
-//   BTranslate --selftest                                           checks that need no network
-//   BTranslate --prompts                                            how an AI model is told each language
-//   BTranslate --cyrillize "text"                                   Serbian in Latin letters → Cyrillic
-//   BTranslate --keychain-test                                      save, read and delete a dummy key
-//   BTranslate --language-test                                      choose Russian for BTranslate as its
-//                                                                   settings do, read the choice back,
-//                                                                   and put back what was chosen
-//   open -g BTranslate.app --args --background --restart-check      (while it is not running) the app
-//                                                                   starts itself anew once, as it does
-//                                                                   after a change of its language
-//   BTranslate --uitest DIR                                         draw the popup and the settings
-//                                                                   window into DIR as PNGs, off screen
-//   Env: BTRANSLATE_KEYCHAIN=off is a Mac without saved API keys, BTRANSLATE_CONNECTION=off one
-//        without a network (for the download of the language pack);
-//        BTRANSLATE_ACCESSIBILITY=on|off stands for macOS's answer about the permission, and
-//        BTRANSLATE_LOGIN=on|off for its login items: neither is then asked or changed;
-//        BTRANSLATE_PROVIDER, BTRANSLATE_MODEL, BTRANSLATE_BASE_URL, BTRANSLATE_API_KEY,
-//        BTRANSLATE_GOOGLE_URL override the saved settings; BTRANSLATE_LANGUAGE=en|ru sets
-//        the language of BTranslate's own texts (and of what these modes print from them);
-//        BTRANSLATE_OFFLINE=mock stands in for Apple's translation (Sources/OnDevice.swift);
-//        BTRANSLATE_PACK_DIR is where the language pack is kept instead of Application Support.
+// Command line (BTranslate MODE …), for tests. Where a mode takes --picture DIR, it also draws
+// what it made into DIR.
+//   --print [--engine google|ai|device] [--from lv] [--to Russian|ru] "text"
+//                                  print a translation (device: the Offline method)
+//   --offline [FROM TO]            whether this Mac has the Offline method, its languages, and
+//                                  whether a pair of them is downloaded
+//   --pack                         whether the NLLB-200 language pack is installed, and where
+//   --pack-install | --pack-remove  download and install it (from BTRANSLATE_PACK_URL if set), or remove it
+//   --pack-check FILE              the pack's tokenizer against Meta's (tests/nllb-tokens.json), and
+//                                  that the model is let go after a translation
+//   --pack-languages               which of Google's languages the pack has, and under which of its codes
+//   --detect "text"                what the pack's detector, the Mac's recognizer and both together
+//                                  make of a text's language
+//   --detect-check FILE [DETECTOR]  the detector's arithmetic against the Python that made its file
+//                                  (tests/detect-vectors.json)
+//   --detect-eval FILE [DETECTOR] [--own en,ru]  how often a text's language is told right, over
+//                                  "language<tab>kind<tab>text" lines (tools/nllb/README.md)
+//   --download-check               the Download button's way to macOS, without a download: with
+//                                  English and German both there already, macOS answers at once
+//   --popup-check "text" [--download] [--speak] [--picture DIR]  a popup made off screen (runPopupCheck)
+//   --offline-uitest switch|wait|settings DIR  the popup without a connection and the settings'
+//                                  offline marks, drawn into DIR off screen (tests/run.sh sets each up)
+//   --speech-check CODE "text"     which voice would read a text in that language; the audio is
+//                                  made, and played at volume zero
+//   --screen-check                 show a popup for a few seconds and report what a still picture
+//                                  can't: which app stays in front, typing reaching the pencil's search
+//   --login on|off|status          BTranslate among the login items
+//   --shortcut-check               the shortcut as the settings keep it, and whether macOS takes one
+//   --shortcut-page [--picture DIR]  the settings' page for it, off screen
+//   --type-check "text" [--field live|none|stuck] [--to LANGUAGE] [--esc] [--picture DIR]
+//                                  the panel for typing in another language, off screen (runTypeCheck)
+//   --picture-make FILE            draw a picture that stands for a window
+//   --picture-check FILE [--engine …] [--to …] [--boxes] [--picture DIR]
+//                                  read a picture as a window's is read, translate its texts, print them
+//   --picture-window-check FILE [--picture DIR]  the window that shows it, off screen
+//   --read-picture LANGUAGES       (the app's own helper) a picture on standard input, its lines as JSON
+//   --prepare-reading              have macOS make its reader of pictures ready (the installer and
+//                                  the app do)
+//   --ax-check appkit|input|textarea[-empty]|editable[-full]
+//                                  write into a real text field of another process and read its
+//                                  selection; needs the Accessibility permission (runAXCheck)
+//   --models                       print the provider's models
+//   --selftest                     checks that need no network
+//   --prompts                      how an AI model is told each language
+//   --cyrillize "text"             Serbian in Latin letters → Cyrillic
+//   --keychain-test                save, read and delete a dummy key
+//   --language-test                choose Russian for BTranslate as its settings do, read the choice
+//                                  back, and put back what was chosen
+//   --uitest DIR                   draw the popup and the settings window into DIR as PNGs, off screen
+//   open -g BTranslate.app --args --background --restart-check
+//                                  (while it is not running) the app starts itself anew once, as it
+//                                  does after a change of its language
+// Env: BTRANSLATE_KEYCHAIN=off is a Mac without saved API keys, BTRANSLATE_CONNECTION=off one
+//      without a network; BTRANSLATE_ACCESSIBILITY=on|off and BTRANSLATE_SCREEN=on|off stand
+//      for macOS's answers about the permissions, BTRANSLATE_LOGIN=on|off for its login items:
+//      none is then asked or changed; BTRANSLATE_PROVIDER, BTRANSLATE_MODEL, BTRANSLATE_BASE_URL,
+//      BTRANSLATE_API_KEY, BTRANSLATE_GOOGLE_URL, BTRANSLATE_GOOGLE_SPEECH_URL override the saved
+//      settings and Google's addresses; BTRANSLATE_LANGUAGE=en|ru sets the language of
+//      BTranslate's own texts; BTRANSLATE_OFFLINE=mock stands in for Apple's translation;
+//      BTRANSLATE_PACK_DIR is where the language pack is kept instead of Application Support.
 
 import Cocoa
 
@@ -150,9 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         buildMenu()
         HotkeyCenter.shared.onPress = { [weak self] in self?.shortcutPressed() }
         useShortcut()
-        // macOS makes its reader of pictures ready for an app the first time the app reads
-        // one, which can take a minute: have it done now, apart, and not when the first
-        // window is to be translated.
+        // The first reading of a picture can take macOS a minute: have it done now, apart.
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { PictureReader.prepare() }
         let args = CommandLine.arguments
         if args.contains("--restart-check") {
@@ -173,7 +131,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Opening the app while it runs shows the settings.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showSettings()
         return false
@@ -382,10 +339,8 @@ func runUITest(into dir: String) {
         && !added.stillOffered.contains(added.list.last ?? "")
     print("picker adds a language to the list: \(addedOK ? "yes" : "NO (\(before) → \(added.list))")")
     if !addedOK { exit(1) }
-    // The list's buttons: the last language up one place, made the default, the first one down.
     let steps = SettingsController.shared.reorderForTest()
     print("list buttons: \(steps.joined(separator: " → "))")
-    // The language to write in: the second default until one is chosen, and again when the chosen one leaves the list.
     print("language to write in: \(SettingsController.shared.typingForTest().joined(separator: " → "))")
     if let content = SettingsController.shared.currentContent {
         snapshot(content, to: dir + "/settings-reordered.png")
@@ -410,7 +365,6 @@ func runUITest(into dir: String) {
     popup.prepare()
     let lithuanian = sourceLanguages.first { $0.id == "lt" }?.name ?? "Lithuanian"  // as the bar shows it
 
-    // The pencil's picker, as it looks after typing "lat".
     let picker = popup.makeSourcePicker()
     picker.setSearch("lat")
     snapshot(picker.view, to: dir + "/source-picker.png")
@@ -424,8 +378,8 @@ func runUITest(into dir: String) {
         case 1:
             if let view = popup.panel.contentView { snapshot(view, to: dir + "/popup.png") }
             print("popup text: \(popup.shownText)")
-            // Move the panel as a drag would, to a place well inside the screen (wherever the
-            // pointer is), then translate again, as a language switch does.
+            // Move the panel as a drag would, to a place well inside the screen, then translate
+            // again, as a language switch does.
             let screen = (popup.panel.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
             movedTo = NSPoint(x: screen.midX - 137, y: screen.midY + 61)
             popup.panel.setFrameTopLeftPoint(movedTo)
@@ -435,7 +389,6 @@ func runUITest(into dir: String) {
             let kept = abs(f.minX - movedTo.x) < 1 && abs(f.maxY - movedTo.y) < 1
             print("popup stays where it was moved: \(kept ? "yes" : "NO (moved to \(f.origin))")")
             if !kept { exit(1) }
-            // Add two more languages of the list, as + does one at a time.
             let others = popup.config.targets.filter { other in !popup.sections.contains { $0.target == other } }
             if others.isEmpty {
                 print("several languages at once: skipped (the list has one language)")
@@ -448,7 +401,6 @@ func runUITest(into dir: String) {
             let several = texts.allSatisfy { !$0.isEmpty && $0 != L("Translating…") } && Set(texts).count == texts.count
             print("several languages at once: \(several ? "yes" : "NO") (\(popup.sections.map(\.target.id).joined(separator: ", ")))")
             if !several { exit(1) }
-            // Set the original's language by hand, as picking it with the pencil does.
             popup.setSource(sourceLanguages.first { $0.id == "lt" }, remember: false)
         default:
             if let view = popup.panel.contentView { snapshot(view, to: dir + "/popup-source-set.png") }
@@ -501,18 +453,15 @@ func runOfflineUITest(_ scenario: String, into dir: String) {
 }
 
 /// A popup made off screen for a text. Prints the methods it offers and, for each language
-/// it translates into, the language, what it shows, and whether the language pack is
-/// offered under it. With --download the offer's button is then pressed, and the popup is
-/// printed again once the pack is there. With --speak the first translation's speaker
-/// button is pressed (without sound) and what the popup says about it is printed.
-/// --picture DIR also draws the popup into DIR.
+/// it translates into, what it shows and whether the language pack is offered under it.
+/// --download then presses the offer's button and prints the popup again once the pack is
+/// there; --speak presses the first speaker button (without sound) and prints the popup's note.
 @MainActor
 func runPopupCheck(text: String) {
     let popup = Popup(text: text)
     Popup.current = popup
     popup.prepare()
-    // --on-screen: the popup is really shown, by the pointer, for the few seconds the check
-    // takes. It does not take the keyboard, and nothing is clicked.
+    // --on-screen: the popup is really shown for the check's few seconds. It does not take the keyboard.
     let onScreen = arguments.contains("--on-screen")
     let frontBefore = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
     if onScreen { popup.panel.orderFrontRegardless() }
@@ -532,7 +481,7 @@ func runPopupCheck(text: String) {
     popup.onSettled = {
         report(pressed ? "with the pack" : "popup")
         if arguments.contains("--speak") {
-            // The first translation's speaker button, pressed; never a sound from a check.
+            // Never a sound from a check.
             Speaker.shared.volume = 0
             popup.pressSpeaker()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -710,7 +659,7 @@ if arguments.contains("--selftest") {
     }
     exit(0)
 } else if arguments.contains("--cyrillize") {
-    print(cyrillize(arguments.last ?? ""))  // Serbian in Latin letters → Cyrillic, to try the rules
+    print(cyrillize(arguments.last ?? ""))  // to try the rules
     exit(0)
 } else if arguments.contains("--keychain-test") {
     let account = "selftest", value = "dummy-KEY_\(ProcessInfo.processInfo.processIdentifier)"
@@ -789,7 +738,6 @@ if arguments.contains("--selftest") {
                 }
             }
             print(String(format: "tokenizer: %d of %d texts as Meta's tokenizer has them (vocabulary read in %.2f s)", cases.count - wrong, cases.count, loaded))
-            // A translation, and then the model must be gone again.
             let started2 = Date()
             let text = try await NLLBEngine.shared.translate("Sveiki! Vai jūs varētu pateikt, cikos rīt sākas sapulce?", from: "lvs_Latn", to: "rus_Cyrl") { _ in }
             print(String(format: "translation (%.1f s): %@", Date().timeIntervalSince(started2), text))
@@ -801,7 +749,6 @@ if arguments.contains("--selftest") {
         }
     }
 } else if let file = argument(after: "--detect-check") {
-    // The detector's own arithmetic against the Python that made its file.
     struct Case: Decodable {
         let text: String
         let best: [Best]
@@ -849,7 +796,6 @@ if arguments.contains("--selftest") {
     print("detector's answers as shares, and the user's languages counting for more: \(rules ? "yes" : "NO")")
     exit(wrong == 0 && rules ? 0 : 1)
 } else if let text = argument(after: "--detect") {
-    // What the language pack's detector makes of a text, and what the app would take it for.
     guard let detector = PackDetector.installed() else {
         print("detector: the language pack is not installed, or has no detector")
         exit(0)
@@ -869,8 +815,7 @@ if arguments.contains("--selftest") {
     }
     exit(0)
 } else if let file = argument(after: "--detect-eval") {
-    // How often the app tells a text's language right, over a file of
-    // "language<tab>kind<tab>text" lines (Google's codes; the kinds are counted apart).
+    // The file's lines are "language<tab>kind<tab>text", with Google's codes; the kinds are counted apart.
     let other = Array(arguments.drop { $0 != "--detect-eval" }.dropFirst(2)).first.flatMap { $0.hasPrefix("-") ? nil : $0 }
     guard let detector = other.map({ PackDetector(file: URL(fileURLWithPath: $0)) }) ?? PackDetector.installed(),
           let lines = try? String(contentsOfFile: file, encoding: .utf8) else {
@@ -977,9 +922,8 @@ if arguments.contains("--selftest") {
 } else if let languages = argument(after: "--read-picture") {
     exit(PictureReader.readForTheApp(languages: languages))
 } else if arguments.contains("--prepare-reading") {
-    // macOS makes its reader of pictures ready for a program the first time that program
-    // reads one, which takes some twenty seconds. The installer has it done here, in the
-    // background, so that the first window you have translated does not wait for it.
+    // macOS makes its reader of pictures ready for a program the first time it reads one, which
+    // takes some twenty seconds: the installer and the app have it done here, in the background.
     MainActor.assumeIsolated {
         let made = NSTemporaryDirectory() + "btranslate-prepare-\(ProcessInfo.processInfo.processIdentifier).png"
         defer { try? FileManager.default.removeItem(atPath: made) }
@@ -991,7 +935,6 @@ if arguments.contains("--selftest") {
         exit(lines.isEmpty ? 1 : 0)
     }
 } else if let wanted = argument(after: "--login") {
-    // on | off | status: BTranslate among the login items, as its settings' checkbox sets it.
     MainActor.assumeIsolated {
         if wanted == "on" || wanted == "off", let why = LoginItem.set(wanted == "on") {
             print("ERROR: \(why)")

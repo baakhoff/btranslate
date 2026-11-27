@@ -1,7 +1,6 @@
 import Cocoa
 
 /// A floating panel that never activates the app: the app you are in stays in front.
-/// The translation popup is one, and so is the language picker that opens from its pencil.
 final class PopupPanel: NSPanel {
     var onClose: (() -> Void)?
     var onCopy: (() -> Void)?
@@ -27,7 +26,6 @@ final class PopupPanel: NSPanel {
         return super.performKeyEquivalent(with: event)
     }
 
-    /// The look both panels share: floating, see-through, with rounded corners.
     func makeFloating() -> NSVisualEffectView {
         isFloatingPanel = true
         level = .floating
@@ -63,7 +61,7 @@ final class TranslationSection {
     var settled = false           // a translation or an error message is showing
     var waiting = false           // no translation for lack of a connection: one is made when it is back
     var task: Task<Void, Never>?
-    var opensWithDefault = false  // it shows the default language because the popup opened with it, not because it was picked here
+    var opensWithDefault = false  // it shows the default language because the popup opened with it, not picked here
     var turnedFrom: Target?       // the default language it left for the second default: the text was in it already
     var packOffer: String?        // a message the language pack would put right: a button under it downloads the pack
 
@@ -99,16 +97,15 @@ final class Popup: NSObject, NSWindowDelegate {
 
     let panel = PopupPanel(contentRect: NSRect(x: 0, y: 0, width: Popup.width, height: 100),
                            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-    // The top bar is about the original: its language, speaker and pencil; at the right the
-    // method and settings. Under it, one section per language to translate into: a row with
-    // "→ language", + (first row only), speaker, copy and × (added rows only), then the text.
+    // The top bar: the original's language, its speaker and pencil; at the right the method and settings.
+    // Under it a section per language: "→ language", + (first row only), speaker, copy, × (added rows only), then the text.
     private let sourceLabel = NSTextField(labelWithString: "")
     private let speakSourceButton = NSButton()
     private let sourceButton = NSButton()  // the pencil
     private let engineControl = NSSegmentedControl()  // one segment for each method that is turned on
-    private let offlineIcon = NSImageView()           // shows while there is no connection
+    private let offlineIcon = NSImageView()
     private let settingsButton = NSButton()
-    private let addButton = NSButton()     // +
+    private let addButton = NSButton()
     private let scroll = NSScrollView()
     private let container = FlippedView()
     private(set) var sections: [TranslationSection] = []
@@ -124,14 +121,11 @@ final class Popup: NSObject, NSWindowDelegate {
     private var sourcePanel: PopupPanel?
     var onSettled: (() -> Void)?  // called when every translation (or its error message) is showing (UI test)
     private var clickMonitor: Any?
-    private var menuOpen = false  // one of the popup's menus is showing
-    // Without a connection: the popup goes over to the Offline method by itself if that is
-    // turned on, and what stays untranslated is translated when the connection is back.
+    private var menuOpen = false
     private var noConnection = false   // a request has failed for lack of a connection
     private var autoOffline: Engine?   // the method the popup had before it went over to Offline by itself
     private var listening = false      // waiting to be told that the connection is back
     private var closed = false
-    // A note in a small bubble under one of the popup's buttons: why what it does can't be done now.
     private var notice: NSPanel?
     private var noticeNumber = 0       // which note is showing: an older one's timer must not take a newer one away
     private(set) var shownNotice: String?
@@ -286,7 +280,7 @@ final class Popup: NSObject, NSWindowDelegate {
 
     // MARK: The languages to translate into
 
-    /// Adds a language's row and text under the ones there are. (Its translation is started by the caller.)
+    /// Adds a language's row and text under the others. The caller starts its translation.
     @discardableResult
     private func addSection(_ target: Target) -> TranslationSection {
         let section = TranslationSection(target: target)
@@ -326,7 +320,6 @@ final class Popup: NSObject, NSWindowDelegate {
         return section
     }
 
-    /// Also translates into `target`, in a section of its own under the others.
     func addLanguage(_ target: Target) {
         guard !sections.contains(where: { $0.target == target }) else { return }
         let section = addSection(target)
@@ -376,7 +369,6 @@ final class Popup: NSObject, NSWindowDelegate {
         if let section = sections.first(where: { $0.removeButton === sender }) { remove(section) }
     }
 
-    /// The + menu: the languages of your list that the popup does not show yet.
     @objc private func showAddMenu() {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -423,10 +415,9 @@ final class Popup: NSObject, NSWindowDelegate {
         refreshBar()
     }
 
-    /// A text that is in the popup's default language already has nothing to gain from being
-    /// translated into it: the section the popup opened with turns to the second default
-    /// (Settings, Languages page) and translates anew. Not a section whose language was
-    /// picked in this popup by hand. Returns true if it turned.
+    /// A text already in the popup's default language gains nothing from being translated into
+    /// it: the section the popup opened with turns to the second default (Settings, Languages
+    /// page) and translates anew. Not a section whose language was picked by hand. True if it turned.
     private func turnToSecond(_ section: TranslationSection, from code: String) -> Bool {
         guard section.opensWithDefault, isAlready(in: section.target, code: code), let second = config.secondTarget,
               !sections.contains(where: { $0.target == second }) else { return false }
@@ -483,7 +474,6 @@ final class Popup: NSObject, NSWindowDelegate {
                     }
                 }
                 let later = L("No internet connection. BTranslate will translate as soon as it is back.")
-                // What the Offline method can't do for want of the language pack: the popup offers the pack.
                 let offer = self.packWouldHelp(error, target: target)
                 var message = describe(error)
                 if offer, case OfflineError.needsPack(let from, let to) = error {
@@ -517,9 +507,8 @@ final class Popup: NSObject, NSWindowDelegate {
 
     // MARK: Offering the language pack
 
-    /// True for what the Offline method could not do and the language pack would put right,
-    /// while the pack is not installed: a pair of languages macOS has not got (or not
-    /// downloaded), or a text whose language the Mac can't tell.
+    /// True for what the Offline method could not do and the language pack, not installed yet, would put
+    /// right: a pair of languages macOS has not got (or not downloaded), or a text whose language it can't tell.
     private func packWouldHelp(_ error: Error, target: Target) -> Bool {
         guard !LanguagePack.isInstalled, OnDevice.packHas(target.id) else { return false }
         switch error {
@@ -635,7 +624,6 @@ final class Popup: NSObject, NSWindowDelegate {
 
     // MARK: The original's language
 
-    /// The language the original is taken to be in: set by hand, or detected, or not known yet.
     private var sourceCode: String? { chosenSource?.google ?? detectedSource }
 
     /// Translates again, reading the original as `language`; nil goes back to detecting it.
@@ -650,9 +638,8 @@ final class Popup: NSObject, NSWindowDelegate {
         start()
     }
 
-    /// A picker of every language under "Detect automatically": first what the text may be
-    /// in besides the language shown (by the language pack's detector, if it is installed),
-    /// then the ones picked lately.
+    /// A picker of every language under "Detect automatically": first what the text may be in besides
+    /// the language shown (by the language pack's detector, if it is installed), then the ones picked lately.
     func makeSourcePicker() -> LanguagePicker {
         let picker = LanguagePicker()
         let shown = sourceCode
@@ -899,9 +886,8 @@ final class Popup: NSObject, NSWindowDelegate {
         return max(ceil(lm.usedRect(for: tc).height + text.textContainerInset.height * 2), Popup.minTextHeight)
     }
 
-    /// Lays the sections out and sizes the panel to them. The first time, the panel goes next
-    /// to the mouse pointer. After that it stays wherever it is (you may have dragged it):
-    /// only its height changes.
+    /// Lays the sections out and sizes the panel to them. The first time, the panel goes by the
+    /// pointer. After that it stays where it is (you may have dragged it): only its height changes.
     private func layout() {
         let W = Popup.width, pad = Popup.pad, bar = Popup.barHeight, row = Popup.rowHeight
         let contentWidth = W - pad * 2
@@ -966,8 +952,7 @@ final class Popup: NSObject, NSWindowDelegate {
         }
         panel.setFrame(frame, display: true)
 
-        // The top bar: the original's language (cut short if it has to be), its speaker and
-        // pencil; at the right end the method and settings.
+        // The top bar; the original's language is cut short if it has to be.
         let barY = H - pad - bar
         func centred(_ view: NSView) -> CGFloat { barY + (bar - view.frame.height) / 2 }
         settingsButton.frame = NSRect(x: W - pad - 20, y: barY + 1, width: 22, height: 22)

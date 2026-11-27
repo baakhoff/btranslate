@@ -3,9 +3,8 @@ import Carbon.HIToolbox
 import Cocoa
 
 // What the shortcut finds in the app in front: the selected text, or the text field the
-// cursor is in, or neither. macOS tells an app such things about another app only with the
-// user's permission: System Settings → Privacy & Security → Accessibility. The same
-// permission lets BTranslate write into that text field (Sources/TypeIn.swift).
+// cursor is in, or neither. Reading that, and writing into the field (Sources/TypeIn.swift),
+// needs the user's permission: System Settings → Privacy & Security → Accessibility.
 
 // MARK: - The permission
 
@@ -19,8 +18,7 @@ enum Accessibility {
 
     static var isAllowed: Bool { forced.map { $0 == "on" } ?? AXIsProcessTrusted() }
 
-    /// Has macOS show its request for the permission. It shows it once; after that the
-    /// switch is in System Settings.
+    /// macOS shows its request once; after that the switch is in System Settings.
     static func ask() {
         guard mayAsk, forced == nil else { return }
         _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
@@ -131,7 +129,6 @@ extension AXUIElement {
         return set(kAXSelectedTextRangeAttribute, value)
     }
 
-    /// The text in a range of a text field; nil if the app does not say.
     func string(in range: CFRange) -> String? {
         var range = range
         guard let value = AXValueCreate(.cfRange, &range) else { return nil }
@@ -149,7 +146,6 @@ extension AXUIElement {
         return onScreen(rect)
     }
 
-    /// Where the element itself is on the screen.
     var frame: NSRect? {
         guard let position = raw(kAXPositionAttribute), CFGetTypeID(position) == AXValueGetTypeID(),
               let size = raw(kAXSizeAttribute), CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
@@ -179,7 +175,7 @@ struct Focus {
     var role = ""
     var selection: String?  // the selected text ("": none); nil: the app does not say
     var place: NSRect?      // where the selection, or the cursor, is on the screen
-    var field: AXField?     // the text field the cursor is in
+    var field: AXField?
     var waking = false      // the app kept its interface to itself and has just been asked for it: it answers in a moment
 
     /// Apps where the place to type is not a text field to macOS, and yet text can be pasted.
@@ -230,10 +226,9 @@ struct Focus {
         return focus
     }
 
-    /// The selected text by the app's own Copy command, for apps that do not say what is
-    /// selected. The command is chosen in the app's menu, so no key is pressed for it; a
-    /// greyed Copy means nothing is selected, and nothing is done. The clipboard is put back
-    /// as it was.
+    /// The selected text by the app's own Copy command, for apps that do not say what is selected.
+    /// The command is chosen in the app's menu, so no key is pressed for it; a greyed Copy means
+    /// nothing is selected, and nothing is done. The clipboard is put back as it was.
     static func copiedSelection(of app: NSRunningApplication) async -> String? {
         guard let copy = menuCommand(of: app, key: "C") else { return nil }
         let pasteboard = NSPasteboard.general
@@ -486,7 +481,6 @@ final class AXField: TextSink {
         return false
     }
 
-    /// Whether a writing that was not seen to arrive has arrived after all.
     private func arrivedLate() -> Bool {
         guard let unseen, AXField.alike(element.text(kAXValueAttribute), unseen.whole) else { return false }
         written = unseen.text

@@ -92,12 +92,10 @@ func latinize(_ s: String) -> String {
 
 // MARK: - Serbian Latin → Cyrillic
 
-// Google leaves Serbian as it is when asked to "translate" it into Serbian, so a text in
-// Latin letters stays in Latin letters. This turns it into Cyrillic. Letter by letter that
-// is easy; the hard part is what must stay as it is: foreign names and terms inside the
-// Serbian text (Manyfold, open-source, STL). No rule knows every foreign word, so the rules
-// below go by what a word looks like, and a name with nothing foreign about its letters
-// (Microsoft) is converted like any other word. The AI method does better with those.
+// Google hands Serbian back as it is when asked to translate it into Serbian. This turns
+// its Latin letters into Cyrillic and leaves foreign names and terms alone (Manyfold,
+// open-source, STL). No rule knows every foreign word: the rules go by what a word looks
+// like, and a foreign name that looks Serbian is converted. The AI method does better there.
 
 private let serbianCyrillic: [Character: String] = [
     "a": "а", "b": "б", "c": "ц", "č": "ч", "ć": "ћ", "d": "д", "đ": "ђ", "e": "е", "f": "ф", "g": "г",
@@ -140,7 +138,7 @@ private func looksForeign(_ word: String, shouting: Bool) -> Bool {
     if lower.contains(where: { "qwxy'’".contains($0) || $0.isNumber }) { return true }
     let letters = word.filter(\.isLetter)
     let capitals = letters.filter(\.isUppercase).count
-    if capitals == letters.count, letters.count >= 2 {  // all capitals
+    if capitals == letters.count, letters.count >= 2 {
         if !shouting && letters.count <= 4 && !hasSerbianLetters(word) && !nativeAbbreviations.contains(word.uppercased()) { return true }
     } else if capitals > 1 || (capitals == 1 && letters.first?.isUppercase == false) {
         return true  // capitals inside the word: GitHub, iPhone
@@ -152,7 +150,7 @@ private func looksForeign(_ word: String, shouting: Bool) -> Bool {
 private func cyrillizeWord(_ word: String) -> String {
     let apart: Character = "\u{1F}"  // a control character: it never joins the letter before it
     var marked = word
-    for (stem, at) in splitDigraphs {  // keep n|j and d|ž apart
+    for (stem, at) in splitDigraphs {
         if let range = marked.range(of: stem, options: .caseInsensitive) {
             marked.insert(apart, at: marked.index(range.lowerBound, offsetBy: at))
         }
@@ -178,7 +176,6 @@ private func cyrillizeWord(_ word: String) -> String {
     return out
 }
 
-/// Serbian in Latin letters → Cyrillic; what looks foreign stays as it is.
 func cyrillize(_ text: String) -> String {
     let ns = text as NSString
     let whole = NSRange(location: 0, length: ns.length)
@@ -475,7 +472,6 @@ func aiTranslate(_ text: String, target: Target, source: Target? = nil, config: 
     update(code, final)
 }
 
-/// The model names the provider offers, for the Settings menu.
 func listModels(config: Config, key: String) async throws -> [String] {
     let anthropic = config.provider.api == .anthropic
     guard !config.baseURL.isEmpty, let url = URL(string: config.baseURL + "/models" + (anthropic ? "?limit=1000" : "")) else {
@@ -511,7 +507,7 @@ func translate(_ text: String, engine: Engine, target: Target, source: Target? =
     case .google:
         let (t, detected) = try await googleTranslate(text, from: source?.google ?? "auto", to: target.google)
         var translation = target.latin ? latinize(t) : t
-        // Serbian → Serbian: Google hands the text back as it is. Asked for Cyrillic, change the alphabet here.
+        // Serbian → Serbian comes back as it went: asked for Cyrillic, change the alphabet here.
         if target.id == "sr" && isMostlyLatin(translation) { translation = cyrillize(translation) }
         update(source?.google ?? detected, translation)
     case .ai:

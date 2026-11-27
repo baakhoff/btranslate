@@ -32,9 +32,8 @@ func runShortcutCheck() -> Int32 {
     return taken ? 0 : 1
 }
 
-/// The shortcut's page of the settings, off screen: what it says about the permission and
-/// the login item, a shortcut recorded as a click and three keys do it, and whether every
-/// text fits. --picture DIR draws the page into DIR.
+/// The shortcut's page of the settings, off screen: what it says about the permission and the
+/// login item, a shortcut recorded as a click and three keys do it, and whether every text fits.
 @MainActor
 func runShortcutPageCheck() -> Int32 {
     beginCheck()
@@ -105,7 +104,6 @@ final class FakeField: TextSink {
 /// goes (its first sentence, then all of it), then Return is pressed, or Esc with --esc.
 ///   --field live|none|stuck   the field takes every writing, none, or only the first
 ///   --to LANGUAGE             the language chosen in the panel
-///   --picture DIR             draws the panel into DIR
 @MainActor
 func runTypeCheck(_ text: String) async -> Int32 {
     beginCheck()
@@ -174,8 +172,8 @@ func runTypeCheck(_ text: String) async -> Int32 {
 
 // MARK: - A window's picture
 
-/// Draws a picture that stands for a window, for --picture-check: a heading, a paragraph of
-/// three lines, a list on a dark side bar, a button, and lines in several languages.
+/// Draws a picture that stands for a window (for --picture-make and --prepare-reading): a heading,
+/// a paragraph of three lines, a list on a dark side bar, a button, and lines in several languages.
 @MainActor
 func makeTestPicture(at path: String) -> Bool {
     let scale: CGFloat = 2, width = 900, height = 520
@@ -221,8 +219,7 @@ func makeTestPicture(at path: String) -> Bool {
 }
 
 /// Reads a picture file as a window's picture is read, translates its texts and prints them:
-/// which lines were put together, what each became, what stayed. --picture DIR writes the
-/// painted picture there, and the window that shows it, drawn off screen.
+/// which lines were put together, what each became, what stayed.
 @MainActor
 func runPictureCheck(_ file: String) async -> Int32 {
     beginCheck()
@@ -301,12 +298,10 @@ func runPictureWindowCheck(_ file: String) {
 
 /// A small window with a text field in it, for --ax-check to write into: it stands for
 /// another app. Every tenth of a second it writes what its field holds into FILE.
-///   appkit           a Mac text view
-///   input            a web page's one-line <input>
-///   textarea-empty   a web page's <textarea>, empty
-///   textarea         the same with a text in it already
-///   editable         a web page's editable <div>, as chat pages have, empty
-///   editable-full    the same with a text in it already
+///   appkit             a Mac text view
+///   input              a web page's one-line <input>
+///   textarea[-empty]   a web page's <textarea>, with a text in it already, or empty
+///   editable[-full]    a web page's editable <div>, as chat pages have: empty, or with a text
 /// Those that are not empty hold "before -- after", with the cursor between the dashes.
 @MainActor
 final class AXTarget: NSObject {
@@ -375,7 +370,6 @@ final class AXTarget: NSObject {
 /// made the active app, nothing is clicked, and no app of yours is read or written into.
 /// It needs the Accessibility permission, which belongs to the installed app:
 ///   open -n -g ~/Applications/BTranslate.app --stdout FILE --args --ax-check appkit
-/// Without the permission it says so and does nothing.
 ///
 /// What is right: a Mac's field, a web page's one-line field and its boxes that are empty take
 /// each writing, and hold just that between what was there. A web page's box with a text in
@@ -405,7 +399,6 @@ func runAXCheck(_ kind: String) async -> Int32 {
     func held() -> String { (try? String(contentsOfFile: file, encoding: .utf8)) ?? "" }
     func pause(_ seconds: Double) async { try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
 
-    // The text field, found in the other process's interface.
     let app = AXUIElementCreateApplication(target.processIdentifier)
     AXUIElementSetMessagingTimeout(app, 1)
     func find(_ element: AXUIElement, depth: Int = 0) -> AXUIElement? {
@@ -575,7 +568,6 @@ func shortcutSelfTest() -> [String] {
     var failures: [String] = []
     func expect(_ what: String, _ ok: Bool) { if !ok { failures.append(what) } }
 
-    // The shortcut as the settings keep it.
     let standard = Shortcut.standard
     expect("shortcut: the standard one is kept as words and a key code", standard.saved == "control+option+17")
     expect("shortcut: and read back", Shortcut(saved: standard.saved) == standard)
@@ -585,13 +577,11 @@ func shortcutSelfTest() -> [String] {
     expect("shortcut: nonsense is not one", Shortcut(saved: "hyper+17") == nil && Shortcut(saved: "") == nil && Shortcut(saved: "control+x") == nil)
     expect("shortcut: all four modifiers, in a fixed order", Shortcut(saved: "command+shift+option+control+49")?.saved == "control+option+shift+command+49")
 
-    // The keyboard layout as a hint of the language typed.
     expect("layout: Russian says Russian", Keyboard.languageOfLayout("ru") == "ru")
     expect("layout: Ukrainian says Ukrainian", Keyboard.languageOfLayout("uk") == "uk")
     expect("layout: Latin letters say nothing", Keyboard.languageOfLayout("en") == nil && Keyboard.languageOfLayout("de") == nil
            && Keyboard.languageOfLayout("sr-Latn") == nil && Keyboard.languageOfLayout("lv") == nil)
 
-    // A typed text, sentence by sentence.
     let typed = "  Hello there. How are you?\nFine"
     let pieces = LiveText.pieces(of: typed)
     expect("typing: the pieces put together are the text", pieces.map { $0.lead + $0.core + $0.trail }.joined() == typed)
@@ -600,7 +590,6 @@ func shortcutSelfTest() -> [String] {
     expect("typing: a finished sentence is the same piece while the next is typed",
            LiveText.pieces(of: "One. Tw").first == LiveText.pieces(of: "One. Two and three").first)
 
-    // Writing into a field: only what differs is replaced.
     expect("field: what two texts begin alike with", AXField.sharedStart("Hello, wor", "Hello, world!") == 10)
     expect("field: nothing alike", AXField.sharedStart("abc", "xbc") == 0)
     expect("field: counted in UTF-16 units, a letter never cut in two",
@@ -609,11 +598,9 @@ func shortcutSelfTest() -> [String] {
     expect("field: texts alike but for their blanks", AXField.alike("Hello,\u{a0}world \n", "Hello, world") && !AXField.alike("Hello world", "Helloworld")
            && !AXField.alike(nil, ""))
 
-    // A model's answer to many texts at once.
     let answer = parseNumbered("1| Привет\n 2 |  Открыть файл\nnoise\n4| a | b\n")
     expect("many texts: numbered lines read", answer[1] == "Привет" && answer[2] == "Открыть файл" && answer[3] == nil && answer[4] == "a | b")
 
-    // A picture's lines put together into paragraphs.
     func line(_ text: String, _ x: CGFloat, _ y: CGFloat, _ width: CGFloat, height: CGFloat = 30) -> PictureLine {
         PictureLine(text: text, box: CGRect(x: x, y: y, width: width, height: height))
     }

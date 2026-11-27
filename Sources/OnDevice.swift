@@ -2,36 +2,28 @@ import Cocoa
 import NaturalLanguage
 import Network
 
-// Translating without internet: the "Offline" method. Two things can do the work, and
-// nothing leaves the Mac with either:
-//   - the translation built into macOS (Apple's Translation framework), from macOS 26 on,
-//     where a translation can be made without showing a window. About 25 languages; no
-//     Latvian, Serbian or Croatian. Depending on the Mac, they are all there already or each
-//     is a download that macOS manages;
-//   - BTranslate's own language pack (NLLB-200, see NLLB.swift), an optional download with
-//     about 200 languages, for what Apple has not got.
-// Apple's is used wherever it can translate; the pack does the rest.
+// Translating without internet: the "Offline" method. Nothing leaves the Mac. Apple's
+// Translation framework does it where it can (from macOS 26 on, where a translation needs no
+// window; about 25 languages, no Latvian, Serbian or Croatian); BTranslate's own language pack
+// (NLLB-200, see NLLB.swift), an optional download with about 200 languages, does the rest.
 //
-// The language of a text has to be told on the Mac. With the language pack that is the work
-// of its own detector (Detect.swift), which knows the pack's languages; the Mac's recognizer
-// and the signs below have a vote on short texts (`guesses`). Without the pack there is the
-// Mac's recognizer only: it knows 53 languages, and of Latvian, Lithuanian, Estonian or
-// Serbian nothing at all, so those are told by their letters and commonest words first.
-// When nothing is sure, the popup asks for the pencil, because the pack translates a text
-// read as the wrong language into nonsense.
+// With the pack, a text's language is told by its detector (Detect.swift). Without it there is
+// the Mac's recognizer only: it knows 53 languages, and of Latvian, Lithuanian, Estonian or
+// Serbian nothing at all, so those are told by their letters and commonest words first. When
+// nothing is sure, the popup asks for the pencil: the pack translates a text read as the wrong
+// language into nonsense.
 //
-// The installer builds the app on the user's Mac, with whatever Command Line Tools are
-// there. Tools from before macOS 26 (Swift older than 6.2) do not know these parts of the
-// framework, so everything that touches it is in `Apple` below, which has a second, empty
-// version for them: the app then builds without the Offline method.
+// The installer builds the app with the user's own Command Line Tools. Those from before
+// macOS 26 (Swift older than 6.2) do not know these parts of the framework, so everything that
+// touches it is in `Apple` below, which has a second, empty version for them.
 //
 // For tests, BTRANSLATE_OFFLINE=mock stands in for Apple's translation (see `Mock`).
 
 /// Whether a language, or a pair of them, can be translated without internet.
 enum OfflineStatus: String {
-    case installed     // yes
-    case downloadable  // once macOS has downloaded it
-    case unavailable   // Apple has not got it
+    case installed
+    case downloadable  // after a download
+    case unavailable
 }
 
 enum OfflineError: Error {
@@ -46,11 +38,9 @@ enum OfflineError: Error {
 enum OnDevice {
     private static let mock = ProcessInfo.processInfo.environment["BTRANSLATE_OFFLINE"] == "mock"
 
-    /// False where neither macOS can do it (too old, or the app was built with old tools) nor
-    /// the language pack is installed.
+    /// False where macOS can't (too old, or built with old tools) and the pack is not installed.
     static var isAvailable: Bool { mock || Apple.isAvailable || LanguagePack.isInstalled }
 
-    /// The languages the language pack translates, as Google's codes.
     private static let packLanguages: Set<String> = Set(googleLanguages.map(\.code).filter { NLLBLanguage.code($0) != nil })
 
     /// Whether the pack has this language (installed or not). `id` is a language's id in the
@@ -92,7 +82,6 @@ enum OnDevice {
         return codes
     }
 
-    /// Whether Apple's translation takes a text in the language `source` into `target`.
     private static func appleStatus(from source: String, to target: String) async -> OfflineStatus {
         let supported = await supportedLanguages()
         guard supported.contains(base(source)), supported.contains(base(target)), !same(source, target),
@@ -130,7 +119,6 @@ enum OnDevice {
                     }
                 }
             }
-            // What Apple has not got, or not here, the language pack may have.
             if status != .installed, packHas(id) { status = LanguagePack.isInstalled ? .installed : .downloadable }
             out[id] = status
         }
@@ -177,9 +165,8 @@ enum OnDevice {
     }
 
     /// A text as the pack's detector should see it. Its letters only (with ' and - inside
-    /// words): digits, punctuation and emoji are noise to it. And in small letters if it is
-    /// written in capitals: the detector has hardly seen those, and takes "ZABRANJENO PUŠENJE"
-    /// for Cantonese.
+    /// words): digits, punctuation and emoji are noise to it. And in small letters if it is in
+    /// capitals: the detector has hardly seen those, and takes "ZABRANJENO PUŠENJE" for Cantonese.
     static func prepared(_ text: String) -> String {
         let scalars = text.unicodeScalars.prefix(4000)
         var capitals = 0, small = 0
@@ -205,10 +192,9 @@ enum OnDevice {
         return recognizer.languageHypotheses(withMaximum: count).map { (googleCode($0.key.rawValue), $0.value) }.sorted { $0.chance > $1.chance }
     }
 
-    /// The language of `text`, as Google's code; nil when it can't be told. First by the
-    /// signs above; then by the Mac's own recognizer: a language it is sure of is returned
-    /// whether it can be translated or not, and when it is not sure, only a clear winner
-    /// among the languages that can be translated counts.
+    /// The language of `text`, as Google's code; nil when it can't be told. First by the signs
+    /// above; then by the Mac's own recognizer: a language it is sure of is returned whether it
+    /// can be translated or not; when it is not sure, only a clear winner among `supported` counts.
     static func recognize(_ text: String, among supported: Set<String>) -> String? {
         if let sure = bySigns(text) { return sure }
         let recognizer = NLLanguageRecognizer()
@@ -229,21 +215,20 @@ enum OnDevice {
     /// How sure the answer of `guesses` has to be to be taken; below it, the popup asks.
     static let sureEnough = 0.5
 
-    /// The likeliest languages of `text` by the language pack's detector, the best first,
-    /// each with its share of 1. A language is named by Google's code; one that BTranslate
-    /// has not got, by NLLB's ("kab_Latn").
+    /// The likeliest languages of `text` by the language pack's detector, the best first, each
+    /// with its share of 1. A language is named by Google's code; one that BTranslate has not
+    /// got, by NLLB's ("kab_Latn").
     ///
-    /// The detector is right about a sentence in 97 of 100 cases over the pack's languages,
-    /// but a word or two can fool it ("hello" looks like Sesotho to it). So its scores count
-    /// for less on a short text, and three more voices are heard there:
-    ///   - the Mac's own recognizer, which is better on a word or two in the languages it
-    ///     knows and blind to all others (Persian is Arabic to it). Its vote fades as the
-    ///     text grows, and never outvotes a detector that is sure;
+    /// The detector is right about a sentence in 97 of 100 cases, but a word or two can fool it
+    /// ("hello" looks like Sesotho to it). So its scores count for less on a short text, and
+    /// three more voices are heard there:
+    ///   - the Mac's own recognizer, better on a word or two in the languages it knows and blind
+    ///     to all others (Persian is Arabic to it). Its vote fades as the text grows, and never
+    ///     outvotes a detector that is sure;
     ///   - the signs above (letters and words of Latvian, Serbian…);
-    ///   - `own`, the languages of the user's list and the ones they picked lately: a short
-    ///     text is likelier to be in one of those. For someone with Serbian among them and
-    ///     neither Croatian nor Bosnian, those two count as Serbian: in Latin letters the
-    ///     three are one language to the detector.
+    ///   - `own`, the user's list and the languages they picked lately: a short text is likelier
+    ///     to be in one of those. With Serbian among them and neither Croatian nor Bosnian, those
+    ///     two count as Serbian: in Latin letters the three are one language to the detector.
     /// The numbers were set on FLORES-200's sentences cut down to one, two and five words
     /// (tools/nllb/README.md).
     static func guesses(for text: String, own: [String], with detector: PackDetector) -> [(code: String, chance: Double)] {
@@ -335,7 +320,6 @@ enum OnDevice {
             for (i, line) in zip(filled, translated) { lines[i] = line }
             return (lines.joined(separator: "\n"), from)
         }
-        // What Apple can't do here, the language pack may.
         if let packSource = NLLBLanguage.source(from, text: text), let packTarget = NLLBLanguage.code(target.id) {
             guard LanguagePack.isInstalled else {
                 throw appleCan == .downloadable ? OfflineError.notDownloaded(from, target.google) : OfflineError.needsPack(from, target.google)
@@ -442,7 +426,7 @@ private enum Apple {
 
 #else
 
-/// Built with tools that do not know the framework: no Offline method.
+/// Built with tools that do not know the framework.
 private enum Apple {
     static var isAvailable: Bool { false }
     static func supportedLanguages() async -> Set<String> { [] }
@@ -493,7 +477,6 @@ final class Connection {
         monitor.start(queue: DispatchQueue(label: "io.github.baakhoff.btranslate.connection"))
     }
 
-    /// False while the Mac has no network to send anything through.
     var isOnline: Bool { online }
 
     /// Runs `work` once, the next time the connection comes back after being gone.

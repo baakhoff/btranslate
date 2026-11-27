@@ -1,11 +1,9 @@
 import Carbon.HIToolbox
 import Cocoa
 
-// The shortcut that brings BTranslate up from any app.
-//
-// It is a key by its place on the keyboard (so it is the same key in every layout, Russian or
-// English) with modifier keys. macOS tells the app that it was pressed whatever app is in
-// front; that part needs no permission. What the shortcut then does is in Sources/Focus.swift.
+// The shortcut that brings BTranslate up from any app: a key by its place on the keyboard (the
+// same key in every layout, Russian or English) with modifier keys. Listening for it needs no
+// permission. What the shortcut then does is in Sources/Focus.swift.
 
 struct Shortcut: Equatable {
     var keyCode: UInt32
@@ -54,7 +52,6 @@ struct Shortcut: Equatable {
         (Shortcut.modifierNames.filter { Int(modifiers) & $0.mask != 0 }.map(\.word) + [String(keyCode)]).joined(separator: "+")
     }
 
-    /// The shortcut a key press is, if it can be one.
     init?(event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let mask = Shortcut.modifierNames.filter { flags.contains($0.flag) }.reduce(0) { $0 | $1.mask }
@@ -72,8 +69,7 @@ struct Shortcut: Equatable {
         Shortcut.modifierNames.filter { Int(modifiers) & $0.mask != 0 }.map(\.sign).joined() + Shortcut.keyName(keyCode)
     }
 
-    /// What is printed on the key, in the Latin layout the Mac has (a shortcut is shown as
-    /// "T" even while the Russian layout is on).
+    /// What is printed on the key in the Mac's Latin layout: "T" even while the Russian layout is on.
     static func keyName(_ code: UInt32) -> String {
         if code == UInt32(kVK_Space) { return L("Space") }
         if let name = functionKeys[Int(code)] ?? namedKeys[Int(code)] { return name }
@@ -94,7 +90,6 @@ struct Shortcut: Equatable {
     }
 }
 
-/// Has macOS tell the app when the shortcut is pressed.
 @MainActor
 final class HotkeyCenter {
     static let shared = HotkeyCenter()
@@ -145,8 +140,7 @@ final class HotkeyCenter {
     }
 }
 
-/// The settings' control for the shortcut: it shows it; a click, and the next keys pressed
-/// become it. Esc leaves it as it was, ⌫ takes it away.
+/// The settings' control for the shortcut: a click, and the next keys pressed become it.
 @MainActor
 final class ShortcutField: NSButton {
     var shortcut: Shortcut? { didSet { refresh() } }

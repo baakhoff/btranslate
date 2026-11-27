@@ -1,16 +1,11 @@
 import Cocoa
 
 // Typing in another language. The shortcut, pressed in a text field with nothing selected,
-// opens a small panel under the cursor. What is typed there, in any language, is translated
-// while it is typed and written into the text field in the language chosen in the panel.
-// Return keeps it, Esc takes it back out.
-//
-// The text is translated sentence by sentence, a moment after the last key: a finished
-// sentence is translated once and stays as it is, only the one being typed changes.
-//
-// Writing into another app's field goes through macOS's Accessibility (Sources/Focus.swift).
-// Not every app takes text that way; for one that doesn't, the panel shows the translation
-// itself and Return pastes it.
+// opens a small panel under the cursor. What is typed there is translated sentence by sentence,
+// a moment after the last key (a finished sentence is translated once and stays as it is), and
+// written into the text field through macOS's Accessibility (Sources/Focus.swift). Return keeps
+// it, Esc takes it back out. For an app that does not take text that way, the panel shows the
+// translation itself and Return pastes it.
 
 enum LiveText {
     struct Piece: Equatable {
@@ -193,7 +188,6 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
         layout()
     }
 
-    /// Places the panel by the cursor's line: under it, or above it where there is no room under it.
     private func hang(by anchor: NSRect, first: Bool) {
         let probe = anchor.insetBy(dx: -1, dy: -1)
         let visible = (NSScreen.screens.first { $0.frame.intersects(probe) } ?? NSScreen.main)?.visibleFrame
@@ -364,7 +358,6 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
 
     private func key(_ sentence: String) -> String { "\(target.id)|\(sentence)" }
 
-    /// One sentence in the panel's language.
     private func translated(_ sentence: String) async throws -> String {
         // A keyboard layout that is one language's own says what the text is in; with Latin
         // letters the translator finds out itself.
@@ -433,7 +426,6 @@ final class TypePanel: NSObject, NSTextViewDelegate, NSWindowDelegate {
     }
 }
 
-/// Opens the typing panel for a text field.
 @MainActor
 func showTypePanel(for sink: TextSink) {
     if let delegate = NSApp.delegate as? AppDelegate {

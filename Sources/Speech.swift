@@ -1,10 +1,9 @@
 import AVFoundation
 import Cocoa
 
-// Reading a text aloud. A voice of this Mac does it when there is one for the language: that
-// works offline and nothing leaves the Mac. macOS has no voice for some languages (Latvian
-// and Serbian among them); for those Google Translate's voice can read the text, online, if
-// that is turned on in Settings.
+// Reading a text aloud. A voice of this Mac does it where there is one for the language:
+// offline, and nothing leaves the Mac. Where macOS has none (Latvian and Serbian among them),
+// Google Translate's voice can read the text, online, if that is turned on in Settings.
 
 // MARK: - Which voice reads a language
 
@@ -48,7 +47,6 @@ func googleSpeechCode(_ code: String) -> String {
 /// the Mac's voices ("en-US", "hr-HR", …); `preferred` the Mac's own languages.
 func speechPlan(for code: String, voiceLanguages: [String], preferred: [String] = macLanguages(),
                 googleVoice: Bool) -> SpeechPlan {
-    /// The voice tag to use for a language or language-region prefix, if the Mac has one.
     func voice(_ prefix: String) -> String? {
         let p = prefix.lowercased()
         let matches = voiceLanguages.filter { $0.lowercased() == p || $0.lowercased().hasPrefix(p + "-") }
@@ -190,8 +188,6 @@ final class Speaker: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegat
             playing = name
             synthesizer.speak(u)
         case .google(let googleCode):
-            // Google's voice needs internet, and this language has no voice on the Mac: without
-            // a network there is nothing to try.
             let offline = L("No internet connection: this text can't be read aloud now. This Mac has no voice for %@, and Google's voice needs internet.",
                             languageName(code, inText: true))
             guard Connection.shared.isOnline else {

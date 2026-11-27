@@ -10,19 +10,17 @@ import NaturalLanguage
 // It is NLLB-200 ("No Language Left Behind", distilled, 600M parameters) by Meta AI, converted
 // to Core ML with 8-bit weights (tools/nllb has the recipe): 886 MB. Core ML runs it on the
 // Neural Engine, never on the GPU; a vocabulary lookup and the search for the best words run
-// on the CPU. Its licence is CC-BY-NC 4.0: non-commercial use only.
-//
-// With it comes a detector of a text's language (Detect.swift), 20 MB: the pack translates a
-// text read as the wrong language into nonsense, and the Mac's recognizer knows a quarter
-// of its languages.
+// on the CPU. Its licence is CC-BY-NC 4.0: non-commercial use only. With it comes a detector
+// of a text's language (Detect.swift), 20 MB: the Mac's recognizer knows a quarter of the
+// pack's languages.
 //
 // The model is loaded for a translation and let go right after it. Loading takes a tenth of
 // a second, because macOS keeps the form of the model it prepared for the Neural Engine: that
 // preparation, about a quarter of a minute, is done once, when the pack is installed.
 //
-// What the model needs to be told: the language of the text. Told a wrong one it writes
-// nonsense, so the Offline method only uses it when it is sure of the language (OnDevice.swift).
-// It translates one sentence at a time, of up to 64 tokens; a longer one is cut at a comma.
+// The model has to be told the language of the text. Told a wrong one it writes nonsense, so
+// the Offline method only uses it when it is sure of the language (OnDevice.swift). It
+// translates one sentence at a time, of up to 64 tokens; a longer one is cut at a comma.
 
 // MARK: - The pack on disk
 
@@ -676,7 +674,6 @@ final class PackInstaller {
         guard let base = URL(string: LanguagePack.address) else { throw TranslateError.noServer }
         try FileManager.default.createDirectory(at: incoming, withIntermediateDirectories: true)
 
-        // The list of files first.
         var request = URLRequest(url: base.appendingPathComponent(LanguagePack.manifestName))
         request.timeoutInterval = 30
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -687,7 +684,7 @@ final class PackInstaller {
         }
         let total = manifest.files.reduce(0) { $0 + $1.size }
 
-        // Then each file, checked against the list: a wrong one is fetched once more.
+        // Each file, checked against the list: a wrong one is fetched once more.
         var before = 0
         for file in manifest.files {
             try Task.checkCancellation()

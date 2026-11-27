@@ -1,8 +1,8 @@
 import Cocoa
 
-/// A table row that names a language: "Russian" and, in grey, its own name "русский"; the
-/// default language of the list and the second default are marked as that. At the right end, an arrow in a circle
-/// for a language the Offline method has: filled when it is there, empty when it needs a download.
+/// A table row that names a language: "Russian" and, in grey, its own name "русский"; the default and
+/// the second default are marked as that. At the right end, an arrow in a circle for a language the
+/// Offline method has: filled when it is there, empty when it needs a download.
 @MainActor
 private func languageCell(in table: NSTableView, for target: Target, isDefault: Bool = false, isSecond: Bool = false,
                           offline: OfflineStatus? = nil) -> NSView {
@@ -75,9 +75,8 @@ func moved<T>(_ list: [T], from: Int, to: Int) -> [T] {
 // MARK: - The "+" picker
 
 /// A search field over a list of languages. A click on a language (or Return, for the first
-/// one found) picks it. Settings shows it in a popover, to add languages to the list: it
-/// stays open for more. The translation popup shows `view` in a panel of its own, to set the
-/// original's language.
+/// one found) picks it. Settings shows it in a popover that stays open for more; the popup
+/// shows `view` in a panel of its own, to set the original's language.
 @MainActor
 final class LanguagePicker: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 290, height: 330))
@@ -135,7 +134,6 @@ final class LanguagePicker: NSObject, NSTableViewDataSource, NSTableViewDelegate
         focusSearch()
     }
 
-    /// Typing goes to the search field.
     func focusSearch() {
         view.window?.makeFirstResponder(search)
     }
@@ -186,9 +184,8 @@ final class LanguagePicker: NSObject, NSTableViewDataSource, NSTableViewDelegate
 // MARK: - The list in Settings
 
 /// The languages the popup offers: a table with + − ↑ ↓, "Make Default" and "Make Second"
-/// under it. Rows can also be dragged into another order. One language is the default, the
-/// one a popup opens with; another is the second default, which a popup turns to for a text
-/// that is in the default language already. At least one language stays.
+/// under it; rows can also be dragged. A popup opens with the default, and turns to the second
+/// default for a text that is in the default language already. At least one language stays.
 @MainActor
 final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var languages: [Target] = [] {
@@ -418,8 +415,8 @@ final class LanguageListEditor: NSObject, NSTableViewDataSource, NSTableViewDele
 
     func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int,
                    proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
-        // Over a row the table proposes dropping "on" it: make that "before it", so a drop
-        // anywhere in the list moves the row. (Without this only the thin gaps between rows took it.)
+        // Over a row the table proposes dropping "on" it: make that "before it", or only the
+        // thin gaps between rows take a drop.
         if dropOperation == .on { tableView.setDropRow(row, dropOperation: .above) }
         return .move
     }

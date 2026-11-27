@@ -2,12 +2,9 @@ import Cocoa
 import ScreenCaptureKit
 
 // A window, translated: the shortcut, pressed with no text selected and no text field under
-// the cursor, has you choose a window; its picture comes back with every text in one language.
-//
-// The window is chosen in macOS's own picker, the one screen sharing uses: it shows what can
-// be chosen, and BTranslate gets the one window that was, once. macOS still wants the
-// permission to record the screen for it (System Settings → Privacy & Security → Screen &
-// System Audio Recording) and asks the first time: until it is given, the picture is refused.
+// the cursor, has you choose a window in macOS's own picker, the one screen sharing uses;
+// BTranslate gets the one window that was chosen, once. macOS still wants the permission to
+// record the screen for it and asks the first time: until it is given, the picture is refused.
 
 // MARK: - Choosing a window and taking its picture
 

@@ -3,14 +3,12 @@ import Foundation
 // Telling a text's language with the language pack: one more file of the pack, `detect.bin`.
 //
 // It is Meta's language detector for NLLB-200's languages (a fastText model), made small:
-// tools/nllb/lid.py says how. Every word of the text, and every group of 2 to 5 letters in
-// it, may have a row of 128 small numbers in a table; the rows found are added up, and one
-// more table turns the sum into a score for each of 218 languages. That is a few thousand
-// lookups and one small multiplication: it runs on the CPU in well under a millisecond, so
-// there is nothing here for the Neural Engine to do. The file is read through the system's
-// file cache and let go with the detector: nothing stays loaded.
-//
-// The file's layout is with `Small` in tools/nllb/lid.py.
+// tools/nllb/lid.py says how, and has the file's layout (with `Small`). Every word of the
+// text, and every group of 2 to 5 letters in it, may have a row of 128 small numbers in a
+// table; the rows found are added up, and one more table turns the sum into a score for each
+// of 218 languages. That is a few thousand lookups and one small multiplication: well under a
+// millisecond on the CPU, so there is nothing here for the Neural Engine to do. The file is
+// read through the system's file cache and let go with the detector: nothing stays loaded.
 
 final class PackDetector {
     static var file: URL { LanguagePack.folder.appendingPathComponent("detect.bin") }
@@ -55,7 +53,7 @@ final class PackDetector {
         byte == 0x20 || byte == 0x0A || byte == 0x0D || byte == 0x09 || byte == 0x0B || byte == 0x0C || byte == 0
     }
 
-    /// Each language's share for a text, as it is (see `OnDevice.recognize` for how a text is
+    /// Each language's share for a text, as it is (see `OnDevice.prepared` for how a text is
     /// prepared): the `count` likeliest, the best first.
     func chances(of text: String, count: Int = 5) -> [(label: String, chance: Double)] {
         let scores = rawScores(of: text).scores

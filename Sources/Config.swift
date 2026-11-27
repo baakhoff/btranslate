@@ -47,7 +47,7 @@ let providers: [Provider] = [
 struct Config {
     var googleEnabled = true
     var aiEnabled = false
-    var deviceEnabled = true        // the Offline method, where the Mac has it
+    var deviceEnabled = true
     var providerID = "anthropic"
     var model = "claude-haiku-5-5"
     var customURL = ""
@@ -85,7 +85,6 @@ struct Config {
         return list.isEmpty ? [.google] : list
     }
 
-    /// The method a new popup opens with.
     var startEngine: Engine { engines.contains(defaultEngine) ? defaultEngine : engines[0] }
 
     /// The languages the popup offers. Never empty.
@@ -94,11 +93,9 @@ struct Config {
         return list.isEmpty ? defaultLanguageIDs().compactMap(target(id:)) : list
     }
 
-    /// The language a new popup translates into: the default chosen in Settings.
     var startTarget: Target { targets.first { $0.id == defaultLanguageID } ?? targets[0] }
 
-    /// The second default: what a popup translates into when the text is in the default
-    /// language already. The one chosen in Settings, or else the first language of the list
+    /// The second default: the one chosen in Settings, or else the first language of the list
     /// that is another language than the default (not its other alphabet). nil with one language.
     var secondTarget: Target? {
         let first = startTarget
@@ -106,9 +103,8 @@ struct Config {
             ?? targets.first { !OnDevice.same($0.google, first.google) }
     }
 
-    /// The language the typing panel opens with (Sources/TypeIn.swift): the one chosen in
-    /// Settings, or else the second default, which is what one mostly writes to others in;
-    /// with one language in the list, that one.
+    /// The language the typing panel opens with (Sources/TypeIn.swift): the one chosen in Settings,
+    /// or else the second default (what one mostly writes to others in), or else the only language.
     var typingTarget: Target { targets.first { $0.id == typingLanguageID } ?? secondTarget ?? startTarget }
 
     static var isSetUp: Bool { UserDefaults.standard.bool(forKey: "setupDone") }
@@ -245,7 +241,7 @@ struct Target: Equatable {
     let name: String      // shown in menus and lists, in BTranslate's language: "Latvian", "Латышский"
     let inText: String    // the same inside a sentence: "Latvian", "латышский"
     let english: String   // the English name: the command line goes by it, and so do the tests
-    let google: String    // Google's language code
+    let google: String
     let prompt: String    // how an AI model is told the language
     let latin: Bool       // Google writes Serbian in Cyrillic: convert it to Latin
     let ownName: String?  // the language's name in the language itself; nil where `name` is that already

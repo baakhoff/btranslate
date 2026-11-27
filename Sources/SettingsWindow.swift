@@ -1,9 +1,7 @@
 import Cocoa
 
-/// The setup window: which translation methods to use, the AI provider, model and API key,
-/// the languages to translate into, which method a popup opens with, and the language of
-/// BTranslate itself. It opens when you
-/// start BTranslate yourself (the installer does, once) and from the gear button in the popup.
+/// The settings window. It opens when you start BTranslate yourself (the installer does,
+/// once) and from the gear button in the popup.
 @MainActor
 final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     static let shared = SettingsController()
@@ -26,8 +24,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private let keyHelp = NSTextField(wrappingLabelWithString: "")
     private let testButton = NSButton(title: L("Test"), target: nil, action: nil)
     private let status = NSTextField(wrappingLabelWithString: "")
-    // "Opens with": a segment for each method that can be used now (the AI model only once it
-    // has a key, or a server's address).
+    // "Opens with": a segment for each method that can be used now.
     private let defaultControl = NSSegmentedControl(labels: ["Google"], trackingMode: .selectOne, target: nil, action: nil)
     private var shownMethods: [Engine] = [.google]  // the segments of defaultControl
     private var chosenDefault: Engine = .google     // the method picked there, kept while it is not on offer
@@ -48,7 +45,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private let screenButton = NSButton(title: L("Open System Settings…"), target: nil, action: nil)
     private let loginBox = NSButton(checkboxWithTitle: L("Open BTranslate when I log in"), target: nil, action: nil)
     private var accessTimer: Timer?
-    // Three pages, so the window fits a small screen: how to translate, into which languages, and the shortcut.
+    // Three pages, so the window fits a small screen.
     private let pageControl = NSSegmentedControl(labels: [L("Translation"), L("Languages"), L("Shortcut")], trackingMode: .selectOne, target: nil, action: nil)
     private var pages: [NSView] = []
 
@@ -123,16 +120,14 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         return languageEditor.picker.view
     }
 
-    /// Adds the picker's first match to the list, and reports the list and what the picker
-    /// still offers (UI test). Nothing is saved.
+    /// Adds the picker's first match to the list; returns the list and what the picker still offers (UI test). Nothing is saved.
     func addFirstFoundLanguage() -> (list: [String], stillOffered: [String]) {
         languageEditor.picker.addFirstFound()
         return (draft().languageIDs, languageEditor.picker.foundIDs)
     }
 
-    /// Works the list's buttons on its last row: up, make default, then remove the row that was
-    /// first (UI test). Returns the order, the default and the second default after each step.
-    /// Nothing is saved.
+    /// Works the list's buttons (UI test). Returns the order, the default and the second default
+    /// after each step. Nothing is saved.
     func reorderForTest() -> [String] {
         func state() -> String { "\(draft().languageIDs.joined(separator: ",")) default=\(draft().defaultLanguageID) second=\(draft().secondLanguageID)" }
         var steps = [state()]
@@ -285,7 +280,6 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         for line in [line1, line2, line3] { line.boxType = .separator }
         let languagesLabel = NSTextField(labelWithString: L("Languages to translate into:"))
         let voiceNote = caption(L("The speaker buttons use your Mac's voices. It has none for some languages, such as Latvian: with this on, a text you play in one of those is sent to Google."))
-        // BTranslate's own language: the Mac's, or one of those it comes in, each named in itself.
         languageMenu.addItems(withTitles: [L("Same as the Mac")] + interfaceLanguages.map(\.name))
         let ownLanguageRow = NSStackView(views: [NSTextField(labelWithString: L("BTranslate's language:")), languageMenu])
         ownLanguageRow.spacing = 8
@@ -426,7 +420,6 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         refreshEnabled()
     }
 
-    /// Updates the model list, key field and hints for the provider in the menu.
     private func showProvider(keepModel: String? = nil) {
         let provider = selectedProvider
         modelBox.removeAllItems()
@@ -462,7 +455,6 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         defaultControl.isEnabled = offered.count > 1
     }
 
-    /// The language pack's line and button, as its installer stands now.
     private func refreshPack() {
         func megabytes(_ bytes: Int) -> String { L("%ld MB", bytes / 1_000_000) }
         var note = "", button = L("Download"), color = NSColor.secondaryLabelColor
@@ -551,7 +543,6 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         status.textColor = color
     }
 
-    /// The settings as the window shows them now.
     // MARK: The language to write in
 
     /// The menu's languages are the list's, as it stands in the window; the one shown is the
@@ -584,7 +575,6 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
 
     // MARK: The shortcut's page
 
-    /// What the page says about the permission, as it stands now.
     private func refreshAccess() {
         let allowed = Accessibility.isAllowed
         accessNote.stringValue = allowed
@@ -609,7 +599,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     }
 
     @objc private func openAccessSettings() {
-        Accessibility.ask()  // macOS puts BTranslate on its list, to be turned on there
+        Accessibility.ask()
         Accessibility.openSystemSettings()
     }
 
@@ -623,6 +613,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         if pageControl.selectedSegment == 2 { showPage(2) }
     }
 
+    /// The settings as the window shows them now.
     private func draft() -> Config {
         var c = config
         c.shortcut = shortcutField.shortcut
@@ -644,7 +635,6 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         return c
     }
 
-    /// The key typed in the window, or else the saved one.
     private func currentKey() -> String {
         let typed = keyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         return typed.isEmpty ? (Keychain.read(selectedProvider.id) ?? "") : typed

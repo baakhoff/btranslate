@@ -1,13 +1,10 @@
 import Cocoa
 import Vision
 
-// A window's picture, translated. The texts in the picture are read by macOS (Vision, on
-// this Mac), each is translated from whatever language it is in into one language, and the
-// translations are painted over the originals: the same picture, in one language.
-//
-// Here: reading the texts and putting lines together into paragraphs, translating many short
-// texts at once, and the painting. The window that shows the result, and the taking of the
-// picture, are in Sources/PictureWindow.swift.
+// A window's picture, translated: macOS reads its texts (Vision, on this Mac), each is
+// translated from whatever language it is in, and the translations are painted over the
+// originals. Here: the reading, lines put together into paragraphs, many short texts translated
+// at once, and the painting. Taking the picture and showing it: Sources/PictureWindow.swift.
 
 /// One line of text as macOS read it. The box is in the picture's pixels, counted from its
 /// top left corner.
@@ -122,9 +119,8 @@ enum PictureReader {
         }
     }
 
-    /// Has macOS make its reader of pictures ready for this app, in a process of its own and
-    /// at leisure. The first reading an app ever asks for can take a minute; after that a
-    /// window is read in a fraction of a second. Called when the app starts.
+    /// Has macOS make its reader of pictures ready for this app, apart and at leisure: the first
+    /// reading an app ever asks for can take a minute, later ones a fraction of a second.
     static func prepare() {
         guard let program = Bundle.main.executableURL else { return }
         let reader = Process()
@@ -148,9 +144,8 @@ enum PictureReader {
         return 0
     }
 
-    /// Puts the lines of a paragraph together, so that a sentence that runs over several
-    /// lines is translated whole. The lines of a list, a menu or a table stay apart: each is
-    /// a text of its own.
+    /// Puts the lines of a paragraph together, so that a sentence that runs over several lines
+    /// is translated whole. The lines of a list, a menu or a table stay apart.
     static func blocks(_ lines: [PictureLine]) -> [PictureBlock] {
         let sorted = lines.sorted { $0.box.minY != $1.box.minY ? $0.box.minY < $1.box.minY : $0.box.minX < $1.box.minX }
         var groups: [[PictureLine]] = []
@@ -224,7 +219,6 @@ func manyPrompt(_ target: Target) -> String {
     """
 }
 
-/// The numbered lines of a model's answer, by number.
 func parseNumbered(_ answer: String) -> [Int: String] {
     var found: [Int: String] = [:]
     for line in answer.split(whereSeparator: \.isNewline) {
@@ -352,7 +346,6 @@ struct Pixels {
         return (colours.map(\.r).sorted()[half], colours.map(\.g).sorted()[half], colours.map(\.b).sorted()[half])
     }
 
-    /// The colour along a row of the picture, from x0 to x1.
     func row(_ y: Int, _ x0: Int, _ x1: Int) -> Colour {
         let step = max(1, (x1 - x0) / 60)
         return Pixels.middle(stride(from: x0, through: max(x0, x1), by: step).map { colour($0, y) })
@@ -485,7 +478,6 @@ enum PicturePainter {
         return Plan(cover: cover, text: text, string: string, top: top, bottom: bottom)
     }
 
-    /// The picture with every translated block painted over its original.
     static func paint(_ image: CGImage, blocks: [PictureBlock], pixels: Pixels, scale: CGFloat) -> CGImage? {
         let width = image.width, height = image.height
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,

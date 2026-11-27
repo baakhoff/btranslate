@@ -1,13 +1,10 @@
 import Foundation
 
 // BTranslate's own texts. English is the text in the source: L("Save"). Every other language
-// is a Resources/<code>.lproj/Localizable.strings with the English text as the key.
-// tools/check-strings.py checks that each L("…") in Sources/ has its translation.
-//
-// Which language a run uses is macOS's choice, as for any Mac app: the first of the user's
-// languages that the app comes in. The user's languages are the Mac's (System Settings →
-// Language & Region), unless one was chosen for this app alone: there, or in BTranslate's
-// own settings. Both store it the same way, as AppleLanguages in the app's preferences.
+// is a Resources/<code>.lproj/Localizable.strings with the English text as the key
+// (tools/check-strings.py checks them). macOS picks the language of a run: the first of the
+// Mac's languages that the app comes in, or the one chosen for this app alone, in System
+// Settings or in BTranslate's own: both store it as AppleLanguages in the app's preferences.
 
 /// The languages BTranslate comes in, each named in itself. The first is the fallback.
 let interfaceLanguages: [(code: String, name: String)] = [("en", "English"), ("ru", "Русский")]
