@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Version at release: 1.1.1.
+
+### Fixed
+- **Update on the About page installed the new version and left the old copy running.** The installer ends the running app with `pkill`, which leaves its own ancestors alone, and the app that starts the installer is one: nothing was ended, and the About page went on offering the update. The installer now ends the app also when the app started it. Because every copy fetches the installer anew, this puts **Update** right in 1.1.0 too.
+- **The app starts the new copy itself** where an installer ends well and the old copy still runs with the new version on disk.
+- **The tests no longer read the update settings of a copy installed on the Mac** (the date of its last check, its tick for automatic updates): with one in use, checks failed there that pass on a clean machine.
+
 ## [1.1.0] - 2026-11-27
 
 ### Updates

@@ -362,6 +362,33 @@ check "Update: an automatic one is noted as such" "the note it keeps: from 1.9.0
     env BTRANSLATE_UPDATE_WAITING=1.10.0 BTRANSLATE_VERSION=1.9.0 BTRANSLATE_UPDATE_COMMAND=true "$BIN" --update-run --auto -updateTo '' -autoUpdateFailed ''
 check "Update: a check without the stand-in never runs the installer" \
     "update to 1.10.0: update failed: a check never runs the real installer" env BTRANSLATE_UPDATE_WAITING=1.10.0 "$BIN" --update-run -updateTo ''
+# The installer said it was done and this copy still runs, with the version aimed at on disk
+# (the installer of 1.1.0 did not end the app that had started it): the copy starts the new
+# one itself. With nothing new on disk it does not, and Update stays on offer.
+ANEW="$(run_update BTRANSLATE_UPDATE_COMMAND=true BTRANSLATE_DISK_VERSION=1.10.0 2>&1 || true)"
+check "Update: installed, and this copy still running: it starts the new one itself" "started anew by itself: yes" echo "$ANEW"
+check "Update: and the note stays, for the new one to say that it is installed" "the note then: from 1.9.0 to 1.10.0, asked by the user" echo "$ANEW"
+STILL="$(run_update BTRANSLATE_UPDATE_COMMAND=true BTRANSLATE_DISK_VERSION=1.9.0 2>&1 || true)"
+check "Update: said done with nothing new on disk: no new start, and Update stays on offer" \
+    $'once the command has ended: available: 1.10.0\nstarted anew by itself: no' echo "$STILL"
+# The installer ends the app that started it. A stand-in for the app: the built program under
+# another name, so that no BTranslate of yours is ended, which starts the installer's own step
+# the way the app starts the installer. (pkill, as the installer called it before, leaves its
+# own ancestors alone: the stand-in would end with status 0, and the app went on running.)
+STANDIN="BTStandIn$$"
+cp "$APP_BIN" "build/$STANDIN"
+rm -f build/end.log
+ENDED=0
+# (Through a shell of its own, which takes the stand-in's end for an ordinary status and keeps
+# this script's output free of a line about a job that was terminated.)
+/bin/bash -c '"$@"; exit $?' _ env BTRANSLATE_UPDATE_WAITING=1.10.0 BTRANSLATE_VERSION=1.9.0 BTRANSLATE_UPDATE_LOG="$PWD/build/end.log" \
+    BTRANSLATE_UPDATE_COMMAND="BTRANSLATE_INSTALLER_TEST=end BTRANSLATE_TEST_PROCESS=$STANDIN /bin/bash '$PWD/install.sh'; sleep 0.3; echo 'the installer went on'" \
+    /usr/bin/perl -e 'alarm 60; exec @ARGV' "build/$STANDIN" "${OWN[@]}" -updateTo '' --update-run > /dev/null 2>&1 || ENDED=$?
+check "Installer: started by the app, it ends that app (status 143: ended from outside)" "the stand-in ended with status 143" echo "the stand-in ended with status $ENDED"
+sleep 1
+check "Installer: and goes on after the app is gone" "the installer went on" cat build/end.log
+check "Installer: that step ends nothing but a stand-in of the tests" "has to name a stand-in" env BTRANSLATE_INSTALLER_TEST=end BTRANSLATE_TEST_PROCESS=Finder ./install.sh
+rm -f "build/$STANDIN"
 
 # The automatic update: a version found, with the setting on or off.
 AUTO=(BTRANSLATE_VERSION=1.9.0 BTRANSLATE_UPDATE_COMMAND='echo automatic')

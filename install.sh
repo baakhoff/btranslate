@@ -249,6 +249,20 @@ update (tools/local-signing.sh has made no certificate here)." \
 
     # For tests/run.sh: only the language pack's step, as on a first install, for the app at
     # BTRANSLATE_TEST_APP.
+    # The running app is ended before its place is taken, also when it is the app that started
+    # this installer (its own Update): pkill leaves its own ancestors alone unless told
+    # otherwise (-a), and the app would go on running, the old one, with the new one on disk.
+    end_app() { pkill -a -x "$1" 2>/dev/null || true; }
+
+    # For tests/run.sh: only that step, for a stand-in of the tests' own (never a BTranslate).
+    if [ "${BTRANSLATE_INSTALLER_TEST:-}" = end ]; then
+        case "${BTRANSLATE_TEST_PROCESS:-}" in
+            BTStandIn?*) end_app "$BTRANSLATE_TEST_PROCESS" ;;
+            *) die "BTRANSLATE_TEST_PROCESS has to name a stand-in (BTStandIn…)." ;;
+        esac
+        return 0
+    fi
+
     if [ "${BTRANSLATE_INSTALLER_TEST:-}" = pack ]; then
         APP="$BTRANSLATE_TEST_APP"
         local first=1 hint=""
@@ -301,7 +315,7 @@ update (tools/local-signing.sh has made no certificate here)." \
                                      "сборка не удалась. Если строки выше — ошибки компилятора о языке Swift, то Command Line Tools устарели для этой версии: обновите их («Системные настройки» → «Основные» → «Обновление ПО») и запустите установку снова.")"
 
     say "$(t "Installing" "Установка в") $APP"
-    pkill -x BTranslate 2>/dev/null || true
+    end_app BTranslate
     mkdir -p "$HOME/Applications"
     rm -rf "$APP"
     ditto "$src/build/BTranslate.app" "$APP"
