@@ -4,10 +4,10 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.2.0] - 2026-11-27
 
 ### A window, translated
-- **Its texts can be selected and copied as text** (version at release: 1.2.0). A click selects a text, ⇧-click or ⌘-click adds one or takes it out, a drag selects every text it touches, ⌘A selects them all, and Esc takes the selection away (with nothing selected, it closes the window, as before). A selected text is highlighted where the picture shows it, and the pointer is a text cursor over a text.
+- **Its texts can be selected and copied as text.** A click selects a text, ⇧-click or ⌘-click adds one or takes it out, a drag selects every text it touches, ⌘A selects them all, and Esc takes the selection away (with nothing selected, it closes the window, as before). A selected text is highlighted where the picture shows it, and the pointer is a text cursor over a text.
 - **Copy** and ⌘C copy the selected texts while there are some, and the picture while there are none; the bar and the button's tooltip say which (an error, or that texts were not translated, stays in the bar). What is copied is what the picture shows of each text (its translation, or its original where it stayed as it was or while **Original** is on), from the top down and left to right, one text to a line. A right-click on the selection also offers **Copy the Original** or **Copy the Translation**, and **Select All**.
 - The selection stays when the window is translated anew and when **Original** is switched.
 
@@ -76,6 +76,7 @@ The first release.
 - **One BTranslate at a time:** a second copy, or a mistyped option on the command line, ends instead of answering the shortcut twice.
 - **Tests without network or keys:** a mock server for both AI protocols and Google, an off-screen drawing of every window in both languages (with a check that no text is cut short), stand-ins for the other app's text field and for a window's picture, and speech made without sound. CI runs them on macOS 15 and macOS 26.
 
+[1.2.0]: https://github.com/baakhoff/btranslate/releases/tag/v1.2.0
 [1.1.1]: https://github.com/baakhoff/btranslate/releases/tag/v1.1.1
 [1.1.0]: https://github.com/baakhoff/btranslate/releases/tag/v1.1.0
 [1.0.0]: https://github.com/baakhoff/btranslate/releases/tag/v1.0.0
