@@ -7,7 +7,7 @@
 #   ./install.sh [options]
 #
 # Options:
-#   --no-start   do not start BTranslate (and its setup window) at the end
+#   --no-start   do not start BTranslate (and its settings window) at the end
 #   --version    print the version this installer installs
 # Env: BTRANSLATE_PACK=yes|no downloads the language pack, or not, without asking. Asked
 #        otherwise, when BTranslate is installed for the first time on a Mac with Apple
@@ -226,7 +226,7 @@ TEXT
         if [ -z "$first" ]; then
             open -g "$APP" --args --background   # an update: keep the settings, no window
         else
-            open "$APP"                          # first install: the setup window
+            open "$APP"                          # first install: the settings window
         fi
     fi
 

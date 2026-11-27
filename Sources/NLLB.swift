@@ -700,7 +700,7 @@ final class PackInstaller {
             NotificationCenter.default.post(name: PackInstaller.changed, object: nil)
         }
     }
-    var onChange: (() -> Void)?  // the setup window's
+    var onChange: (() -> Void)?  // the settings window's
     /// Posted whenever `state` changes: a popup that offers the download follows it.
     static let changed = Notification.Name("io.github.baakhoff.btranslate.pack-installer-changed")
     private var task: Task<Void, Never>?

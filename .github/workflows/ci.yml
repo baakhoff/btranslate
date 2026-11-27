@@ -36,6 +36,9 @@ jobs:
           test "$(./install.sh --version)" = "BTranslate installer $v"
           grep -q "^## \[$v\]" CHANGELOG.md
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then test "${GITHUB_REF#refs/tags/v}" = "$v"; fi
+      - name: Build with the oldest tools here (Xcode 16.0, Swift 6.0)
+        if: matrix.os == 'macos-15'
+        run: DEVELOPER_DIR=/Applications/Xcode_16.0.app ./build.sh
       - name: Build (Apple silicon and Intel)
         run: ./build.sh --universal
       - name: Test

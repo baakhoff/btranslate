@@ -5,8 +5,8 @@ The language pack BTranslate downloads is Meta AI's
 converted to Core ML so that it runs on the Neural Engine. These scripts make it from the
 original. The model's licence, CC-BY-NC 4.0, carries over to the pack: non-commercial use only.
 
-They need Python 3.13 with a few packages, about 1 GB, and 6 GB of disk for the work. The
-`lab` folder is ignored by git.
+They need Python 3.13 with a few packages, about 1 GB, and 10 GB of disk for the work, the
+detector's included. The `lab` folder is ignored by git.
 
 ```bash
 mkdir -p lab && cd lab
@@ -72,7 +72,9 @@ fastText is needed. Three steps make it small:
   two-word fragments are told right, against the original's 68%.
 - **350,000 rows of 1,145,940:** the ones that move the scores most.
 
-Measured on FLORES-200's 1,012 test sentences in each of the 164 languages the app offers:
+Measured on FLORES-200's 1,012 test sentences in each of the 164 languages the app offers
+(166 of Google's: French and Canadian French are one language to the model, and so are the
+two Portugueses):
 
 | | Sentences | Two words from the middle of a sentence |
 |---|---|---|
