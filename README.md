@@ -11,7 +11,7 @@ itself. So it also covers the languages Apple's built-in translator doesn't have
 Latvian and Serbian.
 
 [![CI](https://github.com/baakhoff/btranslate/actions/workflows/ci.yml/badge.svg)](https://github.com/baakhoff/btranslate/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/baakhoff/btranslate?sort=semver)](https://github.com/baakhoff/btranslate/releases/latest)
+[![Release](https://img.shields.io/github/v/release/baakhoff/btranslate?filter=v*)](https://github.com/baakhoff/btranslate/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ![The BTranslate popup](docs/popup.png)
