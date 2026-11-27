@@ -553,6 +553,12 @@ enum PicturePainter {
     }
 
     static func paint(_ image: CGImage, blocks: [PictureBlock], pixels: Pixels, scale: CGFloat) -> CGImage? {
+        paint(image, plans: blocks.compactMap { plan($0, in: pixels, scale: scale) }, scale: scale)
+    }
+
+    /// The picture with these translations painted over it. (The window keeps the plans too:
+    /// a selected text is highlighted where its translation was painted.)
+    static func paint(_ image: CGImage, plans: [Plan], scale: CGFloat) -> CGImage? {
         let width = image.width, height = image.height
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: CGColorSpace(name: CGColorSpace.sRGB)!,
@@ -561,7 +567,6 @@ enum PicturePainter {
         // From here on y runs downward from the top, as the boxes are counted.
         context.translateBy(x: 0, y: CGFloat(height))
         context.scaleBy(x: 1, y: -1)
-        let plans = blocks.compactMap { plan($0, in: pixels, scale: scale) }
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
         func colour(_ c: Pixels.Colour) -> CGColor {
             CGColor(colorSpace: space, components: [CGFloat(c.r) / 255, CGFloat(c.g) / 255, CGFloat(c.b) / 255, 1])!

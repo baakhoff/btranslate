@@ -632,6 +632,68 @@ check "Picture: no connection is said in its window" "the bar says: No internet 
     env BTRANSLATE_GOOGLE_URL="$DEAD" "$BIN" "${T[@]}" --picture-window-check build/uitest/window.png
 check "Picture, in Russian: its window" "the bar says: Перевод на русский" \
     env BTRANSLATE_LANGUAGE=ru BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" --picture-window-check build/uitest/window.png --picture build/uitest-ru
+# Selecting and copying its texts: the steps of --act go to the window as the mouse's and the
+# keys' events would, and what would be copied is printed: nothing reaches the clipboard. The
+# checks hold texts every macOS reads alike, and never how many texts the picture has.
+act() { local steps="$1"; shift; typing --picture-window-check build/uitest/window.png --act "$steps" "$@"; }
+CLICK="$(act "click Welcome back; highlight; copy; click nothing; copy")"
+check "Picture, selecting: a click on a text selects it, and the bar says so" \
+    $'» click Welcome back\nselected: Welcome back; the bar says now: Selected: 1. ⌘C copies the text.' echo "$CLICK"
+check "Picture, selecting: its highlight lies over the text" $'» highlight\nthe highlight lies over each selected text: yes' echo "$CLICK"
+check "Picture, copying: ⌘C copies the selected text's translation" $'» copy\ncopied the text: RU2:Welcome back\n' echo "$CLICK"
+check "Picture, selecting: a click where there is no text selects nothing" $'» click nothing\nselected: (nothing);' echo "$CLICK"
+check "Picture, copying: with nothing selected, ⌘C copies the picture" $'» copy\ncopied the picture' echo "$CLICK"
+DRAG="$(act "drag Datei öffnen .. Hilfe; copy")"
+check "Picture, selecting: a drag shows its rectangle and selects what it touches, while it is dragged" \
+    "while it is dragged: its rectangle shows: yes; selected: Datei öffnen / Bearbeiten / Einstellungen / Hilfe"$'\n' echo "$DRAG"
+check "Picture, copying: the rows of the side bar, from the top down, one to a line" \
+    "copied the text: RU2:Datei öffnen | RU2:Bearbeiten | RU2:Einstellungen | RU2:Hilfe"$'\n' echo "$DRAG"
+SHIFT="$(act "click Welcome back; shift-click Save changes; shift-click Welcome back; cmd-click Bearbeiten; copy button")"
+check "Picture, selecting: ⇧-click adds a text" $'» shift-click Save changes\nselected: Welcome back / Save changes;' echo "$SHIFT"
+check "Picture, selecting: ⇧-click on a selected text takes it out" $'» shift-click Welcome back\nselected: Save changes;' echo "$SHIFT"
+check "Picture, selecting: ⌘-click adds a text, in reading order" $'» cmd-click Bearbeiten\nselected: Bearbeiten / Save changes;' echo "$SHIFT"
+check "Picture, copying: the Copy button copies the selection" $'» copy button\ncopied the text: RU2:Bearbeiten | RU2:Save changes\n' echo "$SHIFT"
+check "Picture, selecting: ⌘A selects every text, none of them twice" "every text selected, none twice: yes" act "select all"
+ORIGINAL="$(act "click Welcome back; original; copy; menu Welcome back; original; menu Welcome back; choose Copy the Original; menu Сегодня; copy")"
+check "Picture, copying: with Original on, the same selection gives the original" \
+    $'Original: on\nselected: Welcome back; the bar says now: Selected: 1. ⌘C copies the text.; the window: open\n» copy\ncopied the text: Welcome back\n' echo "$ORIGINAL"
+check "Picture, the menu: with Original on, it offers the translation" "menu: Copy | Copy the Translation | Select All" echo "$ORIGINAL"
+check "Picture, the menu: over the translations, it offers the original" "menu: Copy | Copy the Original | Select All" echo "$ORIGINAL"
+check "Picture, the menu: Copy the Original" $'» choose Copy the Original\ncopied the text: Welcome back\n' echo "$ORIGINAL"
+check "Picture, the menu: a text that stayed as it was has no other version to offer" "menu: Copy | Select All" echo "$ORIGINAL"
+check "Picture, copying: a text that stayed as it was is copied as it is" $'» copy\ncopied the text: Сегодня хорошая погода\n' echo "$ORIGINAL"
+check "Picture, selecting: Esc takes the selection away and leaves the window; Esc again closes it" \
+    $'» esc\nselected: (nothing); the bar says now: Translation into Russian; the window: open\n» esc\nselected: (nothing); the bar says now: Translation into Russian; the window: closed' \
+    act "click Welcome back; esc; esc"
+check "Picture, selecting: the selection stays when another method translates the window anew" \
+    $'by google into ru\n» copy\ncopied the text: RU2:Welcome back\nselected: Welcome back;' \
+    env "${MODEL[@]}" BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" -windowEngine ai \
+    --picture-window-check build/uitest/window.png --act "click Welcome back; method google; copy"
+check "Picture, selecting: the highlights follow the window when it is made smaller" $'» highlight\nthe highlight lies over each selected text: yes' \
+    act "click Welcome back; shift-click Hilfe; size 520x360; highlight"
+# A window taller than its picture has room above and below it, a wider one left and right: the
+# picture is centred, and a text is found and highlighted where it is drawn, not where it would be
+# at the window's top left corner.
+TALL="$(act "size 700x560; click Welcome back; shift-click Hilfe; highlight")"
+check "Picture, selecting: in a window taller than its picture, the picture has room above and below" "margins: above and below" echo "$TALL"
+check "Picture, selecting: and the highlights lie over its texts" $'» highlight\nthe highlight lies over each selected text: yes' echo "$TALL"
+WIDE="$(act "size 900x300; click Save changes; shift-click Datei öffnen; highlight")"
+check "Picture, selecting: in a window wider than its picture, the picture has room left and right" "margins: left and right" echo "$WIDE"
+check "Picture, selecting: and a click finds its texts" $'» shift-click Datei öffnen\nselected: Datei öffnen / Save changes;' echo "$WIDE"
+check "Picture, selecting: and the highlights lie over them" $'» highlight\nthe highlight lies over each selected text: yes' echo "$WIDE"
+# Where nothing could be translated, the texts can still be selected, and are copied as they
+# are; and the error stays in the bar: the selection and a copy do not take its place.
+FAILED="$(env BTRANSLATE_GOOGLE_URL="$DEAD" "$BIN" "${T[@]}" --picture-window-check build/uitest/window.png --act "click Welcome back; copy" 2>&1 || true)"
+check "Picture, selecting: with no connection, its texts can be selected, and the error stays in the bar, in red" \
+    $'» click Welcome back\nselected: Welcome back; the bar says now: No internet connection. (in red);' echo "$FAILED"
+check "Picture, copying: with no connection, a text is copied as it is, and the error still stays" \
+    $'» copy\ncopied the text: Welcome back\nselected: Welcome back; the bar says now: No internet connection. (in red);' echo "$FAILED"
+SELECTED="$(act "drag Datei öffnen .. Hilfe; shift-click Welcome back" --picture build/uitest/selected)"
+check "Picture, selecting: drawn with a selection, every text of the window fits" "every text of the window fits: yes" echo "$SELECTED"
+check "Picture, selecting: drawn with a selection, the window is on its screen" "the window is on its screen, bar and all: yes" echo "$SELECTED"
+check "Picture, selecting, in Russian: every text of the window fits" "every text of the window fits: yes" \
+    env BTRANSLATE_LANGUAGE=ru BTRANSLATE_GOOGLE_URL="$MOCK/google" "$BIN" "${T[@]}" --picture-window-check build/uitest/window.png \
+    --act "drag Datei öffnen .. Hilfe; shift-click Welcome back" --picture build/uitest-ru/selected
 
 if [ "${1:-}" = "--live" ]; then
     check "Google, live" "source: Latvian" env -u BTRANSLATE_CONNECTION "$BIN" --print --engine google "Labdien! Kā jums klājas?"
