@@ -4,9 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
-Version at release: 1.1.1.
+## [1.1.1] - 2026-11-27
 
 ### Fixed
 - **Update on the About page installed the new version and left the old copy running.** The installer ends the running app with `pkill`, which leaves its own ancestors alone, and the app that starts the installer is one: nothing was ended, and the About page went on offering the update. The installer now ends the app also when the app started it. Because every copy fetches the installer anew, this puts **Update** right in 1.1.0 too.
@@ -71,5 +69,6 @@ The first release.
 - **One BTranslate at a time:** a second copy, or a mistyped option on the command line, ends instead of answering the shortcut twice.
 - **Tests without network or keys:** a mock server for both AI protocols and Google, an off-screen drawing of every window in both languages (with a check that no text is cut short), stand-ins for the other app's text field and for a window's picture, and speech made without sound. CI runs them on macOS 15 and macOS 26.
 
+[1.1.1]: https://github.com/baakhoff/btranslate/releases/tag/v1.1.1
 [1.1.0]: https://github.com/baakhoff/btranslate/releases/tag/v1.1.0
 [1.0.0]: https://github.com/baakhoff/btranslate/releases/tag/v1.0.0

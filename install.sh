@@ -32,7 +32,7 @@
 main() {
     set -euo pipefail
 
-    local VERSION=1.1.0
+    local VERSION=1.1.1
     local REPO=baakhoff/btranslate
     local APP="$HOME/Applications/BTranslate.app"
     local BUNDLE_ID=io.github.baakhoff.btranslate
