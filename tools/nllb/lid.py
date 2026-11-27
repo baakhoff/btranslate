@@ -527,7 +527,7 @@ def check(model=None):
 
 def vectors(out="../tests/detect-vectors.json"):
     """Texts with the file's answer for each, for checking the app's own reading of it
-    (`BTranslate --pack-check`)."""
+    (`BTranslate --detect-check`)."""
     small = Small()
     picked = []
     for code in ("lvs_Latn", "srp_Cyrl", "hrv_Latn", "rus_Cyrl", "eng_Latn", "pes_Arab", "zho_Hans", "jpn_Jpan", "tha_Thai", "hin_Deva",

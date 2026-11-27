@@ -54,7 +54,8 @@ extendedKeyUsage = critical, codeSigning
 CNF
 # A key and a certificate that signs code and nothing else, good for ten years.
 /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -config "$tmp/request.cnf" \
-    -keyout "$tmp/key.pem" -out "$tmp/certificate.pem" 2>/dev/null
+    -keyout "$tmp/key.pem" -out "$tmp/certificate.pem" 2>"$tmp/openssl.log" \
+    || { echo "openssl could not make the certificate:" >&2; cat "$tmp/openssl.log" >&2; exit 1; }
 # Into the keychain by way of a file locked with a password made up for this once. (The key
 # is called in the keychain what the file is called: macOS asks about it by that name.)
 pass="$(/usr/bin/openssl rand -hex 16)"

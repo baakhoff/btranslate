@@ -19,9 +19,10 @@
 #
 # Needs the Command Line Tools for the Swift compiler: xcode-select --install
 # Speaks Russian on a Mac whose first language (of English and Russian) is Russian.
-# Installs ~/Applications/BTranslate.app and nothing else. Your settings stay in
-# ~/Library/Preferences/io.github.baakhoff.btranslate.plist and your API key in the Keychain.
-# Undo: uninstall.sh.
+# Installs ~/Applications/BTranslate.app, tells macOS about its Services menu item and starts
+# it; the language pack, if you want it, goes to ~/Library/Application Support/BTranslate.
+# Your settings stay in ~/Library/Preferences/io.github.baakhoff.btranslate.plist and your
+# API key in the Keychain. Undo: uninstall.sh.
 
 # Everything is inside main(), so a download cut short by the network cannot run half
 # a script.
@@ -56,7 +57,13 @@ main() {
     # BTranslate is installed for the first time (`first`). Leaves in `hint` what to say at
     # the end if the pack is not there.
     language_pack() {
-        local bin="$APP/Contents/MacOS/BTranslate" pack="${BTRANSLATE_PACK:-ask}" size=""
+        local bin="$APP/Contents/MacOS/BTranslate" pack="" size=""
+        case "$(printf '%s' "${BTRANSLATE_PACK:-ask}" | tr '[:upper:]' '[:lower:]')" in
+            ask) pack=ask ;;
+            yes|y|1|true|on) pack=yes ;;
+            no|n|0|false|off) pack=no ;;
+            *) die "$(t "BTRANSLATE_PACK is \"$BTRANSLATE_PACK\": say yes or no." "BTRANSLATE_PACK=\"$BTRANSLATE_PACK\": укажите yes или no.")" ;;
+        esac
         if "$bin" --pack 2>/dev/null | grep -q "language pack: installed"; then
             pack=there
         else
@@ -65,7 +72,7 @@ main() {
         fi
         if [ "$pack" = ask ]; then
             pack=no
-            if [ -n "$first" ] && [ "$(uname -m)" = arm64 ]; then
+            if [ -n "$first" ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; then  # (not uname: it says Intel in a Rosetta terminal)
                 say "$(t "The language pack (recommended)" "Языковой пакет (рекомендуется)")"
                 if [ -n "$ru" ]; then
                     cat <<TEXT
@@ -84,25 +91,34 @@ TEXT
                 fi
                 # The question goes to the terminal: with "curl … | bash" the script itself is on
                 # standard input. No terminal, no answer: then nothing is downloaded.
-                local answer="" asked=""
-                printf '%s ' "$(t "Download it now? [Y/n]" "Загрузить сейчас? [Y/n]")"
-                if [ -t 0 ]; then
-                    read -r answer && asked=1
-                elif { read -r answer < /dev/tty; } 2>/dev/null; then
-                    asked=1
-                fi
-                if [ -z "$asked" ]; then
-                    printf '\n%s\n' "$(t "(No terminal to ask in: not downloaded.)" "(Спросить негде: не загружено.)")"
-                else
+                # A key answers by what is printed on it, whichever layout is on: in the Russian
+                # layout the Y key types "н" and the N key "т"; in a Latin one the Д key types "l".
+                local answer="" asked="" tries=0
+                while [ -z "$asked" ] && [ "$tries" -lt 3 ]; do
+                    tries=$((tries + 1))
+                    printf '%s ' "$(t "Download it now? [Y/n]" "Загрузить сейчас? [Д/н]")"
+                    if [ -t 0 ]; then
+                        read -r answer || break
+                    elif ! { read -r answer < /dev/tty; } 2>/dev/null; then
+                        break
+                    fi
                     case "$answer" in
-                        n|N|no|No|NO|н|Н|нет|Нет|НЕТ) ;;
-                        *) pack=yes ;;
+                        ""|y|Y|yes|Yes|YES|д|Д|да|Да|ДА) pack=yes; asked=1 ;;
+                        n|N|no|No|NO|нет|Нет|НЕТ|т|Т) asked=1 ;;
+                        н|Н) asked=1; [ -n "$ru" ] || pack=yes ;;
+                        l|L) if [ -n "$ru" ]; then pack=yes; asked=1; fi ;;
                     esac
+                done
+                if [ -z "$asked" ]; then
+                    printf '\n%s\n' "$(t "(No answer: not downloaded.)" "(Ответа нет: не загружено.)")"
                 fi
             fi
         fi
         if [ "$pack" = yes ]; then
             say "$(t "Downloading the language pack" "Загрузка языкового пакета") ($size)"
+            # Ctrl-C stops the download, not the installer: what has arrived is kept, and the
+            # download goes on from there when it is started again in BTranslate's settings.
+            trap 'printf "\n"' INT
             local line
             "$bin" --pack-install 2>/dev/null | while IFS= read -r line; do
                 case "$line" in
@@ -112,6 +128,7 @@ TEXT
                     "language pack: FAILED: "*) printf '\r%s\n' "${line#language pack: FAILED: }" ;;
                 esac
             done || true
+            trap - INT
         fi
         if [ "$pack" != there ] && ! "$bin" --pack 2>/dev/null | grep -q "language pack: installed"; then
             hint="$(t "The language pack is not installed. To get it later: BTranslate's settings → Translation → Download ($size)." \
@@ -124,7 +141,13 @@ TEXT
         case "$1" in
             --no-start) start= ;;
             --version) echo "BTranslate installer $VERSION"; return 0 ;;
-            -h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}"; return 0 ;;
+            -h|--help)
+                if [ -f "${BASH_SOURCE[0]:-}" ]; then
+                    sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+                else  # piped from curl: there is no file to read the text above from
+                    echo "BTranslate installer $VERSION. Options: --no-start, --version. https://github.com/$REPO#install"
+                fi
+                return 0 ;;
             *) die "$(t "unknown option: $1 (see --help)" "неизвестный параметр: $1 (см. --help)")" ;;
         esac
         shift
@@ -151,7 +174,8 @@ TEXT
 
     # The source: this checkout, or the release downloaded to a temporary folder.
     local src="" tmp=""
-    if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "$(dirname "${BASH_SOURCE[0]}")/Sources/main.swift" ]; then
+    # (Piped from curl there is no such file, whatever bash then calls the script.)
+    if [ -f "${BASH_SOURCE[0]:-}" ] && [ -f "$(dirname "${BASH_SOURCE[0]}")/Sources/main.swift" ]; then
         src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     else
         local ref="refs/tags/v$VERSION"
@@ -176,7 +200,8 @@ TEXT
     fi
 
     say "$(t "Building" "Сборка") BTranslate $(cat "$src/VERSION")"
-    bash "$src/build.sh"
+    bash "$src/build.sh" || die "$(t "the build failed. If the lines above are the compiler's about the Swift language, the Command Line Tools are too old for this version: update them (System Settings → General → Software Update) and run this again." \
+                                     "сборка не удалась. Если строки выше — ошибки компилятора о языке Swift, то Command Line Tools устарели для этой версии: обновите их («Системные настройки» → «Основные» → «Обновление ПО») и запустите установку снова.")"
 
     say "$(t "Installing" "Установка в") $APP"
     pkill -x BTranslate 2>/dev/null || true
@@ -184,8 +209,8 @@ TEXT
     rm -rf "$APP"
     ditto "$src/build/BTranslate.app" "$APP"
     # Tell macOS about the app and its Services menu item.
-    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP"
-    /System/Library/CoreServices/pbs -update
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP" || true
+    /System/Library/CoreServices/pbs -update || true
 
     # macOS makes its reader of pictures ready for an app the first time the app reads one,
     # which can take a minute: have a start made now, in the background. (The app does the

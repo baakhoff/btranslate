@@ -12,10 +12,13 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 VERSION="$(cat VERSION)"
 APP="build/BTranslate.app"
 MIN_MACOS=14.0
+# This Mac's processor, not this shell's: in a terminal that runs under Rosetta, uname says Intel.
 archs=("$(uname -m)")
+[ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ] && archs=(arm64)
 [ "${1:-}" = "--universal" ] && archs=(arm64 x86_64)
 
-command -v swiftc >/dev/null || {
+# (/usr/bin/swiftc is there on every Mac, as a pointer to tools that may not be.)
+xcrun --find swiftc >/dev/null 2>&1 || {
     echo "The Swift compiler is missing. Install the Command Line Tools: xcode-select --install" >&2
     exit 1
 }
@@ -56,5 +59,9 @@ if [ -n "${BTRANSLATE_SIGN_IDENTITY:-}" ]; then
         echo "Could not sign as \"$BTRANSLATE_SIGN_IDENTITY\" (${why##*: }). Signing ad hoc instead." >&2
     fi
 fi
-[ "$signed" = "ad hoc" ] && codesign --force --sign - "$APP" 2>/dev/null
+if [ "$signed" = "ad hoc" ]; then
+    xattr -cr "$APP"  # what a synced folder hangs on files stops the signing
+    codesign --force --sign - "$APP" 2>&1 | grep -v ': replacing existing signature$' >&2 || true
+    codesign --verify "$APP" || { echo "The app could not be signed." >&2; exit 1; }
+fi
 echo "Built $APP ($VERSION, ${archs[*]}, signed $signed)"

@@ -3,16 +3,51 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
-    runs-on: macos-15   # Apple silicon
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both on Apple silicon. The installer builds on each user's Mac with the tools that
+        # are there, so the older ones are built with too.
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - name: The scripts parse
+        run: |
+          for script in build.sh install.sh uninstall.sh tests/run.sh tools/local-signing.sh; do bash -n "$script"; done
+          for script in $(git ls-files '*.py'); do python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' "$script"; done
+          plutil -lint Resources/Info.plist
+      - name: The version is the same everywhere
+        run: |
+          v="$(cat VERSION)"
+          test "$(./install.sh --version)" = "BTranslate installer $v"
+          grep -q "^## \[$v\]" CHANGELOG.md
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then test "${GITHUB_REF#refs/tags/v}" = "$v"; fi
       - name: Build (Apple silicon and Intel)
         run: ./build.sh --universal
       - name: Test
         run: tests/run.sh
-      - name: The installer's version matches VERSION
-        run: test "$(./install.sh --version)" = "BTranslate installer $(cat VERSION)"
+      - name: Keep what the tests drew and logged
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tests-${{ matrix.os }}
+          path: |
+            build/uitest
+            build/uitest-ru
+            build/mock.log
+          if-no-files-found: ignore
+          retention-days: 7

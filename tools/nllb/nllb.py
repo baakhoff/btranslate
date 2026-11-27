@@ -9,7 +9,7 @@ every shape known beforehand. `check()` compares it with the original.
             →  a score for every token of the vocabulary as the next one, for the position asked for
 
 Picking the best tokens is left to the caller: Core ML's own "top k" looks only at the first
-65,536 entries when the model is in 16-bit floats (lab/headtest.py shows it), and the
+65,536 entries when the model is in 16-bit floats, and the
 vocabulary has 256,206.
 
 The decoder has no memory between steps: each step reads the whole translation so far again.
