@@ -349,6 +349,7 @@ final class PictureWindow: NSObject, NSWindowDelegate {
         var lastPaint = Date.distantPast
         let began = Date()
         let result = try await translateMany(worth.map { all[$0].text }, engine: engine, target: target, config: config) { place, made in
+            guard !Task.isCancelled else { return }  // a late one, for a method or a language no longer chosen
             all[worth[place]].translation = made
             done += 1
             self.blocks = all

@@ -469,7 +469,12 @@ final class NLLBEngine: @unchecked Sendable {
             waiting -= 1
             return waiting == 0
         }
-        if last { queue.async { autoreleasepool { self.unload() } } }
+        guard last else { return }
+        queue.async {
+            // Not if a translation was asked for meanwhile: it would only load the model again.
+            guard self.lock.withLock({ self.waiting == 0 }) else { return }
+            autoreleasepool { self.unload() }
+        }
     }
 
     /// Loads the model and lets it go again: the first time after an install this is when

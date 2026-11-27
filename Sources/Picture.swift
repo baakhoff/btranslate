@@ -300,18 +300,22 @@ func translateMany(_ texts: [String], engine: Engine, target: Target, config: Co
     }
     /// Asks for each group's translations, a few groups at a time, and hands each answer to
     /// `take` as it comes, in whatever order: a window's texts take as long as one request
-    /// then, not as all of them one after another.
+    /// then, not as all of them one after another. Once the task is cancelled (the window
+    /// closed, another method or language chosen), no request is sent and no answer is taken,
+    /// not even one that was on its way already.
     func together<Answer: Sendable>(_ all: [[Int]], atOnce: Int, ask: @escaping @MainActor ([String]) async throws -> Answer,
                                     take: ([Int], Answer) -> Void) async throws {
         try await withThrowingTaskGroup(of: (Int, Answer).self) { pool in
             var next = 0, taken = 0
             while next < all.count || !pool.isEmpty {
+                try Task.checkCancellation()
                 while next < all.count, next - taken < atOnce {
                     let number = next, part = all[number].map { texts[$0] }
                     pool.addTask { @MainActor in (number, try await ask(part)) }
                     next += 1
                 }
                 guard let (number, answer) = try await pool.next() else { break }
+                try Task.checkCancellation()
                 taken += 1
                 take(all[number], answer)
             }
