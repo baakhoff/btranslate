@@ -139,8 +139,14 @@ enum LanguagePack {
     /// there. True where that is not kept track of (a test's own pack).
     static var isPrepared: Bool {
         guard let prepared else { return true }
-        return UserDefaults.standard.string(forKey: "packPreparedFor") == system
-            && !((try? FileManager.default.contentsOfDirectory(atPath: prepared.path)) ?? []).isEmpty
+        return UserDefaults.standard.string(forKey: "packPreparedFor") == system && holdsModels(prepared, system: system)
+    }
+
+    /// Whether such a folder holds, for that macOS, something as large as a model of the
+    /// pack's: the pieces of the reader of pictures lie there too, and are not it.
+    static func holdsModels(_ prepared: URL, system: String) -> Bool {
+        let build = prepared.appendingPathComponent(system)
+        return ((try? FileManager.default.contentsOfDirectory(at: build, includingPropertiesForKeys: nil)) ?? []).contains(where: isLarge)
     }
 
     static func notePrepared() {

@@ -545,7 +545,9 @@ func shortcutSelfTest() -> [String] {
     piece("NOW/reader", bytes: 60_000)
     piece("BEFORE/pack", bytes: 60_000_000)
     piece("BEFORE/reader", bytes: 60_000)
+    expect("prepared models: the pack's are seen to be there", LanguagePack.holdsModels(made, system: "NOW"))
     LanguagePack.forget(in: made, system: "NOW")
+    expect("prepared models: and to be gone, whatever the reader of pictures keeps there", !LanguagePack.holdsModels(made, system: "NOW"))
     let left = (files.subpaths(atPath: made.path) ?? []).filter { $0.hasSuffix("weights") }
     expect("prepared models: the pack's go, the reader of pictures keeps its own, an earlier macOS's all go (left: \(left))",
            left == ["NOW/reader/model.bundle/weights"])
