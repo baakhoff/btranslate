@@ -4,23 +4,6 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
-### Added
-- **A method selector in the typing panel and under a translated window,** the one the popup has: another method translates what is typed, or the window's texts, anew.
-- **Defaults for each of the three things BTranslate translates,** on a new Defaults page of the settings: the method for selected text, the method and the language for what you type in a text field, and the method and the language for a window. Until the settings are saved, typing and windows use the popup's method, and a window the default language; saving keeps what the page shows.
-- **A gear button in the typing panel and under a translated window,** which opens the settings, as the popup's does.
-
-### Changed
-- **A translated window is ready sooner.** Its texts go to Google three requests at a time and to an AI provider four at a time, not one after another. Offline, a language's texts go to macOS's translation together and fill the window in as they come, and the language pack's model stays loaded until the last.
-- **The shortcut's log says how long** a window's reading and its translating took.
-- **The settings window has four pages,** each short enough for a 13-inch screen. The method BTranslate opens with and the language to write into text fields in moved from the Translation and Languages pages to the Defaults page.
-- **Under a translated window,** what the bar says takes the room in the middle and the buttons keep their places. The picture of a narrow window gets a window wide enough for the bar.
-
-### Fixed
-- **The first window with much text took half a minute to read,** and so did the first one after the language pack was installed. macOS prepares its reader of pictures for an app in five pieces; the picture BTranslate prepared it with brought on three of them, and installing or removing the language pack removed them all again. The picture now brings on all five, in the background at the install and at each start, and the pack's install leaves them alone. After that a window is read in under half a second.
-- **A translated window as tall as the screen** had its bar, with the language menu and the buttons, under the screen's edge: the window grew to the picture's full size. The picture is now shown smaller, and the bar stays on the screen.
-
 ## [1.0.0] - 2026-11-27
 
 The first release.
@@ -40,8 +23,9 @@ The first release.
 ### The shortcut
 - **One shortcut for every app, ⌃⌥T unless another is chosen,** that does what fits. It needs macOS's Accessibility permission, which the Shortcut page of the settings asks for.
 - **Text is selected:** its translation in the popup, by the text.
-- **The cursor is in a text field:** a small panel opens under the cursor. What is typed there, in any language, is translated sentence by sentence while it is typed and written into the field. Return keeps it, Esc takes it out again. Where an app can't be written into, the panel shows the translation and Return pastes it. A field is written into only while it still holds what was put there.
-- **Neither:** a window is chosen in macOS's own picker (macOS asks for the permission to record the screen the first time). Its texts are read on the Mac, each is translated from whatever language it is in into one language, and the window's picture is shown with the translations painted over the originals.
+- **The cursor is in a text field:** a small panel opens under the cursor. What is typed there, in any language, is translated sentence by sentence while it is typed and written into the field. Return keeps it, Esc takes it out again. Where an app can't be written into, the panel shows the translation and Return pastes it. A field is written into only while it still holds what was put there. The panel has a menu for the language and the popup's selector for the method, for that one time, and a gear that opens the settings.
+- **Neither:** a window is chosen in macOS's own picker (macOS asks for the permission to record the screen the first time). Its texts are read on the Mac, each is translated from whatever language it is in into one language, and the window's picture is shown with the translations painted over the originals. Under the picture, a language menu and the method selector translate it anew, and a gear opens the settings.
+- **A window is read in under half a second:** macOS makes its reader of pictures ready for an app once, which takes about a minute, and BTranslate has that done in the background at the install and at each start. The texts then go to Google three requests at a time and to an AI provider four at a time; offline, a language's texts go to macOS's translation together and fill the window in as they come.
 - **Opening at login,** so that the shortcut is there: ticked on a first setup.
 - **A signing certificate of the Mac's own** (`tools/local-signing.sh`, optional) keeps the shortcut's permissions over updates.
 
@@ -55,15 +39,15 @@ The first release.
 
 ### Languages
 - **Your own list of languages to translate into:** any of the 249 languages Google Translate knows, added with a searchable picker. Arrows or dragging put them in your order; **Make Default** and **Make Second** mark the two a popup opens with. The list starts with the Mac's own languages.
-- **A language to write in:** the typing panel opens with the language chosen under **Write into text fields in**; the panel's own menu picks another for that time.
+- **Defaults for each of the three things BTranslate translates,** on the Defaults page of the settings: the method for selected text, and the method and the language for what you type in a text field and for a window. Until the settings are saved, typing and windows use the popup's method, typing the second default language and a window the default one; saving keeps what the page shows.
 - **Serbian in Latin and in Cyrillic script,** and from one alphabet into the other with every method. Going to Cyrillic, words that look foreign (GitHub, STL, "open-source") stay in Latin.
 - **AI translations that really translate:** the model is told the language in English and in the language itself, and that changing the alphabet is not a translation, so Serbian → Russian comes out in Russian and not in Serbian Cyrillic.
 - **BTranslate in English and in Russian:** every window, menu, tooltip and message, the names of all 249 languages and the installer. BTranslate follows the Mac's language, or the one set for it on the Languages page.
 
 ### Setup and install
-- **Settings window,** in three pages: Translation (the methods, the AI provider, model and API key, with a Test button and the provider's live model list), Languages and Shortcut. It opens after the install, from Spotlight or Finder, and from the gear in the popup.
+- **Settings window,** in four pages, each short enough for a 13-inch screen: Translation (the methods, the AI provider, model and API key, with a Test button and the provider's live model list), Languages, Defaults and Shortcut. It opens after the install, from Spotlight or Finder, and from the gear in the popup, in the typing panel and under a translated window.
 - **API keys in the login Keychain,** one per provider.
-- **Nothing kept:** no history, no cache of what was sent or answered, no cookies. The shortcut's log holds no text.
+- **Nothing kept:** no history, no cache of what was sent or answered, no cookies. The shortcut's log holds no text: only what it did, in which app, and how long a window's reading and translating took.
 - **One-line installer** that builds the app on your Mac (no sudo), and an uninstaller that takes away everything the app put there.
 - **One BTranslate at a time:** a second copy, or a mistyped option on the command line, ends instead of answering the shortcut twice.
 - **Tests without network or keys:** a mock server for both AI protocols and Google, an off-screen drawing of every window in both languages (with a check that no text is cut short), stand-ins for the other app's text field and for a window's picture, and speech made without sound. CI runs them on macOS 15 and macOS 26.
