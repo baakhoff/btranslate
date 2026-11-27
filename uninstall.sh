@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Removes BTranslate and what it has put on this Mac: the app, its Services menu item, its
-# login item, its settings, its language pack, its caches and log, its saved API keys, the
+# login item, its settings, its language pack, its caches and logs, its saved API keys, the
 # permissions macOS has given it, and the signing certificate tools/local-signing.sh made.
 #   ./uninstall.sh              remove everything
 #   ./uninstall.sh --keep-keys  leave the API keys in the Keychain
@@ -41,11 +41,12 @@ main() {
     if defaults delete "$BUNDLE_ID" >/dev/null 2>&1; then t "Removed the settings" "Настройки удалены"; fi
 
     # The language pack (also a download of it that was not finished), what macOS prepared of
-    # it for the Neural Engine (a gigabyte among the caches), and the shortcut's log.
+    # it for the Neural Engine (a gigabyte among the caches), the shortcut's log and the updates' log.
     local left found=""
     for left in "$HOME/Library/Application Support/BTranslate" "$HOME/Library/Caches/$BUNDLE_ID" \
                 "$HOME/Library/HTTPStorages/$BUNDLE_ID" "$HOME/Library/HTTPStorages/$BUNDLE_ID.binarycookies" \
-                "$HOME/Library/WebKit/$BUNDLE_ID" "$HOME/Library/Logs/BTranslate.log"; do
+                "$HOME/Library/WebKit/$BUNDLE_ID" "$HOME/Library/Logs/BTranslate.log" \
+                "$HOME/Library/Logs/BTranslate-update.log"; do
         if [ -e "$left" ]; then
             rm -rf "$left"
             found=1

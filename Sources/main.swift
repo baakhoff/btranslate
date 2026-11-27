@@ -60,6 +60,15 @@
 //   --language-test                choose Russian for BTranslate as its settings do, read the choice
 //                                  back, and put back what was chosen
 //   --uitest DIR                   draw the popup and the settings window into DIR as PNGs, off screen
+//   --update-check [--scheduled]   look for a newer version at BTRANSLATE_UPDATE_URL, as Check Now
+//                                  does (--scheduled: as the daily check does, which may skip it)
+//   --update-run [--auto]          the Update button for the version in BTRANSLATE_UPDATE_WAITING,
+//                                  running BTRANSLATE_UPDATE_COMMAND (without it, it refuses)
+//   --update-auto-check [--showing popup]  a version found with -autoUpdate as given: whether the
+//                                  update starts, or waits for the popup to go
+//   --update-note-check            the start after an update, its note given as -updateTo,
+//                                  -updateFrom and -updateAsked
+//   --about-check [--picture DIR]  the settings' About page in every state of the update, off screen
 //   --background                   the app itself, without its settings window (as after an update)
 // Env: BTRANSLATE_KEYCHAIN=off is a Mac without saved API keys, BTRANSLATE_CONNECTION=off one
 //      without a network; BTRANSLATE_ACCESSIBILITY=on|off and BTRANSLATE_SCREEN=on|off stand
@@ -68,7 +77,11 @@
 //      BTRANSLATE_API_KEY, BTRANSLATE_GOOGLE_URL, BTRANSLATE_GOOGLE_SPEECH_URL override the saved
 //      settings and Google's addresses; BTRANSLATE_LANGUAGE=en|ru sets the language of
 //      BTranslate's own texts; BTRANSLATE_OFFLINE=mock stands in for Apple's translation;
-//      BTRANSLATE_PACK_DIR is where the language pack is kept instead of Application Support.
+//      BTRANSLATE_PACK_DIR is where the language pack is kept instead of Application Support;
+//      BTRANSLATE_VERSION is the version this copy takes itself for, BTRANSLATE_UPDATE_URL where
+//      it looks for a newer one, BTRANSLATE_UPDATE_COMMAND what an update runs,
+//      BTRANSLATE_UPDATE_LOG where that writes, BTRANSLATE_UPDATE_WAITING a version as if found,
+//      BTRANSLATE_SIGNED=adhoc|own how this copy is taken to be signed.
 
 import Cocoa
 
@@ -114,6 +127,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         useShortcut()
         // The first reading of a picture can take macOS a minute: have it done now, apart.
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { PictureReader.prepare() }
+        // Whether an update arrived, and from now on the daily look for a newer version.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { Updater.shared.appStarted() }
         if !CommandLine.arguments.contains("--background"),
                   !LoginItem.startedThisRun,
                   notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool ?? true {
@@ -335,7 +350,7 @@ func reportPageHeights() {
 func runUITest(into dir: String) {
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
     for (page, name) in [(SettingsController.Page.translation, "settings"), (.languages, "settings-languages"),
-                         (.defaults, "settings-defaults"), (.shortcut, "settings-shortcut")] {
+                         (.defaults, "settings-defaults"), (.shortcut, "settings-shortcut"), (.about, "settings-about")] {
         if let content = SettingsController.shared.preparedContent(page: page) { snapshot(content, to: "\(dir)/\(name).png") }
     }
     snapshot(SettingsController.shared.preparedPicker(search: "ser"), to: dir + "/languages.png")
@@ -469,6 +484,7 @@ func runPopupCheck(text: String) {
     Popup.current = popup
     popup.prepare()
     var pressed = false
+    print(popup.gear.gearLine)
     func report(_ stage: String) {
         print("\(stage): methods \(popup.config.engines.map(\.rawValue).joined(separator: ", ")); the original: \(popup.shownSource)")
         for (section, offered) in zip(popup.sections, popup.packOffered) {
@@ -1048,6 +1064,21 @@ if arguments.contains("--selftest") {
         }
         app.run()
     }
+} else if arguments.contains("--update-check") {
+    runHeadless { await runUpdateCheck() }
+} else if arguments.contains("--update-run") {
+    _ = MainActor.assumeIsolated { NSApplication.shared.setActivationPolicy(.accessory) }
+    runHeadless { await runUpdateRun() }
+} else if arguments.contains("--update-auto-check") {
+    _ = MainActor.assumeIsolated { NSApplication.shared.setActivationPolicy(.accessory) }
+    runHeadless { await runUpdateAutoCheck() }
+} else if arguments.contains("--update-note-check") {
+    MainActor.assumeIsolated { exit(runUpdateNoteCheck()) }
+} else if arguments.contains("--about-check") {
+    MainActor.assumeIsolated {
+        NSApplication.shared.setActivationPolicy(.accessory)
+        exit(runAboutCheck())
+    }
 } else if let dir = argument(after: "--uitest") {
     MainActor.assumeIsolated {
         let app = NSApplication.shared
@@ -1068,6 +1099,7 @@ if arguments.contains("--selftest") {
         exit(0)
     }
     MainActor.assumeIsolated {  // top-level code runs on the main thread
+        Updater.isTheApp = true  // the one run that keeps its update bookkeeping and may run the installer
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate

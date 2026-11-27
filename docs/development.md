@@ -37,7 +37,11 @@ What the plain run covers:
 - typing into the panel, with a stand-in for the other app's text field: one that takes every writing, one that takes none, one that stops, one that is slow; Return, Esc and a click elsewhere; another method chosen in the panel;
 - a picture that stands for a window: macOS reads it, the mock server translates it, and the check looks at which lines were put together, what was left alone, and the window that shows the result, also with another method chosen in its bar;
 - a page of hundreds of texts: how many requests go out at once to Google, to an AI provider and to a server of your own (the mock server's "slow" addresses count them);
-- the method and the language each of the three opens with, as the settings give them and as the Defaults page shows them; and that no page of the settings window is taller than a 13-inch screen has room for.
+- the method and the language each of the three opens with, as the settings give them and as the Defaults page shows them; and that no page of the settings window is taller than a 13-inch screen has room for;
+- updates: the check against the mock server (a newer version with its release, one without, the same, an older one, nonsense, nothing answering, the setting off, a check less than a day old), versions compared (in `--selftest`), the Update button with a stand-in command (what it is told, its log, a failure's last line), the automatic update (with nothing showing, while a popup shows, with the setting off), the note of a started update at the next start, the gears while a version waits, and the About page in every state, signed ad hoc and not, in English and in Russian;
+- the installer's question about automatic updates, with each answer, with and without the certificate (stood in for), in both languages, and that nothing is asked when the setting is there already.
+
+No check asks GitHub or runs the installer for real: `tests/run.sh` gives every run a `BTRANSLATE_UPDATE_URL` where nothing listens, and the command-line modes refuse an update without `BTRANSLATE_UPDATE_COMMAND`. What the update's bookkeeping would save stays in memory in every mode but the app itself.
 
 One check is run by hand, because it opens a small window of BTranslate's own for a few
 seconds: `BTranslate --ax-check KIND` writes into a real field through Accessibility, as the
@@ -65,6 +69,11 @@ things. `Sources/main.swift` lists them all; the useful ones:
 | `--speech-check lv "text"` | Which voice would read a text; plays it at volume zero |
 | `--models` | The model list of the AI provider in the settings |
 | `--login on\|off\|status` | Opening at login |
+| `--update-check [--scheduled]` | Looks for a newer version at `BTRANSLATE_UPDATE_URL`, as **Check Now** does (`--scheduled`: as the daily check does, which `checkForUpdates` and `lastUpdateCheck` may skip) |
+| `--update-run [--auto]` | The **Update** button for the version in `BTRANSLATE_UPDATE_WAITING`, running `BTRANSLATE_UPDATE_COMMAND`; without that, it refuses |
+| `--update-auto-check [--showing popup]` | A version found, with `-autoUpdate` as given: whether the update starts, or waits for the popup to go |
+| `--update-note-check` | The start after an update, its note given as `-updateFrom`, `-updateTo`, `-updateAsked` |
+| `--about-check [--picture DIR]` | The About page in every state of the update, off screen: every text fits, the window fits a small screen |
 
 For one run, the environment can stand in for the world:
 
@@ -78,6 +87,12 @@ For one run, the environment can stand in for the world:
 | `BTRANSLATE_OFFLINE=mock` | A stand-in for Apple's translation |
 | `BTRANSLATE_PACK_URL`, `BTRANSLATE_PACK_DIR` | Where the language pack is downloaded from, and kept |
 | `BTRANSLATE_ACCESSIBILITY`, `BTRANSLATE_SCREEN`, `BTRANSLATE_LOGIN` `=on\|off` | Stand-ins for macOS's permissions and its login items: nothing is asked of macOS |
+| `BTRANSLATE_VERSION` | The version the app takes itself for |
+| `BTRANSLATE_UPDATE_URL` | Where it looks for a newer version, instead of `raw.githubusercontent.com/baakhoff/btranslate/main`; the release's archive is then looked for under it too. The command-line modes look nowhere without it |
+| `BTRANSLATE_UPDATE_COMMAND` | What an update runs, instead of the install line. The command-line modes run no update without it |
+| `BTRANSLATE_UPDATE_LOG` | Where the update's output goes, instead of `~/Library/Logs/BTranslate-update.log` |
+| `BTRANSLATE_UPDATE_WAITING=X.Y.Z` | As if a check had found that version (the gears, the Update button) |
+| `BTRANSLATE_SIGNED=adhoc\|own` | How the app takes itself to be signed |
 
 Any setting can be given for one run as `-key value` (`-defaultEngine google -languages '(en, ru)'`),
 which leaves the saved settings alone.
@@ -94,7 +109,7 @@ which leaves the saved settings alone.
 
 ## A release
 
-1. The version, in three places: `VERSION`, `local VERSION=` in `install.sh`, and a section in `CHANGELOG.md`. CI checks that they agree.
+1. The version, in three places: `VERSION`, `local VERSION=` in `install.sh`, and a section in `CHANGELOG.md`. CI checks that they agree. `VERSION` on `main` is also what every installed copy compares itself with once a day, so it changes together with the tag: a copy offers the update only once the tag's archive is there.
 2. `tests/run.sh --live`, and `--screen`.
-3. A tag `vX.Y.Z` on `main`, and a GitHub release of it with the changelog's section. The one-line installer on `main` downloads the source of the tag its `VERSION` names, so the tag has to be there when that installer is.
+3. A tag `vX.Y.Z` on `main`, and a GitHub release of it with the changelog's section. The one-line installer on `main` downloads the source of the tag its `VERSION` names, so the tag has to be there when that installer is: push it right after the merge that changes `VERSION`.
 4. The language pack is a release of its own, `nllb-200-v1`, and changes only with a new model.

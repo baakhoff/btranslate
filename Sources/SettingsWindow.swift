@@ -79,9 +79,16 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     private let screenButton = NSButton(title: L("Open System Settings…"), target: nil, action: nil)
     private let loginBox = NSButton(checkboxWithTitle: L("Open BTranslate when I log in"), target: nil, action: nil)
     private var accessTimer: Timer?
-    // Four pages, so the window fits a small screen.
-    enum Page: Int, CaseIterable { case translation, languages, defaults, shortcut }
-    private let pageControl = NSSegmentedControl(labels: [L("Translation"), L("Languages"), L("Defaults"), L("Shortcut")],
+    // About: the version, and whether there is a newer one (Sources/Updates.swift).
+    private let updateText = NSTextField(wrappingLabelWithString: "")
+    private let updateSpinner = NSProgressIndicator()
+    private let updateButton = NSButton(title: L("Check Now"), target: nil, action: nil)
+    private let checkBox = NSButton(checkboxWithTitle: L("Check for updates once a day"), target: nil, action: nil)
+    private let autoBox = NSButton(checkboxWithTitle: L("Install updates automatically"), target: nil, action: nil)
+    private var adHocNote: NSTextField?
+    // Five pages, so the window fits a small screen.
+    enum Page: Int, CaseIterable { case translation, languages, defaults, shortcut, about }
+    private let pageControl = NSSegmentedControl(labels: [L("Translation"), L("Languages"), L("Defaults"), L("Shortcut"), L("About")],
                                                  trackingMode: .selectOne, target: nil, action: nil)
     private var pages: [NSView] = []
     private var shownPage: Page { Page(rawValue: pageControl.selectedSegment) ?? .translation }
@@ -121,6 +128,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             window.setContentSize(content.fittingSize)
             if let top { window.setFrameTopLeftPoint(top) }
         }
+        if which == .about, window?.isVisible == true { Updater.shared.aboutShown() }
     }
 
     @objc private func pageChanged() {
@@ -151,6 +159,13 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
     var accessText: String { accessNote.stringValue }
     var screenText: String { screenNote.stringValue }
     var loginIsTicked: Bool { loginBox.state == .on }
+
+    /// What the About page says and offers (UI test).
+    var aboutForTest: String {
+        "\(updateText.stringValue.replacingOccurrences(of: "\n", with: " / ")) [\(updateButton.title)\(updateButton.isEnabled ? "" : ", off")"
+            + "\(updateSpinner.isHidden ? "" : ", spinning")]; ad hoc note: \(adHocNote?.isHidden == false ? "shown" : "hidden")"
+            + "; ticks: daily \(checkBox.state == .on ? "on" : "off"), automatic \(autoBox.state == .on ? "on" : "off")\(autoBox.isEnabled ? "" : " (off while the daily check is)")"
+    }
 
     /// The "+" picker's content as it looks after typing `search` (UI test).
     func preparedPicker(search: String) -> NSView {
@@ -418,9 +433,63 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         shortcut.setCustomSpacing(14, after: screenButton)
         shortcut.setCustomSpacing(12, after: line5)
         shortcut.setCustomSpacing(2, after: loginBox)
-        pages = [translation, languages, defaults, shortcut]
+        // Page 5: about BTranslate, and its updates.
+        let version = NSTextField(labelWithString: L("Version %@", Updater.shared.current))
+        version.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        let what = NSTextField(wrappingLabelWithString: L("Translates in any Mac app, in a popup, with Google Translate, an AI model or offline."))
+        let home = NSButton(title: "", target: self, action: #selector(openHome))
+        home.isBordered = false
+        home.attributedTitle = NSAttributedString(string: "github.com/baakhoff/btranslate",
+                                                  attributes: [.foregroundColor: NSColor.linkColor, .font: NSFont.systemFont(ofSize: NSFont.systemFontSize)])
+        let licence = caption(L("Free software under the MIT licence. The optional language pack's model, NLLB-200 by Meta AI, is under CC-BY-NC 4.0: non-commercial use only."))
+        updateText.isSelectable = true
+        updateSpinner.style = .spinning
+        updateSpinner.controlSize = .small
+        updateSpinner.isDisplayedWhenStopped = false
+        updateButton.bezelStyle = .rounded
+        updateButton.target = self
+        updateButton.action = #selector(updateButtonClicked)
+        // The button keeps one width, whichever it says, and the text takes what is left.
+        let buttonWidth = [L("Check Now"), L("Update")].map { title -> CGFloat in
+            updateButton.title = title
+            return ceil(updateButton.intrinsicContentSize.width)
+        }.max() ?? 100
+        updateButton.widthAnchor.constraint(equalToConstant: buttonWidth).isActive = true
+        let stateRow = NSStackView(views: [updateText, updateSpinner, updateButton])
+        stateRow.alignment = .top
+        stateRow.spacing = 8
+        updateText.widthAnchor.constraint(equalToConstant: inner - buttonWidth - 16 - 16).isActive = true
+        for box in [checkBox, autoBox] {
+            box.target = self
+            box.action = #selector(updateBoxChanged)
+        }
+        let adHoc = caption(L("BTranslate is signed ad hoc on this Mac: after each update macOS wants the shortcut's permissions given again. tools/local-signing.sh, in BTranslate's source, gives this Mac a certificate that keeps them."))
+        adHoc.isHidden = !Updater.isSignedAdHoc
+        adHocNote = adHoc
+        let updateNote = caption(L("The check is one small request to GitHub a day, with nothing of yours in it. An update is the install again: the source is downloaded and built on this Mac, which takes about a minute and needs the Command Line Tools. Your settings stay. To do it by hand, run this in Terminal:"))
+        let installLine = NSTextField(wrappingLabelWithString: Updater.installLine)
+        installLine.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        installLine.lineBreakMode = .byCharWrapping
+        installLine.isSelectable = true
+        let line6 = NSBox(), line7 = NSBox()
+        for line in [line6, line7] { line.boxType = .separator }
+        let about = page([version, what, home, licence, line6, stateRow, checkBox, autoBox, adHoc, line7, updateNote, installLine])
+        about.setCustomSpacing(4, after: version)
+        about.setCustomSpacing(2, after: what)
+        about.setCustomSpacing(2, after: home)
+        about.setCustomSpacing(12, after: licence)
+        about.setCustomSpacing(12, after: line6)
+        about.setCustomSpacing(12, after: stateRow)
+        about.setCustomSpacing(2, after: autoBox)
+        about.setCustomSpacing(12, after: adHoc)
+        about.setCustomSpacing(12, after: line7)
+        about.setCustomSpacing(6, after: updateNote)
+        NotificationCenter.default.addObserver(forName: Updater.changed, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshUpdate() }
+        }
+        pages = [translation, languages, defaults, shortcut, about]
 
-        let stack = NSStackView(views: [title, intro, pageControl, translation, languages, defaults, shortcut, line2, buttons])
+        let stack = NSStackView(views: [title, intro, pageControl, translation, languages, defaults, shortcut, about, line2, buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
@@ -430,6 +499,7 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         stack.setCustomSpacing(16, after: languages)
         stack.setCustomSpacing(16, after: defaults)
         stack.setCustomSpacing(16, after: shortcut)
+        stack.setCustomSpacing(16, after: about)
         stack.setCustomSpacing(14, after: line2)
         stack.edgeInsets = NSEdgeInsets(top: 20, left: 22, bottom: 18, right: 22)
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -444,7 +514,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
             content.widthAnchor.constraint(equalToConstant: width),
         ])
         for view in [intro, googleNote, aiNote, deviceNote, packNote, voiceNote, defaultsNote, grid, line2, line3, buttons, translation, languages, defaults,
-                     shortcut, shortcutNote, shortcutStatus, accessNote, screenNote, loginNote, line4, line5] as [NSView] {
+                     shortcut, shortcutNote, shortcutStatus, accessNote, screenNote, loginNote, line4, line5,
+                     about, what, licence, stateRow, adHoc, updateNote, installLine, line6, line7] as [NSView] {
             view.widthAnchor.constraint(equalToConstant: inner).isActive = true
         }
         // The first column fits its widest label (they are longer in some languages) and the Test button.
@@ -496,6 +567,50 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         setStatus("", color: .secondaryLabelColor)
         showProvider(keepModel: config.model)
         refreshEnabled()
+        checkBox.state = config.checkForUpdates ? .on : .off
+        autoBox.state = config.autoUpdate ? .on : .off
+        refreshUpdate()
+    }
+
+    // MARK: About, and updates
+
+    /// The update's state in words, and the one button beside it.
+    private func refreshUpdate() {
+        let updater = Updater.shared
+        updateText.stringValue = updater.stateText
+        switch updater.state {
+        case .failed, .updateFailed: updateText.textColor = .systemRed
+        default: updateText.textColor = .labelColor
+        }
+        var offersUpdate = updater.waitingVersion != nil
+        if case .updating = updater.state { offersUpdate = true }
+        updateButton.title = offersUpdate ? L("Update") : L("Check Now")
+        updateButton.isEnabled = !updater.isBusy
+        if updater.isBusy { updateSpinner.startAnimation(nil) } else { updateSpinner.stopAnimation(nil) }
+        updateSpinner.isHidden = !updater.isBusy
+        autoBox.isEnabled = checkBox.state == .on
+        if let window, let content = window.contentView, shownPage == .about, window.isVisible {
+            let top = NSPoint(x: window.frame.minX, y: window.frame.maxY)  // the text's height may have changed
+            window.setContentSize(content.fittingSize)
+            window.setFrameTopLeftPoint(top)
+        }
+    }
+
+    @objc private func updateButtonClicked() {
+        if Updater.shared.waitingVersion != nil {
+            Updater.shared.update(asked: true)
+        } else {
+            Task { await Updater.shared.check() }
+        }
+    }
+
+    @objc private func updateBoxChanged() {
+        autoBox.isEnabled = checkBox.state == .on
+    }
+
+    @objc private func openHome() {
+        guard Accessibility.mayAsk, let url = URL(string: "https://github.com/baakhoff/btranslate") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func showProvider(keepModel: String? = nil) {
@@ -727,6 +842,8 @@ final class SettingsController: NSObject, NSWindowDelegate, NSTextFieldDelegate 
         c.googleVoice = googleVoiceBox.state == .on
         let chosen = languageMenu.indexOfSelectedItem - 1  // -1: the first item, "Same as the Mac"
         c.languageChoice = interfaceLanguages.indices.contains(chosen) ? interfaceLanguages[chosen].code : ""
+        c.checkForUpdates = checkBox.state == .on
+        c.autoUpdate = c.checkForUpdates && autoBox.state == .on
         return c
     }
 

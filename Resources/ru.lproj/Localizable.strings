@@ -240,3 +240,29 @@
 "Translating… %ld of %ld" = "Перевод… %ld из %ld";
 "Not translated: %ld." = "Не переведено: %ld.";
 "Translation into %@" = "Перевод на %@";
+
+/* About BTranslate, and its updates (Sources/Updates.swift, the About page of the settings) */
+"About" = "О программе";
+"Version %@" = "Версия %@";
+"Translates in any Mac app, in a popup, with Google Translate, an AI model or offline." = "Переводит в любом приложении Mac, в окне перевода: через Google Переводчик, модель ИИ или офлайн.";
+"Free software under the MIT licence. The optional language pack's model, NLLB-200 by Meta AI, is under CC-BY-NC 4.0: non-commercial use only." = "Свободная программа под лицензией MIT. Модель необязательного языкового пакета, NLLB-200 от Meta AI, — под лицензией CC-BY-NC 4.0: только для некоммерческого использования.";
+"Check Now" = "Проверить";
+"Update" = "Обновить";
+"Check for updates once a day" = "Проверять обновления раз в день";
+"Install updates automatically" = "Устанавливать обновления автоматически";
+"BTranslate is signed ad hoc on this Mac: after each update macOS wants the shortcut's permissions given again. tools/local-signing.sh, in BTranslate's source, gives this Mac a certificate that keeps them." = "BTranslate подписан на этом Mac без сертификата (ad hoc): после каждого обновления macOS потребует снова дать разрешения для сочетания клавиш. tools/local-signing.sh из исходного кода BTranslate создает для этого Mac сертификат, с которым они сохраняются.";
+"The check is one small request to GitHub a day, with nothing of yours in it. An update is the install again: the source is downloaded and built on this Mac, which takes about a minute and needs the Command Line Tools. Your settings stay. To do it by hand, run this in Terminal:" = "Проверка — это один небольшой запрос к GitHub в день, без каких-либо ваших данных. Обновление — это повторная установка: исходный код загружается и собирается на этом Mac, это занимает около минуты и требует Command Line Tools. Ваши настройки сохраняются. Чтобы обновить вручную, выполните в Терминале:";
+"GitHub's answer is not a version number." = "Ответ GitHub — не номер версии.";
+"GitHub answered HTTP %ld." = "GitHub ответил HTTP %ld.";
+"The installer ended with status %ld." = "Установщик завершился с кодом %ld.";
+"The update to %@ did not finish." = "Обновление до версии %@ не завершилось.";
+"BTranslate has not looked for a newer version yet." = "BTranslate еще не проверял, есть ли новая версия.";
+"Looking for a newer version…" = "Поиск новой версии…";
+"BTranslate is up to date. Last checked: %@." = "Установлена последняя версия BTranslate. Последняя проверка: %@.";
+"BTranslate %@ is available. This one is %@." = "Доступна версия BTranslate %@. Установлена %@.";
+"Could not look for a newer version: %@" = "Не удалось проверить, есть ли новая версия: %@";
+"Updating to %@: it is downloaded and built on this Mac, which takes about a minute. BTranslate then starts again by itself." = "Обновление до версии %@: она загружается и собирается на этом Mac, это занимает около минуты. Затем BTranslate запустится снова сам.";
+"The update did not work: %@" = "Обновить не удалось: %@";
+"The installer's log: %@" = "Журнал установщика: %@";
+"BTranslate %@ is installed." = "BTranslate %@ установлен.";
+"BTranslate %@ is available. Click to see it in the settings." = "Доступна версия BTranslate %@. Нажмите, чтобы открыть ее в настройках.";

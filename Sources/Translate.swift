@@ -750,5 +750,6 @@ func selfTest() -> [String] {
         && interfaceLanguages.dropFirst().allSatisfy { Bundle.main.path(forResource: $0.code, ofType: "lproj") != nil })
     expect("key check", Keychain.isValid("sk-ant-abc_123") && !Keychain.isValid("two words") && !Keychain.isValid("a\"b"))
     failures += shortcutSelfTest()
+    failures += updateSelfTest()
     return failures
 }

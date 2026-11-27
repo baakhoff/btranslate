@@ -14,6 +14,10 @@
   /pack/...             a miniature language pack: its list of files and two small files,
                         with checksums; a request for part of a file ("Range") gets that part
   /pack-damaged/...     the same, but one file is not what the list says
+  /update/...           where BTranslate looks for a newer version: VERSION says 1.10.0, and the
+                        source archive of v1.10.0 is there (HEAD answers 200)
+  /update-norelease/... the same VERSION, but no archive yet (the tag is not pushed)
+  /update-nonsense/...  VERSION is a web page, not a version
 Every request is logged as one JSON line on stdout.
 """
 import json
@@ -77,10 +81,23 @@ class Handler(BaseHTTPRequestHandler):
             "anthropic-version": self.headers.get("anthropic-version"),
         }, sort_keys=True, ensure_ascii=False), flush=True)
 
+    def do_HEAD(self):
+        self.record(None)
+        first = self.path.split("/")[1]
+        there = first == "update" and self.path.endswith("/archive/refs/tags/v1.10.0.tar.gz")
+        self.send_response(200 if there else 404)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_GET(self):
         self.record({"range": self.headers.get("Range")} if self.path.startswith("/pack") else None)
         name = self.path.rsplit("/", 1)[-1]
-        if self.path.startswith("/pack") and name == "nllb200-v1-pack.json":
+        first = self.path.split("/")[1]
+        if first in ("update", "update-norelease") and name == "VERSION":
+            self.reply(200, b"1.10.0\n", "text/plain")
+        elif first == "update-nonsense" and name == "VERSION":
+            self.reply(200, b"<html><title>Sorry</title></html>", "text/html")
+        elif self.path.startswith("/pack") and name == "nllb200-v1-pack.json":
             self.reply(200, PACK_LIST)
         elif self.path.startswith("/pack") and name in PACK:
             data = PACK[name]

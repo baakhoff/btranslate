@@ -206,6 +206,7 @@ func runTypeCheck(_ text: String) async -> Int32 {
     try? await Task.sleep(nanoseconds: 100_000_000)  // what Esc takes back out goes after the panel
     print("\(ending): panel \(closed ? "closed" : "STILL OPEN"), "
           + "in the field: \(show(field.written)), pasted: \(show(field.pasted ?? "")), copied: \(show(copied ?? "")), writings: \(field.writings)")
+    print(panel.gear.gearLine)
     return closed ? 0 : 1
 }
 
@@ -326,6 +327,7 @@ func runPictureWindowCheck(_ file: String) {
     let window = PictureWindow(image: image, scale: 2, over: nil)
     PictureWindow.current = window
     var then = argument(after: "--then")
+    print(window.gear.gearLine)
     window.onSettled = {
         print("the bar says: \(window.statusText)")
         print("texts painted over: \(window.blocks?.filter { $0.translation != nil }.count ?? 0) of \(window.blocks?.count ?? 0), "
@@ -616,4 +618,135 @@ func shortcutSelfTest() -> [String] {
     let centred = PictureBlock(lines: [line("A long first line of a centred paragraph", 100, 100, 600), line("and a short one", 280, 136, 240)])
     expect("picture: a centred paragraph is seen as one", centred.centred)
     return failures
+}
+
+// MARK: - Updates (Sources/Updates.swift)
+
+// None of these asks GitHub or runs the installer: the check asks BTRANSLATE_UPDATE_URL (the
+// mock server), and the update runs BTRANSLATE_UPDATE_COMMAND, without which it refuses. Their
+// bookkeeping (the last check, the note of a started update) stays in memory.
+
+/// One check, as Check Now does it; --scheduled: as the daily check does, which the setting
+/// checkForUpdates and the date of the last check (-lastUpdateCheck) may skip.
+@MainActor
+func runUpdateCheck() async -> Int32 {
+    beginCheck()
+    let updater = Updater.shared
+    print("this copy: \(updater.current)")
+    if arguments.contains("--scheduled") {
+        updater.lookIfDue()
+        await waitOut(0.2)
+        if updater.state == .never {
+            print("update check: not done (\(Config.load().checkForUpdates ? "the last one is less than a day old" : "checkForUpdates is off"))")
+            return 0
+        }
+        while updater.isBusy { await waitOut(0.05) }
+    } else {
+        await updater.check()
+    }
+    print("update check: \(updater.stateName)")
+    print("last check kept: \(updater.lastCheck == nil ? "no" : "yes")")
+    return 0
+}
+
+/// The Update button, with BTRANSLATE_UPDATE_WAITING as the version found and
+/// BTRANSLATE_UPDATE_COMMAND in the installer's place: what it starts, what it would note,
+/// and what the About page says once the command has ended. --auto: as an automatic update.
+@MainActor
+func runUpdateRun() async -> Int32 {
+    beginCheck()
+    let updater = Updater.shared
+    guard let version = updater.waitingVersion else {
+        print("ERROR: give the version found as BTRANSLATE_UPDATE_WAITING")
+        return 1
+    }
+    updater.update(asked: !arguments.contains("--auto"))
+    print("update to \(version): \(updater.stateName)")
+    print("the note it keeps: \(updater.noteText)")
+    var waited = 0
+    while case .updating = updater.state, waited < 600 {
+        await waitOut(0.05)
+        waited += 1
+    }
+    print("once the command has ended: \(updater.stateName)")
+    print("the note then: \(updater.noteText)")
+    guard let content = SettingsController.shared.preparedContent(page: .about) else { return 1 }
+    content.layoutSubtreeIfNeeded()
+    print("the About page says: \(SettingsController.shared.aboutForTest)")
+    return 0
+}
+
+/// The automatic update: a version is found with -autoUpdate as given. --showing popup: a
+/// popup is showing at first, and is closed after a while. Prints the states it went through.
+@MainActor
+func runUpdateAutoCheck() async -> Int32 {
+    beginCheck()
+    let updater = Updater.shared
+    updater.quietWait = 0.3
+    var states: [String] = []
+    let watch = NotificationCenter.default.addObserver(forName: Updater.changed, object: nil, queue: .main) { _ in
+        MainActor.assumeIsolated { states.append(Updater.shared.stateName) }
+    }
+    defer { NotificationCenter.default.removeObserver(watch) }
+    var popup: Popup?
+    if argument(after: "--showing") == "popup" {
+        popup = Popup(text: "Labdien")
+        Popup.current = popup
+        popup?.prepare()
+    }
+    updater.found("9.9.9")
+    await waitOut(1)
+    func started() -> String { states.contains { $0.hasPrefix("updating") } ? "yes" : "no" }
+    print("a version found, \(popup == nil ? "nothing showing" : "a popup showing"): \(states.joined(separator: " → ")); the update started: \(started())")
+    if let popup {
+        popup.close()
+        await waitOut(1)
+        print("the popup closed: \(states.joined(separator: " → ")); the update started: \(started())")
+    }
+    while case .updating = updater.state { await waitOut(0.05) }
+    return 0
+}
+
+/// The start after an update, with its note given as -updateFrom, -updateTo and -updateAsked,
+/// and BTRANSLATE_VERSION as the version that started.
+@MainActor
+func runUpdateNoteCheck() -> Int32 {
+    beginCheck()
+    let updater = Updater.shared
+    var opened = false
+    updater.openAbout = { opened = true }
+    print("the note: \(updater.noteText); this copy: \(updater.current)")
+    updater.lookAtNoteForTest()
+    print("at the start: \(updater.stateName); the note then: \(updater.noteText); the settings open on the About page: \(opened ? "yes" : "no")")
+    return 0
+}
+
+/// The About page in each state, off screen: every text fits, and the window a small screen.
+@MainActor
+func runAboutCheck() -> Int32 {
+    beginCheck()
+    let settings = SettingsController.shared
+    let dir = argument(after: "--picture")
+    if let dir { try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true) }
+    // The longest a failure can be: the installer's own last line about a failed build.
+    let longest = "BTranslate installer: the build failed. If the lines above are the compiler's about the Swift language, the Command Line Tools are too old for this version: update them (System Settings → General → Software Update) and run this again."
+    let states: [(String, UpdateState)] = [
+        ("never", .never), ("checking", .checking), ("up-to-date", .upToDate(Date())), ("available", .available("9.10.11")),
+        ("failed", .failed(L("No internet connection."))), ("updating", .updating("9.10.11")),
+        ("update-failed", .updateFailed(longest)), ("installed", .installed("9.10.11")),
+    ]
+    var fits = true, tallest = 0
+    for (name, state) in states {
+        Updater.shared.show(state)
+        guard let content = settings.preparedContent(page: .about) else { return 1 }
+        content.layoutSubtreeIfNeeded()
+        let cut = cutOffTexts(in: content)
+        let height = Int(content.fittingSize.height)
+        tallest = max(tallest, height)
+        if !cut.isEmpty { fits = false }
+        print("about, \(name): \(settings.aboutForTest); \(height) points\(cut.isEmpty ? "" : "; CUT SHORT: \(cut.joined(separator: " | "))")")
+        if let dir { snapshot(content, to: "\(dir)/about-\(name).png") }
+    }
+    print("the About page, every state: every text fits: \(fits ? "yes" : "NO"); at most \(tallest) points tall: \(tallest <= 760 ? "it fits a small screen" : "TOO TALL for a small screen")")
+    return fits && tallest <= 760 ? 0 : 1
 }

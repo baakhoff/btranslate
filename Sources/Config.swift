@@ -68,6 +68,8 @@ struct Config {
     var googleVoice = true          // read aloud with Google's voice where the Mac has none
     var languageChoice = ""         // BTranslate's own language: "en", "ru", or "" to follow the Mac
     var shortcut: Shortcut? = .standard  // brings BTranslate up from any app; nil: none
+    var checkForUpdates = true      // look once a day for a newer version (Sources/Updates.swift)
+    var autoUpdate = false          // and install it by itself; the installer asks about it once
 
     var provider: Provider { providers.first { $0.id == providerID } ?? providers[0] }
 
@@ -128,7 +130,7 @@ struct Config {
 
     static func load() -> Config {
         let d = UserDefaults.standard
-        d.register(defaults: ["googleEnabled": true, "googleVoice": true, "deviceEnabled": true])
+        d.register(defaults: ["googleEnabled": true, "googleVoice": true, "deviceEnabled": true, "checkForUpdates": true])
         var c = Config()
         c.googleEnabled = d.bool(forKey: "googleEnabled")
         c.aiEnabled = d.bool(forKey: "aiEnabled")
@@ -145,6 +147,8 @@ struct Config {
         c.typingEngine = Engine(rawValue: d.string(forKey: "typingEngine") ?? "")
         c.windowEngine = Engine(rawValue: d.string(forKey: "windowEngine") ?? "")
         c.googleVoice = d.bool(forKey: "googleVoice")
+        c.checkForUpdates = d.bool(forKey: "checkForUpdates")
+        c.autoUpdate = d.bool(forKey: "autoUpdate")
         c.languageChoice = chosenInterfaceLanguage()
         // "" is "none"; a shortcut that can't be read is the standard one.
         if let saved = d.string(forKey: "shortcut") { c.shortcut = saved.isEmpty ? nil : (Shortcut(saved: saved) ?? .standard) }
@@ -177,6 +181,8 @@ struct Config {
         d.set(windowEngine?.rawValue ?? "", forKey: "windowEngine")
         d.set(googleVoice, forKey: "googleVoice")
         d.set(shortcut?.saved ?? "", forKey: "shortcut")
+        d.set(checkForUpdates, forKey: "checkForUpdates")
+        d.set(autoUpdate, forKey: "autoUpdate")
         if languageChoice != chosenInterfaceLanguage() { chooseInterfaceLanguage(languageChoice) }
         d.set(true, forKey: "setupDone")
     }

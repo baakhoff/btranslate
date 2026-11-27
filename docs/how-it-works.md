@@ -17,7 +17,8 @@ Xcode project and there are no dependencies: `swiftc` compiles the files in `Sou
 | `TypeIn.swift` | Typing in another language |
 | `Picture.swift`, `PictureWindow.swift` | A window, translated |
 | `Localization.swift`, `LoginItem.swift` | BTranslate's own language; opening at login |
-| `Checks.swift` | Checks of the shortcut's parts, for `tests/run.sh` |
+| `Updates.swift` | Looking for a newer version, and updating |
+| `Checks.swift` | Checks of the shortcut's parts and of the updates, for `tests/run.sh` |
 
 ## The menu item and the popup
 
@@ -71,6 +72,22 @@ Apple lacks.
   - [tools/nllb](../tools/nllb/README.md) says how the pack is made and what the conversion had to get around.
 - **The language of a text** has to be told on the Mac, and the pack writes nonsense when told a wrong one. The pack's detector, the Mac's own recognizer, a few letters and words of Latvian, Serbian and their neighbours, and your own languages all have a say; when together they are not sure, the popup says what the text may be and asks for the pencil.
 - `BTranslate --offline` says whether a Mac has the method and which languages.
+
+## Updates
+
+- **The update is the installer again.** BTranslate has no developer signature, so a downloaded binary would be blocked by Gatekeeper; the installer builds from source on the Mac, and already knows how to replace a running app and keep its settings. An update runs `curl -fsSL https://raw.githubusercontent.com/baakhoff/btranslate/main/install.sh | bash`, the same line as the first install.
+- **The check** asks for `VERSION` on `main` (`raw.githubusercontent.com`), the file the installer of that line takes its version from. A version is three numbers, compared number by number (1.10.0 is newer than 1.9.0); an answer that is not one is a failed check. A newer version counts only once `HEAD` of its source archive (`github.com/baakhoff/btranslate/archive/refs/tags/vX.Y.Z.tar.gz`) answers 200: the tag is pushed some minutes after `VERSION` changes, and until then the installer would fail.
+  - Both requests go through the same session as every other, without cache or cookies, fifteen seconds at most together.
+  - **When:** while the setting `checkForUpdates` is on, half a minute after the app starts and then every hour, if the last successful check (kept as `lastUpdateCheck`) is a day old. The Mac sleeps and the app runs for days, so the day is kept by that date rather than by one long timer. Also when the About page opens and the last check is more than an hour old, and whenever **Check Now** is clicked.
+  - A check that fails says so only on the About page.
+- **One object holds the state** (`Updater` in `Updates.swift`): never checked, checking, up to date, a version available, could not check, updating, the update failed, installed. The About page and the gears follow it.
+- **Running the installer:** `/bin/bash -c` with the command, as a process of its own, with `BTRANSLATE_PACK=no` and `BTRANSLATE_AUTOUPDATE=keep` in its environment, so that it asks nothing and changes neither choice. Its output is appended to `~/Library/Logs/BTranslate-update.log`, and it reads nothing.
+  - The installer ends the app (`pkill -x BTranslate`) before it replaces it, and starts the new one. The update's process outlives the app: it is not a BTranslate process (pkill matches the name exactly), it has no terminal that could hang it up, and once the app is gone macOS makes it a child of launchd. It writes into a file, never into a pipe the app holds, which would kill it with a broken pipe once the app is gone. That it survives the real `pkill` was reasoned through, not seen: no real update has been run from the app yet.
+  - Before it starts, the app notes in its settings what it started (`updateFrom`, `updateTo`, `updateAsked`). At the next start the note goes; if that start is the version aimed at and the update was the user's, the settings open on the About page saying that it is installed. If it is not, the About page says that the update did not finish, with the log's last line. These and `lastUpdateCheck` are written by the app itself, not by **Save**, and only by the app: every command-line mode keeps them in memory.
+  - If the installer ends while the app still runs, it failed before it replaced anything (no Command Line Tools, no network, a build that failed): the About page shows its last line and the log's path.
+- **Automatic updates:** with `autoUpdate` on, a version found is installed as soon as no popup, typing panel, translated window, window picker or settings window of BTranslate is showing; until then the app looks again every minute.
+- **The installer's question** about automatic updates comes once, when `autoUpdate` has never been set and there is a terminal to ask on, and stores the answer as that setting. Its default is yes where the Mac has the certificate "BTranslate (this Mac)" and no where it has not: every update of a copy signed ad hoc takes the shortcut's permissions away.
+- **How the app is signed** it asks of macOS (`SecCodeCopySigningInformation`, the ad hoc flag), to say on the About page what an update does to the permissions.
 
 ## The rest
 

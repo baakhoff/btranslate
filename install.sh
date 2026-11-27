@@ -12,6 +12,9 @@
 # Env: BTRANSLATE_PACK=yes|no downloads the language pack, or not, without asking. Asked
 #        otherwise, when BTranslate is installed for the first time on a Mac with Apple
 #        silicon and there is a terminal to ask in.
+#      BTRANSLATE_AUTOUPDATE=yes|no turns BTranslate's automatic updates on or off without
+#        asking. Asked otherwise, once, when that setting has never been set and there is a
+#        terminal to ask in. keep: neither asked nor changed (BTranslate's own Update says so).
 #      BTRANSLATE_REF=main installs the main branch instead of the release tag.
 #      BTRANSLATE_ARCHIVE=<url> installs from another source archive (.tar.gz).
 #      BTRANSLATE_SIGN_IDENTITY: a code signing identity for the app (default: this Mac's
@@ -136,6 +139,92 @@ TEXT
         fi
     }
 
+    # Updates that install themselves (README, "Updates"): BTranslate looks for a newer version
+    # once a day, and with this on runs this installer by itself. Asked once: when the setting
+    # has never been set (a first install, or the first update to a version that has updates)
+    # and there is a terminal to ask on. Its default is yes only where this Mac signs
+    # BTranslate with its own certificate: elsewhere every update takes the shortcut's
+    # permissions away, which nobody should get by surprise.
+    # The test seam (BTRANSLATE_INSTALLER_TEST=autoupdate) reads the answer from standard
+    # input, stands in for the certificate and the setting, and prints what it would store.
+    local testing_auto=""
+    [ "${BTRANSLATE_INSTALLER_TEST:-}" = autoupdate ] && testing_auto=1
+    auto_update() {
+        local want="" cert=""
+        case "$(printf '%s' "${BTRANSLATE_AUTOUPDATE:-ask}" | tr '[:upper:]' '[:lower:]')" in
+            ask) want=ask ;;
+            keep) return 0 ;;
+            yes|y|1|true|on) want=yes ;;
+            no|n|0|false|off) want=no ;;
+            *) die "$(t "BTRANSLATE_AUTOUPDATE is \"$BTRANSLATE_AUTOUPDATE\": say yes or no." "BTRANSLATE_AUTOUPDATE=\"$BTRANSLATE_AUTOUPDATE\": укажите yes или no.")" ;;
+        esac
+        if [ "$want" = ask ]; then
+            local set
+            if [ -n "$testing_auto" ]; then set="${BTRANSLATE_TEST_AUTOUPDATE:-}"; else set="$(defaults read "$BUNDLE_ID" autoUpdate 2>/dev/null || true)"; fi
+            if [ -n "$set" ]; then
+                [ -z "$testing_auto" ] || echo "Nothing asked: the setting is there already."
+                return 0
+            fi
+            # A terminal to ask on: standard input, or else the terminal itself ("curl … | bash").
+            # Started by the app there is neither.
+            if [ -z "$testing_auto" ] && ! [ -t 0 ] && ! { : < /dev/tty; } 2>/dev/null; then return 0; fi
+            if [ -n "$testing_auto" ]; then
+                [ "${BTRANSLATE_TEST_CERT:-no}" = yes ] && cert=1
+            elif security find-identity -p codesigning 2>/dev/null | grep -q '"BTranslate (this Mac)"'; then
+                cert=1
+            fi
+            say "$(t "Updates" "Обновления")"
+            t "BTranslate looks for a newer version once a day (one small request to GitHub).
+It can also install it by itself, as this installer does: your settings stay." \
+              "BTranslate раз в день проверяет, есть ли новая версия (один небольшой запрос к GitHub).
+Он может и сам устанавливать ее, как этот установщик: ваши настройки сохраняются."
+            printf '\n'
+            if [ -z "$cert" ]; then
+                t "On this Mac, macOS would want the shortcut's permissions given again after each
+update (tools/local-signing.sh has made no certificate here)." \
+                  "На этом Mac после каждого обновления macOS потребует снова дать разрешения для
+сочетания клавиш (tools/local-signing.sh не создал здесь сертификат)."
+                printf '\n'
+            fi
+            # The keys answer as the pack's question has it: by what is printed on them.
+            local answer="" asked="" tries=0 yes_default=""
+            [ -n "$cert" ] && yes_default=1
+            want=""
+            while [ -z "$asked" ] && [ "$tries" -lt 3 ]; do
+                tries=$((tries + 1))
+                if [ -n "$yes_default" ]; then
+                    printf '%s ' "$(t "Install updates automatically? [Y/n]" "Устанавливать обновления автоматически? [Д/н]")"
+                else
+                    printf '%s ' "$(t "Install updates automatically? [y/N]" "Устанавливать обновления автоматически? [д/Н]")"
+                fi
+                if [ -n "$testing_auto" ] || [ -t 0 ]; then
+                    read -r answer || break
+                elif ! { read -r answer < /dev/tty; } 2>/dev/null; then
+                    break
+                fi
+                case "$answer" in
+                    "") asked=1; if [ -n "$yes_default" ]; then want=yes; else want=no; fi ;;
+                    y|Y|yes|Yes|YES|д|Д|да|Да|ДА) want=yes; asked=1 ;;
+                    n|N|no|No|NO|нет|Нет|НЕТ|т|Т) want=no; asked=1 ;;
+                    н|Н) asked=1; if [ -n "$ru" ]; then want=no; else want=yes; fi ;;
+                    l|L) if [ -n "$ru" ]; then want=yes; asked=1; fi ;;
+                esac
+            done
+            if [ -z "$asked" ]; then
+                printf '\n%s\n' "$(t "(No answer: nothing changed. BTranslate's settings → About has the switch.)" \
+                                       "(Ответа нет: ничего не изменено. Переключатель — в настройках BTranslate → «О программе».)")"
+                return 0
+            fi
+        fi
+        if [ -n "$testing_auto" ]; then
+            echo "autoUpdate would be stored: $want"
+        elif [ "$want" = yes ]; then
+            defaults write "$BUNDLE_ID" autoUpdate -bool true
+        else
+            defaults write "$BUNDLE_ID" autoUpdate -bool false
+        fi
+    }
+
     local start=1
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -162,6 +251,10 @@ TEXT
         local first=1 hint=""
         language_pack
         if [ -n "$hint" ]; then printf '\n%s\n' "$hint"; fi
+        return 0
+    fi
+    if [ -n "$testing_auto" ]; then
+        auto_update
         return 0
     fi
     local major
@@ -221,6 +314,7 @@ TEXT
     [ "$(defaults read "$BUNDLE_ID" setupDone 2>/dev/null || true)" = 1 ] && first=
     local hint=""
     language_pack
+    auto_update
 
     if [ -n "$start" ]; then
         if [ -z "$first" ]; then
